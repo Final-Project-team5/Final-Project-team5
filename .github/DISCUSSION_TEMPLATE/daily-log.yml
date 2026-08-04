@@ -1,0 +1,67 @@
+title: "이름 - MM/DD"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        오늘의 협업 일지를 작성해주세요 🙏
+        제목은 `이름 - MM/DD` 형식으로 부탁드립니다. (예: 훈이 - 08/05)
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 1. 오늘 맡은 역할 및 구체적인 작업 내용
+      description: 진행률은 0% ~ 100% 사이로 적어주세요.
+      value: |
+        | 수행한 작업 | 진행률 | 세부사항 |
+        | --- | --- | --- |
+        |  | 0% |  |
+        |  | 0% |  |
+        |  | 0% |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: insight
+    attributes:
+      label: 2. 오늘 작업 중 얻은 인사이트나 발견한 문제점
+      placeholder: |
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: 3. 작업의 산출물 및 해당 파일
+      description: 파일 제목만 적어주셔도 됩니다.
+      placeholder: |
+        - 
+    validations:
+      required: false
+
+  - type: textarea
+    id: contribution
+    attributes:
+      label: 4. 협업 및 커뮤니케이션에서 기여한 부분
+      placeholder: |
+        - 
+    validations:
+      required: false
+
+  - type: textarea
+    id: difficulty
+    attributes:
+      label: 5. 협업 중 어려웠던 부분
+      placeholder: |
+        - 
+    validations:
+      required: false
+
+  - type: textarea
+    id: next
+    attributes:
+      label: 6. 내일 목표 / 할 일
+      placeholder: |
+        - 
+    validations:
+      required: true
