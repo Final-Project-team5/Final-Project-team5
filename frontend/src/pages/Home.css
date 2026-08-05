@@ -1,0 +1,42 @@
+.home {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  min-height: 100vh;
+  padding: 40px 48px 40px 16px;
+}
+
+.home__intro {
+  flex: 0 1 420px;
+}
+
+.home__headline {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.5px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.home__description {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  margin: 14px 0 0;
+  line-height: 1.5;
+}
+
+.home__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 28px;
+  border-radius: 14px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 28px;
+}

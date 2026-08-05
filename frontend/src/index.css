@@ -1,0 +1,47 @@
+:root {
+  --color-bg: oklch(97% 0.005 150);
+  --color-surface: #fff;
+  --color-border: oklch(91% 0.01 150);
+  --color-border-soft: oklch(93% 0.01 150);
+  --color-text: oklch(20% 0.02 150);
+  --color-text-secondary: oklch(50% 0.02 150);
+  --color-text-muted: oklch(65% 0.01 150);
+  --color-primary: oklch(58% 0.14 150);
+  --color-primary-light: oklch(97% 0.02 150);
+  --color-primary-border: oklch(92% 0.02 150);
+  --color-badge-bg: oklch(93% 0.05 150);
+  --color-badge-text: oklch(40% 0.13 150);
+
+  --font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  font-family: var(--font-family);
+  color: var(--color-text);
+}
+
+button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}

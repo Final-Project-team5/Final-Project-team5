@@ -1,0 +1,19 @@
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app__main {
+  flex: 1;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.app__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+}
