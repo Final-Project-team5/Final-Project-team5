@@ -7,6 +7,7 @@
 초기에는 프론트가 각 모델 API를 직접 호출하는 구조 (팀 합의사항).
 """
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .chatbot import SuggestRequest, SuggestResponse, suggest_options
@@ -14,16 +15,28 @@ from .generator import generate_copy
 from .regulation import ValidateRequest, ValidateResponse, validate_copy
 from .schemas import CopyRequest, CopyResponse
 
-app = FastAPI(title="광고 문구 생성 API", version="0.1.0")
+app = FastAPI(title="광고 문구 생성 API", version="0.2.0")
+
+# 프론트에서 브라우저로 직접 호출할 수 있도록 CORS 허용
+# (허용 출처는 config.CORS_ORIGINS — 환경변수 COPY_CORS_ORIGINS로 변경 가능)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
 def health():
+    """서버 상태 확인 — 프론트 연동 시 첫 호출로 사용하면 편합니다."""
     return {
         "status": "ok",
         "mock": config.MOCK_MODE,
         "model": config.MODEL_NAME,
         "limits": {"headline": config.HEADLINE_MAX, "sub": config.SUB_MAX},
+        "cors_origins": config.CORS_ORIGINS,
     }
 
 

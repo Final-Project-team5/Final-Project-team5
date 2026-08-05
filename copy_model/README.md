@@ -22,7 +22,40 @@ COPY_MOCK=1 uvicorn copy_model.api:app --port 8001
 COPY_MOCK=1 python test_local.py --category food --product "딸기 생크림 케이크"
 ```
 
+## 프론트 연동 (CORS)
+
+브라우저에서 직접 호출할 수 있도록 CORS가 설정되어 있습니다.
+기본 허용 출처는 아래와 같아, 별도 설정 없이 바로 fetch/axios로 호출 가능합니다.
+
+- `http://localhost:5173`, `http://127.0.0.1:5173` (Vite 개발 서버)
+- `http://localhost:3000`, `http://127.0.0.1:3000`
+- `http://localhost:4173`, `http://127.0.0.1:4173` (Vite preview)
+
+다른 포트를 쓰시면 환경변수로 추가하시면 됩니다.
+
+```bash
+COPY_CORS_ORIGINS="http://localhost:5174,http://localhost:3000" uvicorn copy_model.api:app --port 8001
+```
+
+현재 허용 목록은 `GET /health` 응답의 `cors_origins`에서 확인할 수 있습니다.
+
+```js
+// 프론트 호출 예시
+const res = await fetch("http://localhost:8001/suggest/options", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ message: "푸드" }),
+});
+const data = await res.json();
+```
+
 ## API
+
+### GET /health
+
+서버 상태·설정 확인용. 연동 시 첫 호출로 사용하면 편합니다.
+`mock` 필드로 현재 mock 모드 여부를, `limits`로 글자 수 제한을,
+`cors_origins`로 허용된 출처를 확인할 수 있습니다.
 
 ### POST /generate/copy
 
