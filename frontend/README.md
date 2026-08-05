@@ -1,16 +1,25 @@
-# React + Vite
+# AD메이커 — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+광고 콘텐츠 생성 서비스의 프론트엔드(React + Vite)입니다.
 
-Currently, two official plugins are available:
+## 실행 방법
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+`npm run dev` 실행 후 [http://localhost:5173](http://localhost:5173) 에서 확인할 수 있습니다.
+(5173 포트가 이미 사용 중이면 Vite가 자동으로 다음 빈 포트를 사용하며, 터미널에 실제 접속 주소가 출력됩니다.)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 그 외 명령어
 
-## Expanding the Oxlint configuration
+```bash
+npm run build    # 프로덕션 빌드 (dist/ 생성)
+npm run preview  # 빌드 결과 로컬 미리보기
+npm run lint     # oxlint 실행
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 참고 문서
+
+작업 전에 항상 [CLAUDE.md](./CLAUDE.md)와 `../docs/` 폴더의 문서를 먼저 확인하세요.
