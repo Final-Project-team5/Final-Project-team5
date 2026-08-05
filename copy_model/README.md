@@ -119,6 +119,33 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 - `done: true`가 되면 `spec`을 그대로 `/generate/copy` 요청 바디로 사용
   → 이때 "제공해주신 정보를 바탕으로 제작 중입니다" 로딩 화면 진입
 
+**특정 항목만 물어보기 (`target_slots`)** — 서브 패널 도우미 용도
+
+메인 화면에서 이미 업종·제품을 고른 사용자가 "톤만 다시 추천해줘"처럼
+일부 항목만 다시 정하고 싶을 때 사용. 지정한 항목만 채우고 `done: true`로 끝남.
+
+```json
+// 요청 — 톤만 물어보기
+{
+  "message": "활기찬 느낌",
+  "step": 1,
+  "target_slots": ["tone"],
+  "spec": { "category": "food", "product": "떡볶이" }
+}
+// 응답 — total_steps가 1로 줄고 바로 완료
+{
+  "spec": { "category": "food", "product": "떡볶이", "tone": "energetic" },
+  "done": true,
+  "step": 1, "next_step": null, "total_steps": 1,
+  "confirm_message": "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"
+}
+```
+
+- `target_slots` 생략 → 전체 5단계 (메인 흐름)
+- `target_slots: ["tone"]` → 톤만 (서브 패널 도우미)
+- `target_slots: ["tone", "keywords"]` → 2단계 흐름 (원래 순서 유지)
+- 이미 채워진 값은 `spec`으로 함께 보내면 선택지 생성에 맥락으로 반영됨
+
 **자유 진행 (mode: "auto")** — LLM이 미수집 슬롯 중 다음 질문을 판단.
 자유 대화 위주 흐름으로 갈 경우 사용. `history`에 대화 이력 전달.
 

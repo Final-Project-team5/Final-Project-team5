@@ -7,10 +7,16 @@
 
 두 가지 모드 지원:
   1) 고정 플로우 (mode="fixed", 기본값) — PM진우님 안.
-     단계가 정해져 있어 프론트가 진행률(1/6) 표시 가능. 선택지는 LLM이
+     단계가 정해져 있어 프론트가 진행률(1/5) 표시 가능. 선택지는 LLM이
      앞 단계 맥락에 맞게 생성하되, 질문 순서·개수는 서버가 보장.
   2) 자유 진행 (mode="auto") — LLM이 미수집 슬롯 중 다음 질문을 판단.
      자유 입력 대화 위주로 갈 경우 사용.
+
+target_slots (서비스개발소원님 요청):
+  물어볼 항목을 지정하면 그것만 채우고 done=true로 끝남.
+  - 메인 흐름: target_slots 없이 호출 → 1단계부터 순서대로 5단계
+  - 서브 패널 도우미: target_slots=["tone"] → 톤만 물어보고 종료
+  이미 채워진 값은 spec으로 함께 전달하면 선택지 생성에 맥락으로 반영됨.
 
 어느 모드든 done=true 시 spec을 그대로 /generate/copy 바디로 사용 가능.
 """
@@ -52,6 +58,7 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
 - 채울 슬롯: {slot}
 - 복수 선택 허용: {multi}
 - 참고: {hint}
+- 다음 단계 질문: {next_question}
 
 [지금까지 수집된 정보]
 {current_spec}
@@ -61,9 +68,9 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
    - category는 반드시 "food" | "beauty" | "goods" 중 하나로 매핑
    - tone은 반드시 "warm" | "energetic" | "luxury" | "simple" 중 하나로 매핑
    - keywords는 문자열 배열
-2. 다음 단계 질문에 쓸 선택지 4개를 생성한다. 지금까지 파악된 맥락
-   (업종·제품)에 맞게 구체적으로 만든다.
-   (예: 떡볶이 가게 → 톤 선택지를 "매콤한 길거리 감성" 같이 맥락화)
+2. next_question에는 위 "다음 단계 질문"을 그대로 넣고, 그 질문에 쓸 선택지
+   4개를 생성한다. 지금까지 파악된 맥락(업종·제품)에 맞게 구체적으로 만든다.
+   (예: 떡볶이 가게 → 톤 선택지를 "활기찬 분식집 느낌" 같이 맥락화)
 3. confirm_message에는 이번에 확정된 값의 확인 멘트를 담는다.
    슬롯 종류에 맞는 표현을 쓸 것 (사용자가 고른 표현 그대로 인용):
    - category → "'푸드'로 업종을 설정했어요."
@@ -130,6 +137,11 @@ class SuggestRequest(BaseModel):
     spec: Optional[dict] = Field(
         default=None,
         description="이전까지 채워진 슬롯 (fixed 모드에서 프론트가 상태로 들고 있다가 전달)")
+    target_slots: Optional[list[str]] = Field(
+        default=None,
+        description="물어볼 항목만 지정 (예: [\"tone\"]). 지정하면 해당 항목만 채우고 "
+                    "done=true로 종료 — 서브 패널 도우미 용도. "
+                    "생략하면 전체 5단계 흐름 (메인 흐름 용도)")
 
 
 class SuggestResponse(BaseModel):
@@ -174,21 +186,36 @@ _MOCK_BY_STEP = {
 }
 
 
+def _effective_flow(target_slots: Optional[list[str]]) -> list[dict]:
+    """target_slots가 있으면 해당 슬롯만 원래 순서대로 추린 흐름을 반환."""
+    if not target_slots:
+        return FLOW_STEPS
+    picked = [s for s in FLOW_STEPS if s["slot"] in target_slots]
+    return picked or FLOW_STEPS
+
+
 def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
-    step = min(req.step, TOTAL_STEPS)
-    question, options, patch, confirm = _MOCK_BY_STEP[step]
+    flow = _effective_flow(req.target_slots)
+    total = len(flow)
+    step = min(req.step, total)
+    cfg = flow[step - 1]
+
+    # mock 데이터는 전체 흐름 기준이라 슬롯으로 찾아 매칭
+    src_step = next(i + 1 for i, s in enumerate(FLOW_STEPS) if s["slot"] == cfg["slot"])
+    _, options, patch, confirm = _MOCK_BY_STEP[src_step]
+
     spec = dict(req.spec or {})
     spec.update(patch)
-    done = step >= TOTAL_STEPS
+    done = step >= total
     next_step = None if done else step + 1
-    allow_multiple = (
-        False if done
-        else FLOW_STEPS[next_step - 1]["multi"]
-    )
+    question = ("제공해주신 정보를 바탕으로 문구를 만들어드릴게요!" if done
+                else flow[next_step - 1]["question"])
+    allow_multiple = False if done else flow[next_step - 1]["multi"]
+
     return SuggestResponse(
-        spec=spec, done=done, step=step, next_step=next_step,
-        question=question, options=options, allow_multiple=allow_multiple,
-        confirm_message=confirm,
+        spec=spec, done=done, step=step, next_step=next_step, total_steps=total,
+        question=question, options=[] if done else options,
+        allow_multiple=allow_multiple, confirm_message=confirm,
         meta={"elapsed": round(time.time() - t0, 3), "model": "mock", "mock": True},
     )
 
@@ -214,11 +241,18 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
         return _mock_fixed(SuggestRequest(message=req.message, step=1), t0)
 
     if req.mode == "fixed":
-        step = min(req.step, TOTAL_STEPS)
-        cfg = FLOW_STEPS[step - 1]
+        flow = _effective_flow(req.target_slots)
+        total = len(flow)
+        step = min(req.step, total)
+        cfg = flow[step - 1]
+        done = step >= total
+        next_cfg = None if done else flow[step]
+
         system = _FIXED_SYSTEM_PROMPT.format(
-            step=step, total=TOTAL_STEPS, question=cfg["question"],
+            step=step, total=total, question=cfg["question"],
             slot=cfg["slot"], multi=cfg["multi"], hint=cfg["hint"],
+            next_question=("(없음 — 마지막 단계이므로 마무리 멘트를 넣을 것)"
+                           if done else next_cfg["question"]),
             current_spec=json.dumps(req.spec or {}, ensure_ascii=False),
         )
         messages = [{"role": "system", "content": system},
@@ -227,15 +261,13 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
 
         spec = dict(req.spec or {})
         spec.update({k: v for k, v in (data.get("spec") or {}).items() if v is not None})
-        done = step >= TOTAL_STEPS
-        next_step = None if done else step + 1
-        allow_multiple = False if done else FLOW_STEPS[next_step - 1]["multi"]
 
         return SuggestResponse(
-            spec=spec, done=done, step=step, next_step=next_step,
+            spec=spec, done=done, step=step,
+            next_step=None if done else step + 1, total_steps=total,
             question=str(data.get("next_question", "")),
-            options=[str(o) for o in data.get("options", [])][:4],
-            allow_multiple=allow_multiple,
+            options=[] if done else [str(o) for o in data.get("options", [])][:4],
+            allow_multiple=False if done else next_cfg["multi"],
             confirm_message=str(data.get("confirm_message", "")),
             meta={"elapsed": round(time.time() - t0, 3),
                   "model": config.MODEL_NAME, "mock": False},
