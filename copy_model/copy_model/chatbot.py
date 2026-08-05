@@ -1,25 +1,86 @@
 """챗봇 슬롯필링 모듈 (LLM 로직만 — UI/화면 흐름은 프론트 파트 담당).
 
-컨셉 (팀 방향): 사용자가 자유롭게 입력하되, 클로드처럼
-"1, 2, 3번 + 기타(직접 입력)" 선택지를 제시하며 니즈를 좁혀 나감.
+팀 논의 반영 (8/5):
+- PM진우님 제안: 고정 6단계 질문 흐름, 각 단계마다 선택지 여러 개 + 기타 직접입력
+- 서비스개발소원님 제안: 선택한 값이 메인 화면 키워드 칩으로 자동 추가 + 확인 멘트
+- 포스터모델지우님 제안: 챗봇은 메인이 아닌 보조 도우미 역할
 
-흐름:
-  사용자 메시지 → LLM이 현재까지 파악된 스펙(slot) 갱신
-  → 부족한 슬롯이 있으면: 다음 질문 1개 + 선택지 3개 제시 (done=false)
-  → 슬롯이 충분하면: done=true + 문구 생성에 바로 쓸 spec 반환
-     (spec은 CopyRequest와 동일 구조 → 그대로 /generate/copy 호출 가능)
+두 가지 모드 지원:
+  1) 고정 플로우 (mode="fixed", 기본값) — PM진우님 안.
+     단계가 정해져 있어 프론트가 진행률(1/6) 표시 가능. 선택지는 LLM이
+     앞 단계 맥락에 맞게 생성하되, 질문 순서·개수는 서버가 보장.
+  2) 자유 진행 (mode="auto") — LLM이 미수집 슬롯 중 다음 질문을 판단.
+     자유 입력 대화 위주로 갈 경우 사용.
 
-수집 슬롯: category, product, tone, keywords, (선택) request
+어느 모드든 done=true 시 spec을 그대로 /generate/copy 바디로 사용 가능.
 """
 import json
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from . import config
 
-SLOT_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비스의 도우미 챗봇입니다.
+# ── 고정 플로우 정의 (PM진우님 제안 기반) ────────────────
+# slot: 채우는 슬롯 / multi: 복수 선택 허용 / free_text: 기타 입력칸 노출
+FLOW_STEPS = [
+    {"step": 1, "slot": "category", "multi": False,
+     "question": "현재 운영하시는 업종은 어떤 것인가요?",
+     "hint": "food/beauty/goods 중 하나로 매핑. 선택지는 업종 예시를 구체적으로."},
+    {"step": 2, "slot": "product", "multi": False,
+     "question": "어떤 제품이나 가게를 홍보하시나요?",
+     "hint": "제품/가게 이름. 선택지는 해당 업종의 대표 품목 예시로."},
+    {"step": 3, "slot": "tone", "multi": False,
+     "question": "원하시는 포스터의 느낌은 어떤 것인가요?",
+     "hint": "warm/energetic/luxury/simple 중 하나로 매핑. 선택지는 감성 표현으로."},
+    {"step": 4, "slot": "keywords", "multi": True,
+     "question": "강조하고 싶은 점을 골라주세요.",
+     "hint": "복수 선택 가능. 제품 특징·강점 키워드."},
+    {"step": 5, "slot": "request", "multi": False,
+     "question": "추가로 반영했으면 하는 내용이 있으신가요?",
+     "hint": "신메뉴 출시, 할인 행사 등. 없으면 건너뛰기 가능."},
+]
+TOTAL_STEPS = len(FLOW_STEPS)
+
+_FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비스의 도우미 챗봇입니다.
+정해진 순서대로 질문하며 광고 문구 제작에 필요한 정보를 수집합니다.
+
+[이번 단계]
+- 단계: {step}/{total}
+- 질문: {question}
+- 채울 슬롯: {slot}
+- 복수 선택 허용: {multi}
+- 참고: {hint}
+
+[지금까지 수집된 정보]
+{current_spec}
+
+[규칙]
+1. 사용자의 이번 답변에서 이번 단계 슬롯 값을 확정한다.
+   - category는 반드시 "food" | "beauty" | "goods" 중 하나로 매핑
+   - tone은 반드시 "warm" | "energetic" | "luxury" | "simple" 중 하나로 매핑
+   - keywords는 문자열 배열
+2. 다음 단계 질문에 쓸 선택지 4개를 생성한다. 지금까지 파악된 맥락
+   (업종·제품)에 맞게 구체적으로 만든다.
+   (예: 떡볶이 가게 → 톤 선택지를 "매콤한 길거리 감성" 같이 맥락화)
+3. confirm_message에는 이번에 확정된 값의 확인 멘트를 담는다.
+   슬롯 종류에 맞는 표현을 쓸 것 (사용자가 고른 표현 그대로 인용):
+   - category → "'푸드'로 업종을 설정했어요."
+   - product  → "'떡볶이'로 정했어요."
+   - tone     → "'모던한 K-푸드 스타일'로 분위기를 잡았어요."
+   - keywords → "'수제', '당일 생산'을 키워드로 추가했어요."
+   - request  → "'신메뉴 출시'를 반영할게요."
+   뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (마지막 단계는 생략)
+4. 마지막 단계까지 끝나면 done=true, next_question은 마무리 멘트, options는 빈 배열.
+5. 반드시 JSON으로만 응답:
+{{"spec": {{"category": null|"food"|"beauty"|"goods", "product": null|"...",
+  "tone": null|"warm"|"energetic"|"luxury"|"simple",
+  "keywords": null|["..."], "request": null|"..."}},
+ "next_question": "...", "options": ["...", "...", "...", "..."],
+ "confirm_message": "..."}}"""
+
+_AUTO_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비스의 도우미 챗봇입니다.
 사용자와 대화하며 광고 문구 제작에 필요한 정보를 수집합니다.
 
 [수집할 슬롯]
@@ -33,17 +94,23 @@ SLOT_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비스
 1. 대화 이력과 새 메시지에서 파악 가능한 슬롯을 모두 채운다.
 2. category, product, tone, keywords가 모두 채워지면 done=true.
 3. 부족하면 done=false로 하고, 가장 중요한 미수집 슬롯 1개에 대해
-   질문 1개 + 사용자가 고르기 쉬운 선택지 3개를 제시한다.
+   질문 1개 + 사용자가 고르기 쉬운 선택지 4개를 제시한다.
    선택지는 이미 파악된 맥락에 맞게 구체적으로 만든다.
-   (예: 떡볶이 가게라면 톤 선택지를 "매콤한 길거리 감성" 같이 맥락화)
 4. 한 번에 질문은 반드시 1개만.
-5. 반드시 JSON으로만 응답:
+5. 이번 입력으로 새로 확정된 항목이 있으면 confirm_message에 짧은 확인 멘트를 담는다.
+   슬롯 종류에 맞는 표현을 쓸 것:
+   - category → "'푸드'로 업종을 설정했어요."
+   - product  → "'떡볶이'로 정했어요."
+   - tone     → "'모던한 K-푸드 스타일'로 분위기를 잡았어요."
+   - keywords → "'수제', '당일 생산'을 키워드로 추가했어요."
+   뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (없으면 빈 문자열)
+6. 반드시 JSON으로만 응답:
 {"spec": {"category": null|"food"|"beauty"|"goods", "product": null|"...",
   "tone": null|"warm"|"energetic"|"luxury"|"simple",
   "keywords": null|["..."], "request": null|"..."},
  "done": true|false,
- "question": "...", "options": ["...", "...", "..."]}
-(done=true면 question은 확인 멘트, options는 빈 배열)"""
+ "next_question": "...", "options": ["...", "...", "...", "..."],
+ "confirm_message": "..."}"""
 
 
 class ChatTurn(BaseModel):
@@ -52,55 +119,142 @@ class ChatTurn(BaseModel):
 
 
 class SuggestRequest(BaseModel):
-    message: str = Field(min_length=1, description="사용자 입력 (자유 텍스트 또는 선택지)")
+    message: str = Field(min_length=1, description="사용자 입력 (선택지 선택값 또는 자유 텍스트)")
     history: Optional[list[ChatTurn]] = Field(default=None, description="이전 대화 이력")
+    mode: Literal["fixed", "auto"] = Field(
+        default="fixed",
+        description="fixed=고정 6단계 흐름(PM 제안안) / auto=LLM이 다음 질문 판단")
+    step: int = Field(
+        default=1, ge=1,
+        description="fixed 모드에서 현재 진행 중인 단계 (1부터)")
+    spec: Optional[dict] = Field(
+        default=None,
+        description="이전까지 채워진 슬롯 (fixed 모드에서 프론트가 상태로 들고 있다가 전달)")
 
 
 class SuggestResponse(BaseModel):
-    spec: dict = Field(description="현재까지 채워진 슬롯 (done=true면 /generate/copy 요청 바디로 사용 가능)")
+    spec: dict = Field(description="현재까지 채워진 슬롯 (done=true면 /generate/copy 바디로 사용)")
     done: bool
-    question: str
-    options: list[str] = Field(description="선택지 (프론트에서 '기타' 직접입력 항목을 항상 추가로 노출)")
+    step: int = Field(description="방금 처리한 단계")
+    next_step: Optional[int] = Field(default=None, description="다음 단계 (done이면 null)")
+    total_steps: int = Field(default=TOTAL_STEPS, description="전체 단계 수 (진행률 표시용)")
+    question: str = Field(description="다음에 물을 질문 (done이면 마무리 멘트)")
+    options: list[str] = Field(
+        description="선택지 (프론트에서 '기타(직접 입력)' 항목을 항상 추가로 노출)")
+    allow_multiple: bool = Field(
+        default=False, description="다음 질문이 복수 선택 가능한지")
+    confirm_message: str = Field(
+        default="",
+        description="이번 턴에 새로 확정된 항목 확인 멘트. "
+                    "메인 화면 키워드 칩 자동 추가와 연동해 띄우는 용도 (빈 문자열이면 표시 안 함)")
     meta: dict
 
 
-_MOCK_FLOW = SuggestResponse(
-    spec={"category": "food", "product": "떡볶이 가게", "tone": None,
-          "keywords": None, "request": None},
-    done=False,
-    question="어떤 분위기의 문구를 원하세요?",
-    options=["매콤한 길거리 감성", "모던한 K-푸드 스타일", "정겨운 동네 분식집"],
-    meta={"elapsed": 0.0, "model": "mock", "mock": True},
-)
+_MOCK_BY_STEP = {
+    1: ("어떤 제품이나 가게를 홍보하시나요?",
+        ["떡볶이", "김밥", "분식 세트", "음료"],
+        {"category": "food"},
+        "'푸드'로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"),
+    2: ("원하시는 포스터의 느낌은 어떤 것인가요?",
+        ["활기찬 분식집 느낌", "모던한 K-푸드 스타일", "정겹고 따뜻한 느낌", "깔끔한 정보 전달형"],
+        {"product": "떡볶이"},
+        "'떡볶이'로 정했어요. 왼쪽 화면에서 확인해보세요!"),
+    3: ("강조하고 싶은 점을 골라주세요.",
+        ["수제", "당일 생산", "매운맛 단계 선택", "포장 가능"],
+        {"tone": "energetic"},
+        "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"),
+    4: ("추가로 반영했으면 하는 내용이 있으신가요?",
+        ["신메뉴 출시", "할인 행사", "배달 시작", "없음"],
+        {"keywords": ["수제", "당일 생산"]},
+        "'수제', '당일 생산'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"),
+    5: ("제공해주신 정보를 바탕으로 문구를 만들어드릴게요!",
+        [],
+        {"request": "신메뉴 출시"},
+        "'신메뉴 출시'를 반영할게요."),
+}
+
+
+def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
+    step = min(req.step, TOTAL_STEPS)
+    question, options, patch, confirm = _MOCK_BY_STEP[step]
+    spec = dict(req.spec or {})
+    spec.update(patch)
+    done = step >= TOTAL_STEPS
+    next_step = None if done else step + 1
+    allow_multiple = (
+        False if done
+        else FLOW_STEPS[next_step - 1]["multi"]
+    )
+    return SuggestResponse(
+        spec=spec, done=done, step=step, next_step=next_step,
+        question=question, options=options, allow_multiple=allow_multiple,
+        confirm_message=confirm,
+        meta={"elapsed": round(time.time() - t0, 3), "model": "mock", "mock": True},
+    )
+
+
+def _client_chat(messages: list[dict], temperature: float = 0.5) -> dict:
+    from openai import OpenAI
+    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    resp = client.chat.completions.create(
+        model=config.MODEL_NAME,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=temperature,
+    )
+    return json.loads(resp.choices[0].message.content)
 
 
 def suggest_options(req: SuggestRequest) -> SuggestResponse:
     t0 = time.time()
 
     if config.MOCK_MODE:
-        return _MOCK_FLOW
+        if req.mode == "fixed":
+            return _mock_fixed(req, t0)
+        return _mock_fixed(SuggestRequest(message=req.message, step=1), t0)
 
-    from openai import OpenAI
-    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    if req.mode == "fixed":
+        step = min(req.step, TOTAL_STEPS)
+        cfg = FLOW_STEPS[step - 1]
+        system = _FIXED_SYSTEM_PROMPT.format(
+            step=step, total=TOTAL_STEPS, question=cfg["question"],
+            slot=cfg["slot"], multi=cfg["multi"], hint=cfg["hint"],
+            current_spec=json.dumps(req.spec or {}, ensure_ascii=False),
+        )
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": req.message}]
+        data = _client_chat(messages)
 
-    messages = [{"role": "system", "content": SLOT_SYSTEM_PROMPT}]
+        spec = dict(req.spec or {})
+        spec.update({k: v for k, v in (data.get("spec") or {}).items() if v is not None})
+        done = step >= TOTAL_STEPS
+        next_step = None if done else step + 1
+        allow_multiple = False if done else FLOW_STEPS[next_step - 1]["multi"]
+
+        return SuggestResponse(
+            spec=spec, done=done, step=step, next_step=next_step,
+            question=str(data.get("next_question", "")),
+            options=[str(o) for o in data.get("options", [])][:4],
+            allow_multiple=allow_multiple,
+            confirm_message=str(data.get("confirm_message", "")),
+            meta={"elapsed": round(time.time() - t0, 3),
+                  "model": config.MODEL_NAME, "mock": False},
+        )
+
+    # auto 모드
+    messages = [{"role": "system", "content": _AUTO_SYSTEM_PROMPT}]
     for turn in req.history or []:
         messages.append({"role": turn.role, "content": turn.content})
     messages.append({"role": "user", "content": req.message})
-
-    resp = client.chat.completions.create(
-        model=config.MODEL_NAME,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=0.5,
-    )
-    data = json.loads(resp.choices[0].message.content)
+    data = _client_chat(messages)
 
     return SuggestResponse(
         spec=data.get("spec", {}),
         done=bool(data.get("done", False)),
-        question=str(data.get("question", "")),
-        options=[str(o) for o in data.get("options", [])][:3],
+        step=req.step, next_step=None,
+        question=str(data.get("next_question", "")),
+        options=[str(o) for o in data.get("options", [])][:4],
+        confirm_message=str(data.get("confirm_message", "")),
         meta={"elapsed": round(time.time() - t0, 3),
               "model": config.MODEL_NAME, "mock": False},
     )

@@ -64,15 +64,27 @@ COPY_MOCK=1 python test_local.py --category food --product "딸기 생크림 케
 
 ### POST /suggest/options (챗봇 슬롯필링)
 
-자유 입력 → 클로드식 "질문 1개 + 선택지 3개(+기타)" 로 니즈를 좁혀 나감.
+정해진 순서로 질문하며 광고 문구에 필요한 정보를 채워나감.
 UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
+
+**고정 플로우 (mode: "fixed", 기본값)** — PM진우님 제안안 반영
+
+| 단계 | 질문 | 슬롯 | 복수선택 |
+|---|---|---|---|
+| 1 | 현재 운영하시는 업종은 어떤 것인가요? | category | - |
+| 2 | 어떤 제품이나 가게를 홍보하시나요? | product | - |
+| 3 | 원하시는 포스터의 느낌은 어떤 것인가요? | tone | - |
+| 4 | 강조하고 싶은 점을 골라주세요 | keywords | ✅ |
+| 5 | 추가로 반영했으면 하는 내용이 있으신가요? | request | - |
 
 요청:
 
 ```json
 {
-  "message": "떡볶이 가게 포스터 만들고 싶어요",
-  "history": []
+  "message": "푸드",
+  "mode": "fixed",
+  "step": 1,
+  "spec": {}
 }
 ```
 
@@ -80,16 +92,35 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 
 ```json
 {
-  "spec": { "category": "food", "product": "떡볶이 가게", "tone": null, "keywords": null, "request": null },
+  "spec": { "category": "food" },
   "done": false,
-  "question": "어떤 분위기의 문구를 원하세요?",
-  "options": ["매콤한 길거리 감성", "모던한 K-푸드 스타일", "정겨운 동네 분식집"],
+  "step": 1,
+  "next_step": 2,
+  "total_steps": 5,
+  "question": "어떤 제품이나 가게를 홍보하시나요?",
+  "options": ["떡볶이", "김밥", "분식 세트", "음료"],
+  "allow_multiple": false,
+  "confirm_message": "'푸드' 업종으로 설정했어요. 왼쪽 화면에서 확인해보세요!",
   "meta": { "elapsed": 1.1, "model": "gpt-5.4-mini" }
 }
 ```
 
+프론트 연동 가이드:
+
+- `spec`은 프론트가 상태로 들고 있다가 다음 요청에 그대로 전달 (stateless — 포스터 모델과 동일 방식)
+- `step` / `total_steps`로 진행률(1/5) 표시
+- `options` 아래에 항상 **"기타(직접 입력)"** 칸을 노출 (자유 입력도 그대로 `message`로 보내면 됨)
+- `allow_multiple: true`면 복수 선택 UI로 전환
+- `spec.keywords` → 메인 화면 키워드 칩에 그대로 매핑
+- `confirm_message` → 칩 자동 추가 + 하이라이트 연출과 함께 챗봇 말풍선으로 표시.
+  슬롯 종류에 맞는 표현으로 내려감 (업종/제품 → "설정했어요·정했어요",
+  느낌 → "분위기를 잡았어요", 강조점 → "키워드로 추가했어요").
+  빈 문자열이면 표시 안 함 / 프론트 고정 문구를 쓰고 무시해도 무방
 - `done: true`가 되면 `spec`을 그대로 `/generate/copy` 요청 바디로 사용
-- 프론트는 `options` 아래에 항상 "기타(직접 입력)" 항목을 추가로 노출
+  → 이때 "제공해주신 정보를 바탕으로 제작 중입니다" 로딩 화면 진입
+
+**자유 진행 (mode: "auto")** — LLM이 미수집 슬롯 중 다음 질문을 판단.
+자유 대화 위주 흐름으로 갈 경우 사용. `history`에 대화 이력 전달.
 
 ## 글자 수 제한 (팀 합의사항 반영)
 
