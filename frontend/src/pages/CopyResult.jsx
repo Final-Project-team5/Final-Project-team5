@@ -29,12 +29,16 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
     sub: result.sub,
     status: result.status,
     flags: result.regulation_flags || [],
+    safe: result.safe,
   }));
   const [draftHeadline, setDraftHeadline] = useState(result.headline);
   const [draftSub, setDraftSub] = useState(result.sub);
   const [validating, setValidating] = useState(false);
 
-  const isPass = current.status === 'pass';
+  // block 여부는 status를 다시 훑지 않고 safe 필드로 바로 판단한다 — 실제 API가
+  // safe를 내려주면(copy_model/regulation.py ValidateResponse.safe와 동일 규칙)
+  // 이 부분은 손댈 필요 없이 그대로 붙는다.
+  const canProceed = current.safe;
   const badge = BADGE_INFO[current.status] || BADGE_INFO.pass;
 
   const applySuggestion = (flag) => {
@@ -47,7 +51,13 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
     setValidating(true);
     const res = await validateCopy({ headline: draftHeadline, sub: draftSub }, spec);
     setValidating(false);
-    setCurrent({ headline: draftHeadline, sub: draftSub, status: res.status, flags: res.flags || [] });
+    setCurrent({
+      headline: draftHeadline,
+      sub: draftSub,
+      status: res.status,
+      flags: res.flags || [],
+      safe: res.safe,
+    });
   };
 
   return (
@@ -103,7 +113,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
         <button
           type="button"
           className="copy-result__primary"
-          disabled={!isPass}
+          disabled={!canProceed}
           onClick={() => onConfirm({ headline: current.headline, sub: current.sub })}
         >
           이 문구로 시안 선택하러 가기

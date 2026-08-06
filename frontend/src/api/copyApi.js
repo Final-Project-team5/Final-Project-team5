@@ -297,12 +297,13 @@ function scanRegulation(text, spec = {}) {
       });
     }
   }
-  const status = flags.some((f) => f.severity === 'block')
-    ? 'block'
-    : flags.some((f) => f.severity === 'warn')
-      ? 'warn'
-      : 'pass';
-  return { status, flags };
+  const hasBlock = flags.some((f) => f.severity === 'block');
+  const status = hasBlock ? 'block' : flags.some((f) => f.severity === 'warn') ? 'warn' : 'pass';
+  // safe: block 위반이 없으면 true (copy_model/regulation.py의 ValidateResponse.safe와 동일 규칙).
+  // 실제 API가 이 필드를 내려주면 화면 쪽 로직은 그대로 갈아끼울 수 있도록,
+  // 여기서 미리 계산해서 응답에 실어 보낸다.
+  const safe = !hasBlock;
+  return { status, flags, safe };
 }
 
 function truncate(text = '', max) {
@@ -329,14 +330,14 @@ export async function generateCopy(spec = {}) {
   // "대체 표현 적용"을 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
   // (Q2 "제품/가게"나 Q4 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
   // block/warn 데모를 재현할 수 있다 — 예: 제품에 "아토피 치료 크림" 입력)
-  const { status, flags } = scanRegulation(`${headline} ${sub}`, spec);
+  const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
 
-  return { headline, sub, status, regulation_flags: flags };
+  return { headline, sub, status, regulation_flags: flags, safe };
 }
 
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */
 export async function validateCopy({ headline = '', sub = '' } = {}, spec = {}) {
   await delay(300);
-  const { status, flags } = scanRegulation(`${headline} ${sub}`, spec);
-  return { status, flags };
+  const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
+  return { status, flags, safe };
 }
