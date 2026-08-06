@@ -3,7 +3,7 @@
  * 실서버(도혁님 파트)가 준비되기 전까지 프론트 흐름 검증용으로 사용한다.
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
- *   POST /suggest/options  { message, step, spec } → chat.jsx (화면 A)
+ *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
  *   POST /generate/copy    { spec }                → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B)
  */
@@ -158,20 +158,151 @@ export async function suggestOptions({ message, step = 1, spec = {} } = {}) {
   };
 }
 
-// --- 규제 검사 (데모용 간이 룰) -----------------------------------------
-const BLOCK_PATTERNS = [/치료/, /완치/, /부작용\s*없/, /질병\s*예방/];
-const WARN_PATTERNS = [/1위/, /최고\s*(?!의\s*재료)/, /100\s*%\s*(효과|만족)/, /무조건/];
+// --- 규제 룰 사전 (데모용 간이 버전, copy_model/regulation.py 구조 참고) ---
+// severity: "block"(사용 불가 수준) / "warn"(맥락 확인 필요)
+// suggestion: 걸린 표현을 대신할 수 있는 대체 표현 (8/6 스펙 추가분)
+const COMMON_RULES = [
+  {
+    pattern: /최고|최상|제일|넘버\s*원|1\s*위/,
+    severity: 'warn',
+    note: '표시광고법: 객관적 근거 없는 최상급 표현은 부당광고 소지가 있어요.',
+    suggestion: '많은 분들이 찾는',
+  },
+  {
+    pattern: /100\s*%|백\s*퍼센트|완벽|완전\s*무결/,
+    severity: 'warn',
+    note: '표시광고법: 검증이 불가능한 확정적 표현이에요.',
+    suggestion: '정성껏 준비한',
+  },
+  {
+    pattern: /유일|국내\s*유일|세계\s*유일/,
+    severity: 'warn',
+    note: '표시광고법: 배타성을 주장하려면 입증 자료가 필요해요.',
+    suggestion: '특별하게 준비한',
+  },
+  {
+    pattern: /보장|장담/,
+    severity: 'warn',
+    note: '표시광고법: 효과·결과를 보장하는 표현은 주의가 필요해요.',
+    suggestion: '기대하셔도 좋은',
+  },
+];
 
-function scanText(text = '') {
-  if (BLOCK_PATTERNS.some((re) => re.test(text))) return 'block';
-  if (WARN_PATTERNS.some((re) => re.test(text))) return 'warn';
-  return 'pass';
-}
+const FOOD_RULES = [
+  {
+    pattern: /치료|치유|낫는다|완치/,
+    severity: 'block',
+    note: '식품표시광고법 §8: 질병 치료 효능을 표방하는 표현은 금지돼요.',
+    suggestion: '맛있게 즐기는',
+  },
+  {
+    pattern: /예방|항암|항염|항균|살균/,
+    severity: 'block',
+    note: '식품표시광고법 §8: 질병 예방·의약품으로 오인될 수 있는 표현이에요.',
+    suggestion: '건강한 하루를 위한',
+  },
+  {
+    pattern: /다이어트\s*(효과|보장)|살\s*빠지는|지방\s*분해/,
+    severity: 'block',
+    note: '식품표시광고법: 체중 감량 효능 표방은 건강기능식품 인증이 필요해요.',
+    suggestion: '가볍게 즐기는',
+  },
+  {
+    pattern: /면역력\s*(강화|증진)|디톡스|해독/,
+    severity: 'warn',
+    note: '식품표시광고법: 신체 기능 개선 표방은 기능성 인정이 필요해요.',
+    suggestion: '든든하게 채우는',
+  },
+  {
+    pattern: /숙취\s*해소/,
+    severity: 'warn',
+    note: '식약처 고시: 숙취해소 표현은 인체적용시험 근거가 필요해요.',
+    suggestion: '든든한 하루를 여는',
+  },
+];
 
-function noteForStatus(status) {
-  if (status === 'block') return '질병 치료·예방 효과를 암시하는 표현은 관련 법령상 사용할 수 없어요.';
-  if (status === 'warn') return '객관적 근거 없는 최상급·단정 표현은 주의가 필요해요.';
-  return null;
+const BEAUTY_RULES = [
+  {
+    pattern: /치료|치유|의학적|병원\s*급/,
+    severity: 'block',
+    note: '화장품법 §13: 의약품으로 오인될 수 있는 표현은 금지돼요.',
+    suggestion: '편안하게 가꾸는',
+  },
+  {
+    pattern: /(아토피|여드름|습진|건선)\s*(치료|개선)/,
+    severity: 'block',
+    note: '화장품법: 질환명과 함께 쓰인 개선 표현은 의약품 오인 광고예요.',
+    suggestion: '산뜻하게 가꾸는',
+  },
+  {
+    pattern: /(아토피|여드름|습진|건선)(?!\s*(치료|개선))/,
+    severity: 'warn',
+    note: '화장품법: 특정 질환을 직접 언급하면 의약품으로 오인될 수 있어요.',
+    suggestion: '트러블 케어',
+  },
+  {
+    pattern: /재생|세포\s*(재생|활성)|콜라겐\s*생성/,
+    severity: 'warn',
+    note: '화장품법: 신체 개선 효능을 단정하는 표현은 주의가 필요해요.',
+    suggestion: '탄력을 더하는',
+  },
+  {
+    pattern: /주름\s*(제거|박멸)|미백\s*보장/,
+    severity: 'block',
+    note: '화장품법: 기능성 인증 범위를 넘어서는 표현이에요.',
+    suggestion: '결을 가꾸는',
+  },
+  {
+    pattern: /부작용\s*(전혀|절대)\s*없/,
+    severity: 'block',
+    note: '화장품법: 부작용이 전혀 없다는 단정 표현은 금지돼요.',
+    suggestion: '순하게 사용할 수 있는',
+  },
+];
+
+const GOODS_RULES = [
+  {
+    pattern: /정품\s*보다|명품\s*급|짝퉁/,
+    severity: 'warn',
+    note: '상표법/표시광고법: 타 브랜드를 연상시키는 비교 표현은 주의가 필요해요.',
+    suggestion: '고급스러운',
+  },
+  {
+    pattern: /친환경|에코/,
+    severity: 'warn',
+    note: '환경성 표시광고 고시: 인증 없는 친환경 주장은 그린워싱 소지가 있어요.',
+    suggestion: '자연스러운',
+  },
+];
+
+const CATEGORY_RULES = {
+  food: [...COMMON_RULES, ...FOOD_RULES],
+  beauty: [...COMMON_RULES, ...BEAUTY_RULES],
+  goods: [...COMMON_RULES, ...GOODS_RULES],
+  default: COMMON_RULES,
+};
+
+/** 텍스트를 스캔해 규제 위반/주의 표현을 찾는다 (mock 버전 룰 매칭). */
+function scanRegulation(text, spec = {}) {
+  const rules = CATEGORY_RULES[categoryKey(spec.category)] || COMMON_RULES;
+  const flags = [];
+  for (const rule of rules) {
+    const match = rule.pattern.exec(text);
+    if (match) {
+      flags.push({
+        pattern: match[0],
+        severity: rule.severity,
+        note: rule.note,
+        suggestion: rule.suggestion,
+      });
+    }
+  }
+  const status = flags.some((f) => f.severity === 'block')
+    ? 'block'
+    : flags.some((f) => f.severity === 'warn')
+      ? 'warn'
+      : 'pass';
+  return { status, flags };
 }
 
 function truncate(text = '', max) {
@@ -189,38 +320,23 @@ function buildCopy(spec) {
   };
 }
 
-function buildSafeCopy(spec) {
-  const product = spec.product || '우리 브랜드';
-  return {
-    headline: truncate(`${product}만의 특별함`, 20),
-    sub: truncate('지금 만나보세요', 30),
-  };
-}
-
 /** POST /generate/copy 목 함수. 5단계 완료 후 자동으로 이어서 호출한다. */
 export async function generateCopy(spec = {}) {
   await delay(600);
 
-  const combinedInput = [spec.product, spec.tone, spec.highlights, spec.extra].filter(Boolean).join(' ');
-  const status = scanText(combinedInput);
   const { headline, sub } = buildCopy(spec);
+  // 실제 화면에 노출/수정되는 headline+sub만 검사한다 — 그래야 화면 B에서
+  // "대체 표현 적용"을 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
+  // (Q2 "제품/가게"나 Q4 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
+  // block/warn 데모를 재현할 수 있다 — 예: 제품에 "아토피 치료 크림" 입력)
+  const { status, flags } = scanRegulation(`${headline} ${sub}`, spec);
 
-  if (status === 'pass') {
-    return { headline, sub, status, note: null, alternative: null };
-  }
-
-  return {
-    headline,
-    sub,
-    status,
-    note: noteForStatus(status),
-    alternative: buildSafeCopy(spec),
-  };
+  return { headline, sub, status, regulation_flags: flags };
 }
 
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */
-export async function validateCopy({ headline = '', sub = '' } = {}) {
+export async function validateCopy({ headline = '', sub = '' } = {}, spec = {}) {
   await delay(300);
-  const status = scanText(`${headline} ${sub}`);
-  return { status, note: noteForStatus(status) };
+  const { status, flags } = scanRegulation(`${headline} ${sub}`, spec);
+  return { status, flags };
 }

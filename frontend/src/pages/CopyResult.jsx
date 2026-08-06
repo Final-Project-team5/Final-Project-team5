@@ -8,15 +8,28 @@ const BADGE_INFO = {
   block: { label: '규제 위반', className: 'copy-result__badge--block' },
 };
 
+const SEVERITY_LABEL = { block: '규제 위반', warn: '주의' };
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * 화면 B — 문구 생성 결과 화면
  * /generate/copy(mock) 결과를 보여주고, 사용자가 직접 수정하면
- * /validate/copy(mock)로 재검증한다. (docs/UIUX_스펙정리.md 4장 참고)
+ * /validate/copy(mock)로 재검증한다. (docs/UIUX_스펙정리.md 4장·5장 참고)
  *
- * 다음 화면(시안 선택)은 미구현 — [이 문구로 시안 선택하러 가기] 버튼만 배치.
+ * block/warn 항목은 regulation_flags 배열로 각각 표시하고, 대체 표현을
+ * 클릭하면 수정 입력창에 바로 반영된다.
+ * 다음 화면(시안 선택)은 화면 C로 연결됨.
  */
-function CopyResult({ result, onConfirm, onRestart }) {
-  const [current, setCurrent] = useState(result);
+function CopyResult({ result, spec, onConfirm, onRestart }) {
+  const [current, setCurrent] = useState(() => ({
+    headline: result.headline,
+    sub: result.sub,
+    status: result.status,
+    flags: result.regulation_flags || [],
+  }));
   const [draftHeadline, setDraftHeadline] = useState(result.headline);
   const [draftSub, setDraftSub] = useState(result.sub);
   const [validating, setValidating] = useState(false);
@@ -24,31 +37,17 @@ function CopyResult({ result, onConfirm, onRestart }) {
   const isPass = current.status === 'pass';
   const badge = BADGE_INFO[current.status] || BADGE_INFO.pass;
 
-  const applyAlternative = () => {
-    if (!current.alternative) return;
-    const next = {
-      headline: current.alternative.headline,
-      sub: current.alternative.sub,
-      status: 'pass',
-      note: null,
-      alternative: null,
-    };
-    setCurrent(next);
-    setDraftHeadline(next.headline);
-    setDraftSub(next.sub);
+  const applySuggestion = (flag) => {
+    const re = new RegExp(escapeRegExp(flag.pattern), 'g');
+    setDraftHeadline((prev) => prev.replace(re, flag.suggestion));
+    setDraftSub((prev) => prev.replace(re, flag.suggestion));
   };
 
   const handleRevalidate = async () => {
     setValidating(true);
-    const res = await validateCopy({ headline: draftHeadline, sub: draftSub });
+    const res = await validateCopy({ headline: draftHeadline, sub: draftSub }, spec);
     setValidating(false);
-    setCurrent({
-      headline: draftHeadline,
-      sub: draftSub,
-      status: res.status,
-      note: res.note,
-      alternative: current.alternative,
-    });
+    setCurrent({ headline: draftHeadline, sub: draftSub, status: res.status, flags: res.flags || [] });
   };
 
   return (
@@ -61,20 +60,23 @@ function CopyResult({ result, onConfirm, onRestart }) {
         <div className="copy-result__headline">{current.headline}</div>
         <div className="copy-result__sub">{current.sub}</div>
 
-        {!isPass && (
-          <div className="copy-result__notice">
-            <div className="copy-result__notice-reason">{current.note}</div>
-
-            {current.alternative && (
-              <div className="copy-result__alternative">
-                <div className="copy-result__alternative-label">대체 문구 제안</div>
-                <div className="copy-result__alternative-headline">{current.alternative.headline}</div>
-                <div className="copy-result__alternative-sub">{current.alternative.sub}</div>
-                <button type="button" className="copy-result__alt-btn" onClick={applyAlternative}>
-                  이 문구로 계속하기
+        {current.flags.length > 0 && (
+          <div className="copy-result__flags">
+            {current.flags.map((flag, idx) => (
+              <div
+                key={`${flag.pattern}-${idx}`}
+                className={`copy-result__flag copy-result__flag--${flag.severity}`}
+              >
+                <div className="copy-result__flag-head">
+                  <span className="copy-result__flag-severity">{SEVERITY_LABEL[flag.severity]}</span>
+                  <span className="copy-result__flag-pattern">“{flag.pattern}”</span>
+                </div>
+                <p className="copy-result__flag-note">{flag.note}</p>
+                <button type="button" className="copy-result__flag-suggestion" onClick={() => applySuggestion(flag)}>
+                  대체 표현 적용: <strong>{flag.suggestion}</strong>
                 </button>
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>
