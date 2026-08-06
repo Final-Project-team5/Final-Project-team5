@@ -1,0 +1,313 @@
+"""광고 문구 합성.
+
+diffusion 모델은 정상적인 글자를 생성하지 못하므로 PIL로 합성한다.
+"""
+
+from PIL import Image, ImageDraw, ImageFont
+
+from . import config
+
+
+def _split_long_word(draw, word: str, font, max_width: float) -> list[str]:
+    """공백 없이 max_width보다 긴 한 덩어리를 글자 단위로만 쪼갠다(최후 수단).
+
+    마지막 조각이 1글자만 남으면, 폭이 허용하는 한 이전 조각에서 한 글자를
+    당겨와 최소한 2글자로 만든다("마지막 줄에 한 글자만 남는 형태" 방지).
+    """
+    lines, cur = [], ""
+    for ch in word:
+        if draw.textlength(cur + ch, font=font) <= max_width:
+            cur += ch
+        else:
+            if cur:
+                lines.append(cur)
+            cur = ch
+    if cur:
+        lines.append(cur)
+
+    if len(lines) >= 2 and len(lines[-1]) == 1 and len(lines[-2]) > 1:
+        candidate = lines[-2][-1] + lines[-1]
+        if draw.textlength(candidate, font=font) <= max_width:
+            lines[-2] = lines[-2][:-1]
+            lines[-1] = candidate
+    return lines
+
+
+def _wrap(draw, text: str, font, max_width: float) -> list[str]:
+    """공백 기준 어절 단위로 우선 줄바꿈하고, 한 어절이 max_width보다 길 때만
+    글자 단위로 쪼갠다. 순수 글자 단위 분리는 "매일을 위한 클린 케 / 어"처럼
+    단어 중간을 끊어 가독성을 해치므로 최후의 수단으로만 쓴다.
+
+    문구에 "\n"이 들어 있으면 사용자가 직접 지정한 줄바꿈으로 보고 그 지점에서
+    먼저 나눈 뒤, 각 줄을 폭 기준으로 다시 줄바꿈한다. PIL의 textlength()는
+    멀티라인 문자열을 측정하지 못해(ValueError) 이 분리를 먼저 하지 않으면 죽는다.
+    """
+    if not text:
+        return []
+
+    if "\n" in text:
+        lines = []
+        for segment in text.split("\n"):
+            lines.extend(_wrap(draw, segment, font, max_width))
+        return lines
+
+    words = text.split(" ")
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        if not word:
+            continue
+        candidate = f"{cur} {word}" if cur else word
+        if draw.textlength(candidate, font=font) <= max_width:
+            cur = candidate
+            continue
+
+        if cur:
+            lines.append(cur)
+            cur = ""
+
+        if draw.textlength(word, font=font) <= max_width:
+            cur = word
+        else:
+            # 어절 하나가 통째로 한 줄보다 긴 경우(영문 긴 단어 등)에만 글자 단위 분리
+            split = _split_long_word(draw, word, font, max_width)
+            if split:
+                lines.extend(split[:-1])
+                cur = split[-1]
+
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def render_text(img: Image.Image,
+                headline: str,
+                sub: str = "",
+                x: float | None = None,
+                y: float | None = None,
+                position: str = "top",
+                align: str = "left",
+                style: str = "bar",
+                headline_size: float | None = None,
+                sub_size: float | None = None,
+                auto_fit: bool = True,
+                min_font_scale: float = 0.4,
+                max_height_ratio: float | None = None,
+                headline_font_role: str = "headline",
+                stroke_width: int | None = None,
+                fill_color: tuple | None = None,
+                return_meta: bool = False) -> Image.Image:
+    """이미지에 문구를 합성한다.
+
+    좌표 모드(권장): x, y를 0~1 비율로 넘기면 position은 무시되고
+    텍스트 블록이 해당 좌표를 기준으로 배치된다.
+        x: 텍스트 기준점의 가로 위치 (align이 left/center/right 중 어느 지점을 의미하는지 결정)
+        y: 텍스트 블록 맨 윗줄의 세로 위치
+    프리셋 모드(하위 호환): x, y를 생략하면 기존처럼 position으로 동작한다.
+
+    Args:
+        x, y: 0~1 비율 좌표. 둘 다 주어져야 좌표 모드로 동작한다.
+        position: top | center | bottom (좌표 모드가 아닐 때만 사용)
+        align: left | center | right — 좌표 모드에서는 x가 텍스트의 어느 지점인지도 결정.
+            가로 사용 가능 폭(max_w)은 이 x/align 기준으로 실제 남는 여백만큼만 계산된다
+            (예: align="left"이고 x=0.6이면 오른쪽으로 남은 폭만큼만 줄바꿈 허용).
+        style: plain(외곽선) | bar(반투명 배경)
+        headline_size, sub_size: 짧은 변 대비 폰트 크기 비율(0~1). 생략 시 config 기본값 사용.
+            실사용 권장 범위는 스타일에 따라 다르다 — config.TONE_PRESETS 참고
+            (예: minimal_product는 0.09~0.13, bold_promo는 0.18~0.28 권장).
+            프론트 미리보기와 실제 합성 크기가 어긋나지 않도록, 지정할 경우 프론트가 계산한
+            값을 그대로 전달해야 한다.
+        auto_fit: True면 요청한 headline_size/sub_size를 그대로 우선 적용하되, 텍스트 블록이
+            지정된 영역(아래 max_height_ratio 참고)을 벗어날 때만 이진 탐색으로 최소한만
+            축소한다. 영역 안에 이미 들어오면 요청 크기를 그대로 쓴다(축소하지 않음).
+        min_font_scale: auto_fit 축소의 하한선(요청 크기 대비 비율). 이보다 더 줄이지는 않고,
+            그 이상 넘치면 잘리는 대신 최소 크기로 렌더링한다(문구 자체를 자르지는 않음).
+        max_height_ratio: 텍스트 블록에 허용할 최대 높이(짧은 변 대비 비율). 예를 들어
+            제품 bbox 위쪽 여백에만 문구를 배치하고 싶다면, 호출하는 쪽에서 그 여백의
+            높이를 비율로 계산해 넘기면 auto_fit이 "이미지 하단까지"가 아니라 정확히
+            그 영역 안으로만 맞춘다. 생략하면 기존처럼 y 지점부터 이미지 하단 여백까지를
+            영역으로 본다(제품 등 다른 요소의 위치는 모른다는 뜻이므로, 실제 제품 사진에
+            문구를 배치할 때는 호출 측에서 이 값을 반드시 계산해 넘기는 것을 권장한다).
+        headline_font_role: config.FONTS의 역할 이름. 기본은 "headline"(Gmarket Sans Bold,
+            없으면 폴백). 절제된 톤이 필요하면 "body_medium"(Pretendard Medium) 등으로 바꿀 수 있다.
+        stroke_width: style="plain"일 때 외곽선 두께. None이면 config.STROKE_WIDTH(기존 기본값)를
+            쓴다. 두꺼운 스트로크가 과하게 느껴지는 스타일(예: minimal_product)에서는 0 또는
+            작은 값을 직접 넘기면 된다.
+        fill_color: 텍스트 채움 색(RGBA 튜플). None이면 기존처럼 흰색(255,255,255,255).
+            minimal_product처럼 흰색+굵은 외곽선 대신 배경과 대비되는 단색 텍스트가
+            필요할 때 어두운 색 등을 직접 넘기면 된다.
+        return_meta: True면 (이미지, meta dict) 튜플을 반환한다. meta에는 실제 적용된
+            폰트 크기(px/비율), 요청 크기 대비 축소 여부 등 검증용 정보가 담긴다.
+            기본값 False는 기존과 동일하게 이미지만 반환한다(하위 호환).
+
+    폰트 크기는 이미지 크기에 비례해 자동 계산되므로
+    768/1024 어느 쪽이든 동일한 비율로 보인다.
+    """
+    img = img.convert("RGBA")
+    W, H = img.size
+    unit = min(W, H)
+
+    margin = int(unit * config.TEXT_MARGIN_RATIO)
+    gap = int(unit * config.LINE_GAP_RATIO)
+    hsize0 = int(unit * (headline_size if headline_size is not None else config.HEADLINE_RATIO))
+    ssize0 = int(unit * (sub_size if sub_size is not None else config.SUB_RATIO))
+    stroke = config.STROKE_WIDTH if stroke_width is None else stroke_width
+    fill = fill_color if fill_color is not None else (255, 255, 255, 255)
+
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    coord_mode = x is not None and y is not None
+
+    # 가로 사용 가능 폭: 좌표 모드에서는 x/align 기준으로 실제 남는 여백만 반영해야
+    # 텍스트가 오른쪽(또는 왼쪽) 이미지 밖으로 잘리지 않는다. 프리셋 모드는 기존과 동일.
+    if coord_mode:
+        xc = x * W
+        if align == "left":
+            max_w = max(int(W - margin - xc), 10)
+        elif align == "right":
+            max_w = max(int(xc - margin), 10)
+        else:  # center
+            max_w = max(int(2 * min(xc - margin, W - margin - xc)), 10)
+    else:
+        max_w = W - margin * 2
+
+    def _measure(hsize: int, ssize: int):
+        """주어진 폰트 크기로 줄바꿈/블록 목록/전체 높이를 계산한다."""
+        f_head = ImageFont.truetype(config.resolve_font_path(headline_font_role), max(hsize, 4))
+        f_sub = ImageFont.truetype(config.resolve_font_path("body"), max(ssize, 4)) if sub else None
+        head_lines = _wrap(draw, headline, f_head, max_w)
+        sub_lines = _wrap(draw, sub, f_sub, max_w) if sub else []
+        blocks = [(t, f_head, int(hsize * 1.35)) for t in head_lines]
+        blocks += [(t, f_sub, int(ssize * 1.35)) for t in sub_lines]
+        total_h = sum(h for _, _, h in blocks) + (gap if sub_lines else 0)
+        return blocks, head_lines, sub_lines, total_h
+
+    # 1차: 요청 크기 그대로 측정. coord_mode가 아닌 프리셋(center/bottom)의 y0 계산에도 필요하다.
+    blocks, head_lines, sub_lines, total_h = _measure(hsize0, ssize0)
+    if not blocks:
+        return img.convert("RGB")
+
+    if coord_mode:
+        y0 = int(H * y)
+    elif position == "top":
+        y0 = margin
+    elif position == "center":
+        y0 = (H - total_h) // 2
+    else:
+        y0 = H - total_h - margin
+
+    hsize, ssize = hsize0, ssize0
+
+    if auto_fit:
+        # "지정된 영역"의 높이: max_height_ratio가 주어지면 그 값을 그대로 쓰고(호출 측이
+        # 제품 bbox 등을 감안해 정확히 계산해 넘긴 경우), 없으면 기존처럼 y 지점부터
+        # 이미지 하단 여백까지로 본다(다른 요소 위치를 모르는 경우의 기본 동작).
+        if max_height_ratio is not None:
+            max_h = max(int(unit * max_height_ratio), int(unit * 0.03))
+        else:
+            max_h = max(H - y0 - margin, int(unit * 0.05))
+        if total_h > max_h:
+            lo, hi = min_font_scale, 1.0
+            best_scale = min_font_scale
+            for _ in range(10):
+                mid = (lo + hi) / 2
+                h_try = max(int(hsize0 * mid), 8)
+                s_try = max(int(ssize0 * mid), 6) if sub else ssize0
+                _, _, _, th = _measure(h_try, s_try)
+                if th <= max_h:
+                    best_scale = mid
+                    lo = mid
+                else:
+                    hi = mid
+            hsize = max(int(hsize0 * best_scale), 8)
+            ssize = max(int(ssize0 * best_scale), 6) if sub else ssize0
+            blocks, head_lines, sub_lines, total_h = _measure(hsize, ssize)
+            # center/bottom 프리셋은 총 높이가 바뀌면 기준점도 다시 잡아야 시각적으로 맞는다.
+            # coord_mode와 top은 y0가 total_h에 의존하지 않으므로 그대로 둔다.
+            if not coord_mode:
+                if position == "center":
+                    y0 = (H - total_h) // 2
+                elif position != "top":
+                    y0 = H - total_h - margin
+
+    def x_of(text, font):
+        tw = draw.textlength(text, font=font)
+        if coord_mode:
+            xc = x * W
+            if align == "left":
+                return int(xc)
+            if align == "center":
+                return int(xc - tw / 2)
+            return int(xc - tw)
+        if align == "left":
+            return margin
+        if align == "center":
+            return (W - tw) // 2
+        return W - tw - margin
+
+    if style == "bar":
+        widest = max(blocks, key=lambda b: draw.textlength(b[0], font=b[1]))
+        bw = draw.textlength(widest[0], font=widest[1])
+        bx = x_of(widest[0], widest[1])
+        pad = int(unit * 0.027)
+        draw.rounded_rectangle(
+            [bx - pad, y0 - pad, bx + bw + pad, y0 + total_h + pad],
+            radius=config.BAR_RADIUS,
+            fill=(0, 0, 0, config.BAR_ALPHA))
+
+    cy = y0
+    for i, (text, font, line_h) in enumerate(blocks):
+        xc = x_of(text, font)
+        if style == "plain":
+            draw.text((xc, cy), text, font=font, fill=fill,
+                      stroke_width=stroke,
+                      stroke_fill=(0, 0, 0, 190))
+        else:
+            draw.text((xc, cy), text, font=font, fill=fill)
+        cy += line_h
+        if sub_lines and i == len(head_lines) - 1:
+            cy += gap
+
+    result = Image.alpha_composite(img, overlay).convert("RGB")
+    if return_meta:
+        meta = {
+            "coord_mode": coord_mode,
+            "style": style,
+            "headline_font_role": headline_font_role,
+            "stroke_width": stroke,
+            "fill_color": fill,
+            "max_w_px": max_w,
+            "requested_headline_size": headline_size,
+            "requested_sub_size": sub_size,
+            "applied_headline_px": hsize,
+            "applied_sub_px": ssize,
+            "applied_headline_ratio": round(hsize / unit, 4),
+            "applied_sub_ratio": round(ssize / unit, 4) if sub else None,
+            "auto_fit": auto_fit,
+            "shrunk": (hsize != hsize0) or (ssize != ssize0 if sub else False),
+        }
+        return result, meta
+    return result
+
+
+def add_ai_notice(img: Image.Image, text: str = "AI 생성 이미지") -> Image.Image:
+    """AI 기본법 제31조에 따른 생성물 표시.
+
+    시행령 기준 확인 후 크기/위치 조정 필요.
+    """
+    img = img.convert("RGBA")
+    W, H = img.size
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    size = max(int(min(W, H) * 0.022), 12)
+    font = ImageFont.truetype(config.resolve_font_path("body"), size)
+    tw = draw.textlength(text, font=font)
+    pad = int(size * 0.5)
+    x, y = W - tw - pad * 2 - 12, H - size - pad * 2 - 12
+
+    draw.rounded_rectangle([x, y, x + tw + pad * 2, y + size + pad * 2],
+                           radius=6, fill=(0, 0, 0, 110))
+    draw.text((x + pad, y + pad), text, font=font, fill=(255, 255, 255, 220))
+    return Image.alpha_composite(img, overlay).convert("RGB")

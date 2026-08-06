@@ -1,0 +1,28 @@
+# --- 파이썬 ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- 검증 스크립트 실행 결과물 (전부 제외) ---
+outputs/
+
+# --- 모델 가중치 / 캐시 ---
+.u2net/
+*.onnx
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# --- 테스트 입력 이미지 (저장소에 포함하지 않음, README 참고) ---
+image/
+
+# --- 노트북 ---
+.ipynb_checkpoints/
+*.ipynb
+
+# --- OS ---
+.DS_Store
+Thumbs.db
