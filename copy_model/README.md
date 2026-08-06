@@ -22,7 +22,40 @@ COPY_MOCK=1 uvicorn copy_model.api:app --port 8001
 COPY_MOCK=1 python test_local.py --category food --product "딸기 생크림 케이크"
 ```
 
+## 프론트 연동 (CORS)
+
+브라우저에서 직접 호출할 수 있도록 CORS가 설정되어 있습니다.
+기본 허용 출처는 아래와 같아, 별도 설정 없이 바로 fetch/axios로 호출 가능합니다.
+
+- `http://localhost:5173`, `http://127.0.0.1:5173` (Vite 개발 서버)
+- `http://localhost:3000`, `http://127.0.0.1:3000`
+- `http://localhost:4173`, `http://127.0.0.1:4173` (Vite preview)
+
+다른 포트를 쓰시면 환경변수로 추가하시면 됩니다.
+
+```bash
+COPY_CORS_ORIGINS="http://localhost:5174,http://localhost:3000" uvicorn copy_model.api:app --port 8001
+```
+
+현재 허용 목록은 `GET /health` 응답의 `cors_origins`에서 확인할 수 있습니다.
+
+```js
+// 프론트 호출 예시
+const res = await fetch("http://localhost:8001/suggest/options", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ message: "푸드" }),
+});
+const data = await res.json();
+```
+
 ## API
+
+### GET /health
+
+서버 상태·설정 확인용. 연동 시 첫 호출로 사용하면 편합니다.
+`mock` 필드로 현재 mock 모드 여부를, `limits`로 글자 수 제한을,
+`cors_origins`로 허용된 출처를 확인할 수 있습니다.
 
 ### POST /generate/copy
 
@@ -187,17 +220,38 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 
 ```json
 // POST /validate/copy 요청
-{ "category": "beauty", "headline": "아토피 치료되는 크림", "sub": "부작용 전혀 없음", "use_llm": false }
+{ "category": "beauty", "headline": "여드름 없애는 앰플", "sub": "부작용 전혀 없음", "use_llm": false }
 // 응답
 { "safe": false,
   "flags": [
-    { "matched": "아토피", "severity": "block", "reason": "화장품법: 질환명 언급은 의약품 오인 광고" },
-    { "matched": "부작용 전혀 없", "severity": "block", "reason": "화장품법: 부작용 부재 단정 금지" }
+    { "matched": "여드름 없애", "severity": "block",
+      "reason": "화장품법 §13: 질환명 언급은 의약품 오인 광고",
+      "suggestion": "'피부 진정에 도움을 주는'" },
+    { "matched": "부작용 전혀 없", "severity": "block",
+      "reason": "화장품법 §13: 안전성 단정·부작용 부재 단정 금지",
+      "suggestion": "'순한 성분으로 만든'" }
   ] }
 ```
 
-- `severity`: `block`(사용 불가 수준) / `warn`(맥락 확인 필요)
-- 프론트 처리 제안: block → 빨간 배지 + 재생성 유도, warn → 노란 배지만
+- `severity`: `block`(사용 불가 수준) / `warn`(맥락 확인 필요). block이 앞에 오도록 정렬됨
+- `suggestion`: 대체 표현 예시 — 프론트에서 "이렇게 바꿔보세요" 안내에 사용 가능
+- 프론트 처리 제안: block → 빨간 배지 + 대체 표현 안내, warn → 노란 배지만
+
+### 룰 사전 현황 (`regulation_rules.py`)
+
+| 카테고리 | 전체 | block | warn | 주요 근거 |
+|---|---|---|---|---|
+| food | 19 | 6 | 13 | 표시광고법, 식품표시광고법 §8, 건강기능식품법 §18, 식약처 고시 |
+| beauty | 17 | 5 | 12 | 표시광고법, 화장품법 §13 |
+| goods | 13 | 0 | 13 | 표시광고법, 상표법, 환경성 표시·광고 고시 |
+
+주요 검출 사례:
+
+- **푸드** — 질병 치료·예방("치료", "항암"), 체중 감량("다이어트 효과"), 기능성 표방("면역력 강화", "피로 회복"), 인증 없는 천연·유기농, 숙취해소
+- **뷰티** — 의약품 오인("치료", "병원급"), 질환명("아토피", "여드름 없애기"), 기능성 초과("주름 제거", "보톡스 효과"), 안전성 단정("부작용 전혀 없음"), 의료인 추천
+- **굿즈** — 타 브랜드 연상("명품급"), 그린워싱("친환경"), 라이선스("공식 굿즈"), 한정판·평생보증
+
+> 본 룰은 데모용 1차 사전이며 법률 자문이 아닙니다. 실제 서비스 시 최신 고시·심의 기준 확인이 필요합니다.
 
 ## TODO
 

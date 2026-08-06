@@ -36,4 +36,17 @@ DEFAULT_NUM_CANDIDATES = int(os.getenv("COPY_NUM_CANDIDATES", "3"))
 # ── 카테고리 / 톤 옵션 ──────────────────────────────────
 CATEGORIES = ("food", "beauty", "goods")
 
+# ── CORS ────────────────────────────────────────────────
+# 프론트(Vite 개발 서버 등)에서 브라우저로 직접 호출할 수 있도록 허용 출처 설정.
+# 배포 시에는 실제 도메인을 COPY_CORS_ORIGINS에 콤마로 구분해 지정.
+_DEFAULT_ORIGINS = ",".join([
+    "http://localhost:5173", "http://127.0.0.1:5173",   # Vite 기본
+    "http://localhost:3000", "http://127.0.0.1:3000",   # CRA / Next 기본
+    "http://localhost:4173", "http://127.0.0.1:4173",   # Vite preview
+])
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv("COPY_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if o.strip()
+]
+
 TONES = ("warm", "energetic", "luxury", "simple")
