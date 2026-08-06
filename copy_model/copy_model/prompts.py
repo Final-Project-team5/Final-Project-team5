@@ -57,6 +57,23 @@ USER_PROMPT = """[제품/가게 정보]
 
 위 정보로 포스터 문구 시안 {num}개를 JSON으로 만들어주세요."""
 
+REGENERATE_PROMPT = """아래 광고 문구 시안들이 이미 만들어져 있습니다.
+
+{existing}
+
+이것들과 **뚜렷하게 다른 방향**의 시안 {num}개를 새로 만들어주세요.
+- 이미 쓰인 단어·표현을 반복하지 말 것
+- 소구점(강조하는 매력)을 다르게 잡을 것
+  (예: 이미 '신선함'을 썼다면 '가격', '분위기', '추억' 등 다른 축으로)
+- headline {headline_max}자 / sub {sub_max}자 제한은 동일하게 지킬 것
+
+{category_guide}
+{tone_guide}
+
+반드시 JSON으로만 응답:
+{{"candidates": [{{"headline": "...", "sub": "..."}}, ...]}}"""
+
+
 SHORTEN_PROMPT = """다음 광고 문구가 글자 수 제한을 초과했습니다.
 의미와 톤은 유지하면서 제한 이내로 줄여주세요.
 
@@ -89,6 +106,18 @@ def build_system_prompt(category: str, tone: str, num: int,
         headline_max=headline_max,
         sub_max=sub_max,
         num=num,
+        category_guide=CATEGORY_GUIDES.get(category, CATEGORY_GUIDES["food"]),
+        tone_guide=TONE_GUIDES.get(tone, TONE_GUIDES["warm"]),
+    )
+
+
+def build_regenerate_prompt(existing: list[dict], num: int, category: str,
+                            tone: str, headline_max: int, sub_max: int) -> str:
+    lines = "\n".join(
+        f"- {c.get('headline', '')} / {c.get('sub', '')}" for c in existing)
+    return REGENERATE_PROMPT.format(
+        existing=lines, num=num,
+        headline_max=headline_max, sub_max=sub_max,
         category_guide=CATEGORY_GUIDES.get(category, CATEGORY_GUIDES["food"]),
         tone_guide=TONE_GUIDES.get(tone, TONE_GUIDES["warm"]),
     )

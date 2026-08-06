@@ -44,12 +44,26 @@ class CopyCandidate(BaseModel):
     regulation_flags: list[dict] = Field(
         default_factory=list,
         description="룰 기반 규제 검사 결과 (비어있으면 통과). 상세 검증은 /validate/copy")
+    safe: bool = Field(
+        default=True,
+        description="block 위반이 없으면 True. 프론트는 이 값만 보고 사용 가능 여부 판단 가능")
 
 
 class CopyMeta(BaseModel):
     elapsed: float
     model: str
     mock: bool = False
+    diversity_score: float = Field(
+        default=1.0,
+        description="시안 간 다양성 (1.0에 가까울수록 서로 다름)")
+    max_pair_similarity: float = Field(
+        default=0.0,
+        description="가장 비슷한 시안 쌍의 유사도")
+    diversity_retried: int = Field(
+        default=0, description="다양성 확보를 위해 재생성한 횟수")
+    diversity_ok: bool = Field(
+        default=True,
+        description="재생성 후에도 임계값을 넘는 중복이 남아있으면 False")
 
 
 class CopyResponse(BaseModel):
