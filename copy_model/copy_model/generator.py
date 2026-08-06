@@ -13,6 +13,7 @@ import json
 import time
 
 from . import config, prompts
+from .diversity import diversity_score, find_duplicates, max_pair_similarity
 from .regulation import check_rules
 from .schemas import CopyCandidate, CopyMeta, CopyRequest, CopyResponse
 
@@ -93,19 +94,60 @@ def _localize(client, headline: str, sub: str, product: str, category: str) -> t
             str(data.get("sub_en", "")).strip()[: config.SUB_MAX_EN + 20])
 
 
+def _ensure_diversity(client, cands: list[dict], req: CopyRequest
+                      ) -> tuple[list[dict], int]:
+    """중복 시안을 찾아 다른 방향으로 재생성한다.
+
+    반환: (시안 목록, 재생성 시도 횟수)
+    재시도 후에도 중복이 남으면 그대로 반환한다 (응답 시간 보호).
+    """
+    retried = 0
+    for _ in range(config.DIVERSITY_RETRIES):
+        dup_idx = find_duplicates(cands, config.DIVERSITY_THRESHOLD)
+        if not dup_idx:
+            break
+        keep = [c for i, c in enumerate(cands) if i not in dup_idx]
+        prompt = prompts.build_regenerate_prompt(
+            keep, len(dup_idx), req.category, req.tone,
+            config.HEADLINE_MAX, config.SUB_MAX)
+        retried += 1
+        try:
+            data = _chat_json(client, "당신은 한국 소상공인 광고 카피라이터입니다.", prompt)
+        except Exception:  # noqa: BLE001 — 재생성 실패 시 원본 유지
+            break
+        fresh = [
+            {"headline": str(c.get("headline", "")).strip(),
+             "sub": str(c.get("sub", "")).strip()}
+            for c in data.get("candidates", [])[: len(dup_idx)]
+        ]
+        if not fresh:
+            break
+        # 재생성 결과를 중복 자리에 채워넣음 (부족하면 원본 유지)
+        for slot, new_c in zip(dup_idx, fresh):
+            cands[slot] = new_c
+    return cands, retried
+
+
 def _mock_response(req: CopyRequest, t0: float) -> CopyResponse:
     samples = _MOCK_SAMPLES[req.category][: req.num_candidates]
-    candidates = [
-        CopyCandidate(
+    candidates = []
+    for i, (h, s) in enumerate(samples):
+        flags = check_rules(f"{h} {s}", req.category)
+        candidates.append(CopyCandidate(
             id=f"c{i+1}", headline=h, sub=s,
             headline_chars=_count(h), sub_chars=_count(s),
             headline_en=_MOCK_EN[0] if req.include_en else None,
             sub_en=_MOCK_EN[1] if req.include_en else None,
-        )
-        for i, (h, s) in enumerate(samples)
-    ]
-    meta = CopyMeta(elapsed=round(time.time() - t0, 3),
-                    model="mock", mock=True)
+            regulation_flags=[f.model_dump() for f in flags],
+            safe=not any(f.severity == "block" for f in flags),
+        ))
+    final = [{"headline": c.headline, "sub": c.sub} for c in candidates]
+    meta = CopyMeta(
+        elapsed=round(time.time() - t0, 3), model="mock", mock=True,
+        diversity_score=diversity_score(final),
+        max_pair_similarity=max_pair_similarity(final),
+        diversity_ok=not find_duplicates(final, config.DIVERSITY_THRESHOLD),
+    )
     return CopyResponse(candidates=candidates, meta=meta)
 
 
@@ -123,23 +165,36 @@ def generate_copy(req: CopyRequest) -> CopyResponse:
         req.product, req.keywords, req.request, req.num_candidates)
 
     data = _chat_json(client, system, user)
-    raw = data.get("candidates", [])[: req.num_candidates]
+    raw = [
+        {"headline": str(c.get("headline", "")).strip(),
+         "sub": str(c.get("sub", "")).strip()}
+        for c in data.get("candidates", [])[: req.num_candidates]
+    ]
+
+    raw, retried = _ensure_diversity(client, raw, req)
 
     candidates = []
     for i, c in enumerate(raw):
-        headline, sub, over = _validate(
-            client, str(c.get("headline", "")).strip(), str(c.get("sub", "")).strip())
+        headline, sub, over = _validate(client, c["headline"], c["sub"])
         headline_en = sub_en = None
         if req.include_en:
             headline_en, sub_en = _localize(client, headline, sub,
                                             req.product, req.category)
         flags = check_rules(f"{headline} {sub}", req.category)
+        safe = not any(f.severity == "block" for f in flags)
         candidates.append(CopyCandidate(
             id=f"c{i+1}", headline=headline, sub=sub,
             headline_chars=_count(headline), sub_chars=_count(sub),
             over_limit=over, headline_en=headline_en, sub_en=sub_en,
-            regulation_flags=[f.model_dump() for f in flags],
+            regulation_flags=[f.model_dump() for f in flags], safe=safe,
         ))
 
-    meta = CopyMeta(elapsed=round(time.time() - t0, 3), model=config.MODEL_NAME)
+    final = [{"headline": c.headline, "sub": c.sub} for c in candidates]
+    meta = CopyMeta(
+        elapsed=round(time.time() - t0, 3), model=config.MODEL_NAME,
+        diversity_score=diversity_score(final),
+        max_pair_similarity=max_pair_similarity(final),
+        diversity_retried=retried,
+        diversity_ok=not find_duplicates(final, config.DIVERSITY_THRESHOLD),
+    )
     return CopyResponse(candidates=candidates, meta=meta)

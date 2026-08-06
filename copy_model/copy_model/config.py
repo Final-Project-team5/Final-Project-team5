@@ -33,6 +33,17 @@ MOCK_MODE = os.getenv("COPY_MOCK", "0") == "1"
 # 기본 시안 개수
 DEFAULT_NUM_CANDIDATES = int(os.getenv("COPY_NUM_CANDIDATES", "3"))
 
+# ── 시안 다양성 ──────────────────────────────────────────
+# 시안끼리 이 값 이상으로 비슷하면 중복으로 보고 재생성한다.
+# 라벨링 샘플 21쌍 측정 결과에 근거한 값 (docs 참고):
+#   서로 다른 시안 0.000~0.118 / 사실상 같은 시안 0.300~0.700
+#   → 두 구간 사이인 0.25를 임계값으로 설정 (오탐·미탐 모두 0)
+DIVERSITY_THRESHOLD = float(os.getenv("COPY_DIVERSITY_THRESHOLD", "0.25"))
+
+# 재생성 시도 횟수. 응답 시간 보호를 위해 기본 1회.
+# 재시도 후에도 비슷하면 그대로 내보내고 meta에 기록한다.
+DIVERSITY_RETRIES = int(os.getenv("COPY_DIVERSITY_RETRIES", "1"))
+
 # ── 카테고리 / 톤 옵션 ──────────────────────────────────
 CATEGORIES = ("food", "beauty", "goods")
 
