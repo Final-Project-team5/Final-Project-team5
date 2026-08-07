@@ -121,15 +121,19 @@ def inspect(font_path, root):
     }
 
 
+def is_full(r):
+    """한글 음절 전수 지원 여부."""
+    han_ok, han_total, _ = r["coverage"]["한글 음절(전체 11172)"]
+    return han_ok == han_total
+
+
 def verdict(r):
-    """한글 커버리지 기준으로 사용 가능 여부를 판정."""
+    """한글 커버리지를 실측 글자 수로 표기."""
     han_ok, han_total, _ = r["coverage"]["한글 음절(전체 11172)"]
     if han_ok == han_total:
-        return "사용 가능"
-    if han_ok >= 2350:
-        return "부분 (완성형만)"
+        return "전체 지원"
     if han_ok > 0:
-        return "부족"
+        return f"부분 지원 ({han_ok:,}자)"
     return "한글 없음"
 
 
@@ -166,7 +170,7 @@ def build_markdown(results, root):
         name = r["names"].get("full_name", r["path"].name)
         if not r["license_file"]:
             warns.append(f"- **{name}**: LICENSE 파일 없음 — OFL은 원문 동봉이 의무")
-        if verdict(r) != "사용 가능":
+        if not is_full(r):
             han = r["coverage"]["한글 음절(전체 11172)"]
             warns.append(f"- **{name}**: 한글 음절 {han[0]:,}/{han[1]:,}만 지원")
         risky_missing = [
