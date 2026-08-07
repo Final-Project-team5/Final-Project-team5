@@ -43,6 +43,23 @@ def _validate_hex_colors(colors: Optional[list]) -> None:
             raise HTTPException(400, f"색상은 #RRGGBB 형식이어야 합니다: {c}")
 
 
+def _validate_background_colors(mode: str, colors: Optional[list], field: str) -> None:
+    """배경 색상 검증 — 형식과, solid/gradient일 때의 최소 개수를 함께 본다.
+
+    ai 모드는 색상 개념이 없어 빈 배열이든 미지정이든 그대로 통과시킨다.
+
+    colors가 None(미지정)이면 카테고리 기본 팔레트를 쓰므로 문제가 없다.
+    빈 배열([])은 "색을 지정했는데 하나도 없는" 모순된 입력이라 거부한다 —
+    특히 refine의 background.colors는 기본값이 []여서, mode만 solid로 주고
+    colors를 빠뜨리면 render_flat_background()의 colors[0]에서 IndexError가 나
+    500으로 떨어진다. 스키마를 통과한 요청이 내부 오류가 되지 않도록 여기서 막는다.
+    """
+    _validate_hex_colors(colors)
+    if mode in ("solid", "gradient") and colors is not None and len(colors) == 0:
+        raise HTTPException(
+            400, f"solid/gradient 배경에는 {field}가 최소 1개 필요합니다.")
+
+
 # ---------------------------------------------------------------- 스키마
 
 class TextSpec(BaseModel):
@@ -289,7 +306,7 @@ def generate_drafts(req: DraftRequest):
         raise HTTPException(400, "inpaint 모드에는 image가 필요합니다.")
     if req.background_mode != "ai" and not req.image:
         raise HTTPException(400, "solid/gradient 배경 모드는 image가 필요합니다.")
-    _validate_hex_colors(req.bg_colors)
+    _validate_background_colors(req.background_mode, req.bg_colors, "bg_colors")
 
     image = b64_to_image(req.image) if req.image else None
     result = pipeline.generate_drafts(
@@ -319,7 +336,8 @@ def generate_refine(req: RefineRequest):
 
     background = None
     if req.background:
-        _validate_hex_colors(req.background.colors)
+        _validate_background_colors(req.background.mode, req.background.colors,
+                                    "background.colors")
         if req.background.mode in ("solid", "gradient") and original is None:
             raise HTTPException(400, "solid/gradient 배경 refine에는 original_image가 필요합니다.")
         background = {"mode": req.background.mode,
