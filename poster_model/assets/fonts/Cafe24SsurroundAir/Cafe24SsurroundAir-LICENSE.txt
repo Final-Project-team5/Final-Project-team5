@@ -1,0 +1,155 @@
+Cafe24 Ssurround Air (카페24 써라운드 에어) — 라이선스
+
+카페24(주) 무료폰트 라이선스 안내
+https://fonts.cafe24.com
+
+
+[ 라이선스 안내 ]
+
+"카페24 써라운드 에어"의 지적 재산권은 카페24(주)에 있습니다.
+
+카페24(주)에서 제공하는 "카페24 써라운드 에어"는 SIL OPEN FONT
+LICENSE(Version 1.1)에 따라 사용이 허가됩니다.
+
+"카페24 써라운드 에어"는 개인 및 기업 사용자를 포함한 모든 사용자에게
+무료로 제공되며 자유롭게 수정하고 재배포할 수 있습니다.
+
+단, 글꼴 자체를 유료로 판매하는 것은 금지하며 본 저작권 안내와 라이선스
+전문을 포함해서 다른 소프트웨어와 번들하거나 재배포 또는 판매가
+가능합니다. 라이선스 전문을 포함하기 어려울 경우, 출처 표기를 권장합니다.
+  예) 이 페이지에는 카페24(주)이 제공한 "카페24 써라운드 에어"가
+      적용되어 있습니다
+
+"카페24 써라운드 에어"가 사용된 인쇄물, 광고물(온라인 포함)의 이미지는
+카페24의 프로모션을 위해 활용될 수 있습니다. 이를 원치 않는 사용자는
+언제든지 당사에 요청하실 수 있습니다.
+
+
+[ 사용범위 안내 ]
+
+  CI/BI        사명, 브랜드명, 상품명, 로고, 마크, 슬로건, 캐치프레이즈,
+               브랜드 패키지 디자인 등 모든 범위                       ○
+
+  문서         일반 문서, 홍보용 문서, 단체 내부 문서, 시험지, 교재,
+               프레젠테이션, 판매용 문서/서식, 증서, 원서, 신고서 등
+               모든 범위                                              ○
+
+  인쇄/출판    책, 잡지, 신문, 도서, 교과서, 카탈로그, 팸플릿, 브로슈어,
+               포스터, 전단지, 견본집, 패키지, 연하장, 초대장, 명함,
+               달력, 다이어리, 엽서, 행사 티켓 등 모든 범위             ○
+
+  웹사이트     웹사이트 UI/UX, 웹페이지 내 배너광고, 이메일, 웹툰,
+               뉴스레터, SNS, 상세페이지, 유튜브 썸네일, 웹/모바일에
+               사용되는 이미지 콘텐츠 등 모든 범위                     ○
+
+  상품 제작    생활용품(머그컵, 의류, 수건, 텀블러 등), 판매용 상품
+               (이모티콘, 팬시 물품, 포장지 등), 도장, 레터링 풍선,
+               토퍼, 3D프린터 제작물 등 모든 범위                      ○
+
+  옥내외 광고  옥내외 간판, 안내판, 옥내외 광고물, 현수막, 벽면 광고,
+               차량 광고, 지하철 역사 내 광고, 일반 단독 간판 등
+               모든 범위                                              ○
+
+  영상         방송 타이틀, 방송 자막, CF, 유튜브, 개인 영상, 홍보용
+               영상, 영상의 자막, 디지털 광고, 영화 예고편, 뮤직비디오
+               등 모든 범위                                           ○
+
+  이북/이러닝  전자 형식의 도서/잡지/문서, 전자 포스터, 전자 브로슈어,
+               전자 카탈로그, 모바일 기사, 유/무선 동영상 강좌,
+               사내 교육자료, 온라인 교육자료 등 모든 범위             ○
+
+  임베딩       이미지/영상 편집 소프트웨어, 채팅 소프트웨어, 모바일 게임
+               소프트웨어, 어플리케이션 시스템 폰트 적용, 내비게이션,
+               키오스크 메뉴판, 가전 기기(TV, 냉장고, 세탁기 등) 및
+               전자기기, 게임기 내 폰트 적용 등 모든 범위              ○
+
+  OFL          폰트 파일의 수정/복제/배포 가능.
+               단, 글꼴 자체를 유료로 판매하는 것은 금지               ○
+
+
+-----------------------------------------------------------
+위 안내에서 언급한 SIL 오픈 폰트 라이선스 전문
+-----------------------------------------------------------
+
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font
+creation efforts of academic and linguistic communities, and to
+provide a free and open framework in which fonts may be shared and
+improved in partnership with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply to
+any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components
+as distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to
+a new environment.
+
+"Author" refers to any designer, engineer, programmer, technical writer
+or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components, in
+Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or in
+the appropriate machine-readable metadata fields within text or binary
+files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the
+corresponding Copyright Holder. This restriction only applies to the
+primary font name as presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any Modified
+Version, except to acknowledge the contribution(s) of the Copyright
+Holder(s) and the Author(s) or with their explicit written permission.
+
+5) The Font Software, modified or unmodified, in part or in whole, must
+be distributed entirely under this license, and must not be distributed
+under any other license. The requirement for fonts to remain under this
+license does not apply to any document created using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
