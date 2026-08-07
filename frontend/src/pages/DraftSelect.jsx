@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
-import { generateDrafts } from '../api/posterApi';
+import { buildPrompt, generateDrafts } from '../api/posterApi';
 import './DraftSelect.css';
-
-function buildPrompt(spec = {}) {
-  return [spec.tone, spec.product, spec.highlights].filter(Boolean).join(', ') || '포스터 배경';
-}
 
 /**
  * 화면 C — 이미지 초안 선택

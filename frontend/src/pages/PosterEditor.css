@@ -1,0 +1,168 @@
+.poster-editor {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 48px 24px 40px;
+}
+
+.poster-editor__title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.poster-editor__description {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin: 10px 0 24px;
+  line-height: 1.5;
+}
+
+.poster-editor__canvas {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 1;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-border-soft);
+  touch-action: none;
+  user-select: none;
+}
+
+.poster-editor__bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.poster-editor__safe-guide {
+  position: absolute;
+  border: 1px dashed oklch(70% 0.02 150 / 60%);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.poster-editor__text-group {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  cursor: grab;
+  text-align: center;
+}
+
+.poster-editor__text-group:active {
+  cursor: grabbing;
+}
+
+.poster-editor__headline {
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
+  line-height: 1.25;
+}
+
+.poster-editor__sub {
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
+  line-height: 1.3;
+}
+
+/* 줄바꿈 지점이 고정되도록 각 줄을 개별 요소로 그린다 — 폰트 크기가 바뀌어도
+   이 줄 자체가 다시 감기지 않는다(nowrap). */
+.poster-editor__line {
+  white-space: nowrap;
+}
+
+.poster-editor__size-presets {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.poster-editor__font-section {
+  margin-top: 20px;
+}
+
+.poster-editor__font-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.poster-editor__font-note {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.poster-editor__font-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.poster-editor__preset-chip {
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.poster-editor__preset-chip:hover {
+  border-color: var(--color-primary);
+}
+
+.poster-editor__preset-chip--active {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-badge-text);
+}
+
+.poster-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.poster-editor__secondary {
+  padding: 13px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.poster-editor__secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.poster-editor__primary {
+  padding: 13px 22px;
+  border-radius: 12px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.poster-editor__primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
