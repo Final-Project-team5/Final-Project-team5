@@ -5,6 +5,7 @@ import ChatFlow from './pages/ChatFlow';
 import CopyResult from './pages/CopyResult';
 import DraftSelect from './pages/DraftSelect';
 import PosterEditor from './pages/PosterEditor';
+import FinalResult from './pages/FinalResult';
 import { buildPrompt } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
@@ -13,8 +14,7 @@ const REG_TIP_INTERVAL_MS = 4800;
 const REG_TIP_FADE_MS = 350;
 
 function App() {
-  // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'next'
-  // 'next' = 최종 결과 화면(화면 E) 자리 — 아직 미구현, 버튼만 연결
+  // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'final'
   const [view, setView] = useState('home');
   const [chatOutcome, setChatOutcome] = useState(null); // { spec, mode, productImage, result }
   const [confirmedCopy, setConfirmedCopy] = useState(null); // { headline, sub } — 화면 B에서 확정
@@ -65,10 +65,9 @@ function App() {
     setView('poster');
   };
   const handlePosterBack = () => setView('drafts');
-  // TODO: 화면 E(최종 결과) 구현 후 실제 흐름으로 연결
   const handlePosterComplete = (result) => {
     setRefineResult(result);
-    setView('next');
+    setView('final');
   };
 
   return (
@@ -111,21 +110,14 @@ function App() {
             onBack={handlePosterBack}
           />
         )}
-        {view === 'next' && (
-          <div className="app__placeholder">
-            <div>
-              최종 결과 화면(화면 E)은 다음 단계에서 구현될 예정입니다.
-              {confirmedCopy && (
-                <>
-                  <br />
-                  확정 문구: “{confirmedCopy.headline}”
-                </>
-              )}
-            </div>
-            {refineResult && (
-              <img className="app__placeholder-thumb" src={refineResult.image} alt="완성된 포스터" />
-            )}
-          </div>
+        {view === 'final' && refineResult && confirmedCopy && (
+          <FinalResult
+            image={refineResult.image}
+            headline={confirmedCopy.headline}
+            sub={confirmedCopy.sub}
+            status={confirmedCopy.status}
+            onRestart={goHome}
+          />
         )}
       </main>
     </div>

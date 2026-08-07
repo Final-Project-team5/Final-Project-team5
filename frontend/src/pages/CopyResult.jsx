@@ -114,7 +114,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
           type="button"
           className="copy-result__primary"
           disabled={!canProceed}
-          onClick={() => onConfirm({ headline: current.headline, sub: current.sub })}
+          onClick={() => onConfirm({ headline: current.headline, sub: current.sub, status: current.status })}
         >
           이 문구로 시안 선택하러 가기
         </button>
