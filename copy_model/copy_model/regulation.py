@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import config
 from .regulation_rules import CATEGORY_RULES, rule_stats
+from .regulation_whitelist import is_whitelisted, approved_expression
 
 # 룰 사전은 regulation_rules.py로 분리 (카테고리별 패턴·근거·대체표현)
 
@@ -61,9 +62,16 @@ def check_rules(text: str, category: str) -> list[RegulationFlag]:
             category, CATEGORY_RULES["food"]):
         m = re.search(pattern, text)
         if m:
+            matched = m.group(0)
+            # 화이트리스트 guard: 법적 승인 표현('OO에 도움을 주는')이면 오탐으로 보고 통과.
+            # 단정어(제거/보장/완치 등)가 함께 있으면 guard 미적용(is_whitelisted 내부 처리).
+            if is_whitelisted(matched, text):
+                continue
+            # 대체표현을 법적 승인 표현으로 강화 (있으면 우선)
+            approved = approved_expression(matched)
             flags.append(RegulationFlag(
-                matched=m.group(0), severity=severity,
-                reason=reason, suggestion=suggestion))
+                matched=matched, severity=severity, reason=reason,
+                suggestion=f"'{approved}'" if approved else suggestion))
     flags.sort(key=lambda f: 0 if f.severity == "block" else 1)
     return flags
 
