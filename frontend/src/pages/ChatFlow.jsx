@@ -27,6 +27,10 @@ function ChatFlow({ onComplete }) {
   const [mode, setMode] = useState(null); // 'inpaint' | 'text2img' — 나중에 포스터 API 호출 시 필요
   const [productImage, setProductImage] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
+  // 진행률 n/총단계는 서버 응답의 total_steps를 그대로 따른다 — 단계 수가 나중에
+  // 바뀌어도 프론트 수정 없이 맞춰지도록 하드코딩하지 않는다. 첫 질문은 API 호출 전
+  // 프론트에 고정돼 있어 INITIAL_QUESTION.total_steps를 초기값으로 쓴다.
+  const [totalSteps, setTotalSteps] = useState(INITIAL_QUESTION.total_steps || TOTAL_STEPS);
   const [busy, setBusy] = useState(false);
 
   const idRef = useRef(0);
@@ -70,6 +74,7 @@ function ChatFlow({ onComplete }) {
     const res = await suggestOptions({ message: answerText, step: question.step, spec });
     setBusy(false);
     setSpec(res.spec);
+    if (typeof res.total_steps === 'number') setTotalSteps(res.total_steps);
 
     if (res.confirm_message) {
       addMessage({ id: uid(), role: 'bot', kind: 'note', text: res.confirm_message });
@@ -108,16 +113,16 @@ function ChatFlow({ onComplete }) {
     }
   };
 
-  const progress = Math.min(currentStep, TOTAL_STEPS);
+  const progress = Math.min(currentStep, totalSteps);
 
   return (
     <div className="chat-flow">
       <div className="chat-flow__header">
-        <div className="chat-flow__progress-label">진행률 {progress}/{TOTAL_STEPS}</div>
+        <div className="chat-flow__progress-label">진행률 {progress}/{totalSteps}</div>
         <div className="chat-flow__progress-bar">
           <div
             className="chat-flow__progress-fill"
-            style={{ width: `${(progress / TOTAL_STEPS) * 100}%` }}
+            style={{ width: `${(progress / totalSteps) * 100}%` }}
           />
         </div>
       </div>
