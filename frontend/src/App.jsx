@@ -4,6 +4,9 @@ import Home from './pages/Home';
 import ChatFlow from './pages/ChatFlow';
 import CopyResult from './pages/CopyResult';
 import DraftSelect from './pages/DraftSelect';
+import PosterEditor from './pages/PosterEditor';
+import FinalResult from './pages/FinalResult';
+import { buildPrompt } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
 
@@ -11,14 +14,14 @@ const REG_TIP_INTERVAL_MS = 4800;
 const REG_TIP_FADE_MS = 350;
 
 function App() {
-  // 'home' | 'chat' | 'result' | 'drafts' | 'next'
-  // 'next' = 문구 위치·크기 조정 화면(화면 D) 자리 — 아직 미구현, 버튼만 연결
+  // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'final'
   const [view, setView] = useState('home');
   const [chatOutcome, setChatOutcome] = useState(null); // { spec, mode, productImage, result }
   const [confirmedCopy, setConfirmedCopy] = useState(null); // { headline, sub } — 화면 B에서 확정
-  // { id, image, seed } — 화면 C에서 선택. 서버가 stateless라 image(base64)를
-  // 다음 화면(화면 D)에서 draft_image로 그대로 재전송해야 하므로 여기서 들고 있는다.
+  // { id, image, seed, background } — 화면 C에서 선택. 서버가 stateless라 image(base64)와
+  // background를 화면 D(refine 호출)에서 draft_image/background로 그대로 재전송해야 한다.
   const [selectedDraft, setSelectedDraft] = useState(null);
+  const [refineResult, setRefineResult] = useState(null); // 화면 D에서 완성한 최종 결과(mock)
   const [regTipIndex, setRegTipIndex] = useState(0);
   const [regTipVisible, setRegTipVisible] = useState(true);
 
@@ -39,11 +42,13 @@ function App() {
     setChatOutcome(null);
     setConfirmedCopy(null);
     setSelectedDraft(null);
+    setRefineResult(null);
   };
   const newFlow = () => {
     setChatOutcome(null);
     setConfirmedCopy(null);
     setSelectedDraft(null);
+    setRefineResult(null);
     setView('chat');
   };
   const handleChatComplete = (outcome) => {
@@ -55,10 +60,14 @@ function App() {
     setView('drafts');
   };
   const handleDraftBack = () => setView('result');
-  // TODO: 화면 D(문구 위치·크기 조정) 구현 후 실제 흐름으로 연결
   const handleDraftConfirmed = (draft) => {
     setSelectedDraft(draft);
-    setView('next');
+    setView('poster');
+  };
+  const handlePosterBack = () => setView('drafts');
+  const handlePosterComplete = (result) => {
+    setRefineResult(result);
+    setView('final');
   };
 
   return (
@@ -89,21 +98,26 @@ function App() {
             onBack={handleDraftBack}
           />
         )}
-        {view === 'next' && (
-          <div className="app__placeholder">
-            <div>
-              문구 위치·크기 조정 화면(화면 D)은 다음 단계에서 구현될 예정입니다.
-              {confirmedCopy && (
-                <>
-                  <br />
-                  확정 문구: “{confirmedCopy.headline}”
-                </>
-              )}
-            </div>
-            {selectedDraft && (
-              <img className="app__placeholder-thumb" src={selectedDraft.image} alt="선택한 시안" />
-            )}
-          </div>
+        {view === 'poster' && chatOutcome && selectedDraft && confirmedCopy && (
+          <PosterEditor
+            draftImage={selectedDraft.image}
+            background={selectedDraft.background}
+            originalImage={chatOutcome.productImage}
+            prompt={buildPrompt(chatOutcome.spec)}
+            headline={confirmedCopy.headline}
+            sub={confirmedCopy.sub}
+            onComplete={handlePosterComplete}
+            onBack={handlePosterBack}
+          />
+        )}
+        {view === 'final' && refineResult && confirmedCopy && (
+          <FinalResult
+            image={refineResult.image}
+            headline={confirmedCopy.headline}
+            sub={confirmedCopy.sub}
+            status={confirmedCopy.status}
+            onRestart={goHome}
+          />
         )}
       </main>
     </div>

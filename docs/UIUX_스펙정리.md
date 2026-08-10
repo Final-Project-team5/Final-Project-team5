@@ -156,7 +156,7 @@ POST /suggest/options (또는 동일 계열 엔드포인트)
 - 고품질화된 최종 이미지 + 확정 문구 표시
 - 규제통과 배지 유지 표시
 - **"AI 생성 콘텐츠" 캡션 표시** (AI기본법 제31조 대응) — 이미지 내부 워터마크(지우님)와 별개로 화면 텍스트로 노출
-- 용도별 사이즈 토글 (SNS / 배너 / 상세페이지) — 크롭은 지우님 파이프라인 결과물 중 해당 규격을 선택해서 보여주는 방식으로 처리 (프론트에서 직접 크롭 연산 안 함)
+- 용도별 사이즈 토글 (SNS / 배너 / 상세페이지) — **⚠ 비율별 크롭 기능은 지우님 파이프라인에 아직 미구현(현재 1024×1024 정사각형만 생성).** GCP VM 연결 후 품질/속도 검증하고 방식 확정 예정이라, 이 토글 UI는 백엔드 준비되기 전까지 "준비 중" 처리하거나 우선순위에서 후순위. 확정 시 3개 미리 생성 vs 개별 호출 중 결정 (8/6 논의)
 - 다운로드 버튼 (base64 → blob 변환 후 다운로드)
 - "처음부터 다시 만들기" 버튼으로 홈으로 복귀
 
@@ -179,44 +179,53 @@ POST /generate/drafts
 ```
 {
   "drafts": [
-    { "id": "d1", "image": "<base64>", "seed": 12345 },
-    { "id": "d2", "image": "<base64>", "seed": 67890 },
-    { "id": "d3", "image": "<base64>", "seed": 24680 }
+    { "id": "d1", "image": "<base64>", "seed": 12345, "background": { ... } },
+    { "id": "d2", "image": "<base64>", "seed": 67890, "background": { ... } },
+    { "id": "d3", "image": "<base64>", "seed": 24680, "background": { ... } }
   ],
   "meta": { "elapsed": 9.8, "model": "sd15" }
 }
 ```
+※ 이미지는 순수 base64(data: prefix 없음). `background`는 solid/gradient 모드에서 실제 적용된 색상 정보이며, refine 요청에 그대로 echo해야 동일 배경 재현됨(서버 무상태).
 
 **2단계 — 선택 시안 고품질 렌더링 + 문구 합성**
 ```
 POST /generate/refine
 {
-  "draft_image": "<base64>",   // 1단계에서 사용자가 선택한 시안을 그대로 재전송
+  "draft_image": "<base64>",     // 1단계에서 사용자가 선택한 시안을 그대로 재전송
+  "original_image": "<base64>",  // ★ 사용자가 업로드한 원본 제품 사진 — refine마다 항상 전송 필요 (아래 유의점 참고)
+  "background": { ... },          // ★ draft 응답의 해당 시안 background 값을 그대로 echo (서버 무상태)
   "prompt": "배경 설명",
   "text": {
-    "headline": "...",       // 도혁님 문구 모델 결과 (20자 내외, 형태 고정되어 전달됨)
-    "sub": "...",             // 도혁님 문구 모델 결과 (30자 내외, 형태 고정되어 전달됨)
-    "position_x": 0.6,        // 0~1 비율, 프론트에서 자유 드래그로 결정
-    "position_y": 0.15,       // 0~1 비율
-    "font_size": 32,          // 3단계 프리셋(작게/보통/크게)에 매핑된 값
-    "style": "plain" | "bar"  // 우선 plain 고정
+    "headline": "...",         // 도혁님 문구 모델 결과 (20자 내외, 형태 고정되어 전달됨)
+    "sub": "...",               // 도혁님 문구 모델 결과 (30자 내외, 형태 고정되어 전달됨)
+    "x": 0.6,                   // 0~1 비율, 프론트 드래그로 결정. x·y 둘 다 보내야 좌표 모드 (하나라도 빠지면 position 프리셋 폴백)
+    "y": 0.15,                  // 0~1 비율
+    "headline_size": 0.12,      // 짧은 변 대비 비율 (3단계 프리셋을 이 비율값으로 매핑)
+    "sub_size": 0.07,           // 짧은 변 대비 비율, headline과 별도로 전송
+    "style": "plain"            // ★ 반드시 "plain" 명시 (기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림)
   }
 }
 ```
 ```
 {
-  "image": "<base64>",
-  "meta": { "elapsed": 12.3, "model": "sdxl", "seed": 67890 }
+  "image": "<base64>",          // 순수 base64 (data: prefix 없음) → 프론트에서 `data:image/png;base64,${image}`로 감싸서 사용
+  "meta": { "elapsed": 12.3, "model": "sdxl", "seed": 67890, "layout": { ... } }
 }
 ```
 
-**구현 시 유의할 점**
-- **서버가 세션을 저장하지 않는 stateless 구조** — 프론트가 1단계 응답에서 사용자가 선택한 시안의 `image`(base64)를 상태로 들고 있다가 2단계 요청 때 `draft_image`로 그대로 다시 보내야 함
-- **문구 중계 역할**: 도혁님 문구 모델 결과(`headline`, `sub`)를 프론트가 받아서 `text` 필드에 담아 포스터 refine API로 넘겨줌. 프론트는 문구 내용/형태에 관여하지 않고 위치·크기만 결정
-- **위치는 좌표(x,y 비율) 방식**, **폰트 크기는 3단계 프리셋** (8/5 확정) — 프론트가 드래그 UI + CSS 미리보기 구현, 서버 요청은 완성 시 1회만
-- **글자 수 제한(headline 20자/sub 30자)은 프론트가 자르지 않음** — 문구 생성 단계(도혁님)에서 자동 축약 1회 처리, 그래도 초과 시 `over_limit` 플래그로 하향 전달
-- 결과는 **base64**로 수신 (URL 방식은 추후 이력 저장 기능 필요 시 재검토 — 7장 참고)
-- **AI 생성물 워터마크**: 지우님 후처리 단계에서 이미지 하단 모서리에 반투명 표기 처리 (프론트 작업 아님)
+**구현 시 유의할 점** (8/6, 지우님 확정 반영)
+- **서버가 세션을 저장하지 않는 stateless 구조** — 프론트가 1단계 응답에서 선택한 시안의 `image`(base64)를 상태로 들고 있다가 2단계 요청 때 `draft_image`로 그대로 재전송
+- **`original_image`(원본 제품 사진)를 refine 요청마다 항상 전송** — AI 모드에서도 필요. 안 보내면 원본 제품 보존 단계가 빠져서 SDXL이 제품을 다시 그리며 로고/제품명/포장지 한글이 뭉개질 수 있음. solid/gradient 배경 모드나 z_order="behind" 연출 사용 시엔 아예 필수(없으면 400). → **챗봇 초반 업로드한 원본 사진(base64)을 화면 D(refine 호출)까지 상태로 계속 보관해야 함**
+- **`background` 값도 refine에 echo** — draft 응답의 선택 시안 `background`를 그대로 다시 보내야 같은 배경 재현(서버 무상태). solid/gradient 모드에서 특히 중요
+- **응답 이미지는 순수 base64** — data: prefix 없이 오므로 프론트에서 `` `data:image/png;base64,${res.image}` `` 로 감싸서 사용
+- **문구 위치/크기 필드**: `x`, `y`(0~1 비율, 둘 다 보내야 좌표 모드) / `headline_size`, `sub_size`(짧은 변 대비 비율, 각각 전송). 3단계 프리셋(작게/보통/크게)은 이 비율값으로 매핑해서 보냄. 드래그 UI + CSS 미리보기, 서버 요청은 완성 시 1회만
+- **`style`은 반드시 "plain" 명시** — 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림
+- **문구 중계 역할**: 도혁님 문구 모델 결과(`headline`, `sub`)를 프론트가 받아 `text` 필드에 담아 전달. 프론트는 문구 내용/형태에 관여하지 않고 위치·크기만 결정
+- **글자 수 제한(headline 20자/sub 30자)은 프론트가 자르지 않음** — 도혁님 생성 단계에서 자동 축약 1회, 초과 시 `over_limit` 플래그
+- **`meta.layout`**(제품 bbox 비율) 활용 가능 — 화면 D 드래그 UI에서 "제품 위/아래 영역에 스냅" 같은 보조 기능에 쓸 수 있음 (선택)
+- **AI 생성물 워터마크**: 지우님 후처리 단계에서 이미지 하단 모서리에 반투명 표기 (프론트 작업 아님)
+- 결과는 base64로 수신 (URL 방식은 추후 이력 저장 필요 시 재검토 — 7장)
 
 ### 문구 모델 (도혁님) — 확정 (8/5), 룰 사전 확충 및 CORS 반영 (8/6)
 
@@ -229,12 +238,14 @@ POST /generate/copy
 {
   headline, sub,           // 시안 3개, 글자수 보장(20자/30자 내외, over_limit 플래그 있을 수 있음)
   status: "pass" | "block" | "warn",
-  regulation_flags: [ { pattern, severity, note, suggestion } ]  // 위반 표현 + 대체 표현 제안 (8/6 추가)
+  safe: true | false,      // block 있으면 false, warn만 있으면 true
+  regulation_flags: [ { matched, severity, reason, suggestion } ]  // 위반 표현 + 대체 표현 제안
 }
 ```
 - 표시광고법·식품표시광고법·화장품법 등 금지/주의 표현 자동 검사. 8/6 기준 룰 13개 → 49개로 확충 (food 19 / beauty 17 / goods 13, block·warn 구분). `docs/광고규제_법규정리.md`에 근거 법령 정리됨
 - `suggestion` 필드로 대체 표현까지 제안됨 (예: "면역력 강화" → "든든하게 채우는") — 화면 B에 block(빨간 배지)/warn(노란 배지)와 함께 노출
 - **`safe` 필드 = block 여부만 판정** (`severity: "block"`인 flag가 하나라도 있으면 `false`). warn만 있으면 `safe: true` — 진행 가능 (8/6 확정, 프론트 mock에도 동일 규칙 반영)
+- **⚠ 실서버 연동 시 필드명 매핑 필요** — 현재 프론트 mock은 `pattern`/`note`를 쓰고 있으나 실제 API는 **`matched`(위반 표현), `reason`(사유)** 임. 교체 시점에 `pattern`→`matched`, `note`→`reason` 매핑만 맞추면 됨 (8/7, 도혁님 안내)
 
 **문구 재검증** (사용자 직접 수정 시)
 ```
@@ -242,8 +253,10 @@ POST /validate/copy
 { 사용자가 수정한 문구 }
 ```
 ```
-{ status: "pass" | "block" | "warn", flags: [ { pattern, severity, note, suggestion } ] }
+{ status: "pass" | "block" | "warn", safe: true|false, flags: [ { matched, severity, reason, suggestion } ], use_llm? }
 ```
+- `use_llm` 옵션: `/validate/copy`에서만 켤 수 있음. 룰이 못 잡는 우회 표현을 LLM으로 판단 (비용 발생, 필요할 때만). 룰 검사 자체는 `/generate/copy`와 동일 함수 사용
+- (필드명 매핑은 위 `/generate/copy`와 동일 — mock `pattern`/`note` → 실제 `matched`/`reason`)
 
 **CORS 설정 완료 (8/6)** — 브라우저에서 직접 호출 가능, 별도 중계 서버 불필요. Vite(5173) 등 주요 개발 서버 포트는 기본 허용되어 있고, 배포 도메인은 `COPY_CORS_ORIGINS` 환경변수로 추가 지정. `GET /health`에서 허용된 origin 목록 확인 가능. *(6장 엣지케이스에 있던 "중계 서버 필요 여부" 미확인 항목 해결됨)*
 
@@ -306,5 +319,7 @@ POST /suggest/options
 
 ---
 
-*최종 업데이트: 8/6. 문구 모델 룰 사전 확충(13→49개) 및 suggestion(대체 표현) 필드 추가, CORS 설정 완료로 브라우저 직접 호출 가능 확인(중계 서버 불필요). 화면 A/B 프로토타입 구현 완료.*
+*최종 업데이트: 8/7. 문구 모델 실서버 필드명 매핑 메모 추가(mock pattern/note → 실제 matched/reason), safe·use_llm 필드 반영.*
+*8/6 (2차): 포스터 모델 API를 지우님 실제 구현 기준으로 정합 — refine에 original_image·background 상시 전송, 필드명 x/y/headline_size/sub_size(비율), style="plain" 명시, 응답 base64 prefix 처리. 사이즈별 크롭은 미구현으로 화면 E 사이즈 토글 후순위 처리.*
+*8/6 (1차): 문구 모델 룰 사전 확충(13→49개) 및 suggestion·safe 필드 추가, CORS 설정 완료로 브라우저 직접 호출 가능 확인(중계 서버 불필요). 화면 A/B/C 프로토타입 구현.*
 *8/5 기준: 챗봇을 메인 인터페이스로 최종 확정(PM 피드백 반영, 4→5번 질문 자동 연결). 폰트 크기 3단계 프리셋 확정. 문구 모델(도혁님) API 전체 확정(/generate/copy, /suggest/options, /validate/copy). 포스터 모델 문구 위치는 좌표(비율) 기반 자유 조정. AI 생성물 표시 의무(AI기본법 제31조) 대응 반영. 제품 사진 업로드는 목업엔 미반영, 실제 개발 시 필수 반영 필요.*
