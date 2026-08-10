@@ -1,14 +1,23 @@
 /**
  * 포스터 이미지 생성 API — mock 버전.
  * 실서버(지우님 파트)가 준비되기 전까지 프론트 흐름 검증용으로 사용한다.
- * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/7 실서버 필드 정합 반영)
+ * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/10 용도→비율 매핑 반영)
  *
- *   POST /generate/drafts  { mode, image?, prompt, num_images } → DraftSelect.jsx (화면 C)
+ *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundType?, num_images } → DraftSelect.jsx (화면 C)
  *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D)
  */
 
 const MOCK_DELAY_MS = 900;
 const SEEDS = [12345, 67890, 24680];
+
+// 챗봇 용도 질문(화면 A)에서 넘어온 비율 문자열 → 실제 캔버스 픽셀 크기.
+// AI 배경(diffusion) 쪽은 아직 비정사각 production 미지원이라 실제로는 3:1/3:4가
+// flat 배경에서만 쓰이지만, mock 캔버스 자체는 비율만 맞춰 그려둔다.
+const RATIO_DIMENSIONS = {
+  '1:1': { w: 512, h: 512 },
+  '3:1': { w: 768, h: 256 },
+  '3:4': { w: 384, h: 512 },
+};
 
 function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,45 +31,65 @@ export function buildPrompt(spec = {}) {
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.
 // (화면 D에서 base64 strip → 재조합 왕복을 거치는데, 실제로 다시 렌더되는 이미지여야
 //  어댑터 동작을 눈으로 확인할 수 있어서 SVG 대신 PNG로 그린다)
-function placeholderImage(seed, label) {
-  const size = 512;
+// backgroundType이 'flat'이면 점선 테두리(= "AI가 그렸다"는 표시) 없이 단순 배경만 그려서
+// 화면 C/E에서 AI 배경과 flat 배경을 시각적으로 구분할 수 있게 한다.
+function placeholderImage(seed, label, ratio, backgroundType) {
+  const { w, h } = RATIO_DIMENSIONS[ratio] || RATIO_DIMENSIONS['1:1'];
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d');
   const hue = (seed * 47) % 360;
 
   ctx.fillStyle = `hsl(${hue} 20% 90%)`;
-  ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = `hsl(${hue} 20% 78%)`;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 8]);
-  ctx.strokeRect(16, 16, size - 32, size - 32);
+  ctx.fillRect(0, 0, w, h);
+
+  if (backgroundType !== 'flat') {
+    ctx.strokeStyle = `hsl(${hue} 20% 78%)`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 8]);
+    ctx.strokeRect(16, 16, w - 32, h - 32);
+  }
+
   ctx.fillStyle = `hsl(${hue} 20% 45%)`;
   ctx.font = '600 26px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, size / 2, size / 2);
+  ctx.fillText(label, w / 2, h / 2);
 
   return canvas.toDataURL('image/png'); // data:image/png;base64,...
 }
 
-// solid/gradient 배경 모드의 mock 값 — 실제로는 draft 응답에 실려 오고,
-// refine 요청 때 그대로 echo해야 동일 배경이 재현된다 (서버 무상태).
-function mockBackground(seed) {
-  const hue = (seed * 47) % 360;
-  return { type: 'gradient', colors: [`hsl(${hue} 30% 92%)`, `hsl(${hue} 30% 78%)`] };
+// background 값 mock — 실제로는 draft 응답에 실려 오고, refine 요청 때 그대로
+// echo해야 동일 배경이 재현된다(서버 무상태). type이 'gradient'(flat)인지 'ai'인지로
+// 화면 E의 "같은 배경으로 다른 이미지 생성하기" 버튼 노출 여부를 가른다.
+function mockBackground(seed, backgroundType) {
+  if (backgroundType === 'flat') {
+    const hue = (seed * 47) % 360;
+    return { type: 'gradient', colors: [`hsl(${hue} 30% 92%)`, `hsl(${hue} 30% 78%)`] };
+  }
+  return { type: 'ai' };
 }
 
-/** POST /generate/drafts 목 함수. 화면 A에서 저장한 mode/image를 그대로 넘겨받는다. */
-export async function generateDrafts({ mode = 'text2img', image = null, prompt = '', num_images = 3 } = {}) {
+/**
+ * POST /generate/drafts 목 함수. 화면 A에서 저장한 mode/image/ratio를 그대로 넘겨받는다.
+ * backgroundType: 'ai' | 'flat' — 화면 C에서 고른 배경 종류(3:4에서는 항상 'flat'로 강제됨).
+ */
+export async function generateDrafts({
+  mode = 'text2img',
+  image = null,
+  prompt = '',
+  ratio = '1:1',
+  backgroundType = 'ai',
+  num_images = 3,
+} = {}) {
   await delay();
 
   const drafts = SEEDS.slice(0, num_images).map((seed, idx) => ({
     id: `d${idx + 1}`,
-    image: placeholderImage(seed, `시안 ${idx + 1}`),
+    image: placeholderImage(seed, `시안 ${idx + 1}`, ratio, backgroundType),
     seed,
-    background: mockBackground(seed),
+    background: mockBackground(seed, backgroundType),
   }));
 
   return {
@@ -70,6 +99,8 @@ export async function generateDrafts({ mode = 'text2img', image = null, prompt =
       model: mode === 'inpaint' ? 'sd15-inpaint' : 'sd15',
       mode,
       prompt,
+      ratio,
+      backgroundType,
       usedProductImage: Boolean(image),
     },
   };

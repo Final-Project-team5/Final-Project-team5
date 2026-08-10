@@ -4,8 +4,8 @@ import './ChatFlow.css';
 
 /**
  * 화면 A — 챗봇 진행 화면
- * 5단계 질문을 순서대로 진행하고, 2번 질문 직후 제품 사진 업로드 여부를
- * 물어 mode(inpaint/text2img)를 결정한다. (docs/UIUX_스펙정리.md 4장 참고)
+ * 6단계 질문을 순서대로 진행하고(2번=용도→비율 매핑, 3번 직후 제품 사진 업로드
+ * 여부를 물어 mode(inpaint/text2img) 결정). (docs/UIUX_스펙정리.md 4장 참고)
  *
  * 로딩 디테일/재시도/에러 UI는 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
  */
@@ -75,8 +75,8 @@ function ChatFlow({ onComplete }) {
       addMessage({ id: uid(), role: 'bot', kind: 'note', text: res.confirm_message });
     }
 
-    // 2번 질문(제품/가게) 답변 직후엔 사진 업로드 여부부터 물어본다.
-    if (question.step === 2) {
+    // 3번 질문(제품/가게) 답변 직후엔 사진 업로드 여부부터 물어본다.
+    if (question.step === 3) {
       addMessage({ id: uid(), role: 'bot', kind: 'photo', resolved: false, pendingResult: res });
       return;
     }
@@ -246,14 +246,14 @@ function QuestionCard({ question, busy, onAnswer }) {
             disabled={busy || !otherText.trim()}
             onClick={submitOther}
           >
-            입력 완료
+            이렇게 입력할게요
           </button>
         </div>
       )}
 
       {question.multiSelect && (
         <button type="button" className="chat-question__submit chat-question__submit--block" disabled={busy} onClick={submitMulti}>
-          선택 완료
+          다 골랐어요
         </button>
       )}
 

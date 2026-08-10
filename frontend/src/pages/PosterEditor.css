@@ -24,7 +24,7 @@
   position: relative;
   width: 100%;
   max-width: 480px;
-  aspect-ratio: 1;
+  aspect-ratio: var(--canvas-ratio, 1);
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -106,10 +106,21 @@
   color: var(--color-text-muted);
 }
 
-.poster-editor__font-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.poster-editor__font-select {
+  width: 100%;
+  max-width: 280px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.poster-editor__font-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 
 .poster-editor__preset-chip {

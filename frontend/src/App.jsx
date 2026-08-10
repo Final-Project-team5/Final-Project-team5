@@ -6,7 +6,7 @@ import CopyResult from './pages/CopyResult';
 import DraftSelect from './pages/DraftSelect';
 import PosterEditor from './pages/PosterEditor';
 import FinalResult from './pages/FinalResult';
-import { buildPrompt } from './api/posterApi';
+import { buildPrompt, generateRefine, toImageSrc } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
 
@@ -69,6 +69,25 @@ function App() {
     setRefineResult(result);
     setView('final');
   };
+  // 화면 E "같은 배경으로 다른 이미지 생성하기" — 선택한 draft(배경)는 그대로 두고
+  // refine만 다시 호출한다. flat 배경일 때만 노출되므로 selectedDraft.background가
+  // 항상 존재한다는 전제로 이전 refine에 썼던 문구 배치(refineResult.text)를 재사용한다.
+  const handleRegenerate = async () => {
+    if (!selectedDraft || !confirmedCopy) return;
+    const res = await generateRefine({
+      draft_image: selectedDraft.image,
+      original_image: chatOutcome?.productImage,
+      background: selectedDraft.background,
+      prompt: buildPrompt(chatOutcome?.spec),
+      text: {
+        headline: confirmedCopy.headline,
+        sub: confirmedCopy.sub,
+        ...refineResult?.text,
+        style: 'plain',
+      },
+    });
+    setRefineResult({ image: toImageSrc(res.image), meta: res.meta, text: refineResult?.text });
+  };
 
   return (
     <div className="app">
@@ -104,6 +123,7 @@ function App() {
             background={selectedDraft.background}
             originalImage={chatOutcome.productImage}
             prompt={buildPrompt(chatOutcome.spec)}
+            ratio={chatOutcome.spec?.aspect_ratio}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
             onComplete={handlePosterComplete}
@@ -113,9 +133,14 @@ function App() {
         {view === 'final' && refineResult && confirmedCopy && (
           <FinalResult
             image={refineResult.image}
+            ratio={chatOutcome?.spec?.aspect_ratio}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
             status={confirmedCopy.status}
+            // flat 배경(단색/그라데이션)일 때만 재생성 버튼 노출 — AI 배경은 비율별
+            // 생성 실험이 끝날 때까지 숨김 (8/10 확정)
+            canRegenerate={selectedDraft?.background?.type !== 'ai'}
+            onRegenerate={handleRegenerate}
             onRestart={goHome}
           />
         )}

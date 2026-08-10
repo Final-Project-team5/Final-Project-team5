@@ -9,13 +9,28 @@
  */
 
 const MOCK_DELAY_MS = 400;
-export const TOTAL_STEPS = 5;
+export const TOTAL_STEPS = 6;
 
 function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// --- 업종별 2번 질문(제품/가게) 선택지 ---------------------------------
+// --- 용도 질문 (8/11 확정: 비율 매핑은 프론트가 아니라 서버가 결정) --------
+// 프론트는 이 선택지로 질문만 보여주고, 매핑 결과(purpose/aspect_ratio)는
+// 서버가 /suggest/options 응답 spec에 채워서 내려준다. 프론트는 그 값을
+// 그대로 받아 쓸 뿐 계산하지 않는다 — 아래 PURPOSE_BY_USAGE는 mock이 "서버라면
+// 이렇게 채워줬을 값"을 흉내내기 위한 내부 구현일 뿐, 프론트 쪽 매핑 로직이 아니다.
+export const USAGE_OPTIONS = ['SNS 카드뉴스', '배너', '상세페이지'];
+const PURPOSE_BY_USAGE = {
+  'SNS 카드뉴스': { purpose: 'sns', aspect_ratio: '1:1' },
+  배너: { purpose: 'banner', aspect_ratio: '3:1' },
+  상세페이지: { purpose: 'detail', aspect_ratio: '3:4' },
+};
+function resolvePurpose(usage) {
+  return PURPOSE_BY_USAGE[usage] || { purpose: 'sns', aspect_ratio: '1:1' };
+}
+
+// --- 업종별 3번 질문(제품/가게) 선택지 ---------------------------------
 const CATEGORY_PRODUCT_OPTIONS = {
   food: ['떡볶이집', '베이커리·디저트', '카페', '도시락 전문점'],
   beauty: ['스킨케어 브랜드', '헤어살롱', '네일샵', '향수 브랜드'],
@@ -48,26 +63,33 @@ function buildQuestion(step, spec) {
   switch (step) {
     case 2:
       return {
+        question: '이 포스터는 어디에 사용하실 예정인가요?',
+        options: USAGE_OPTIONS,
+        multiSelect: false,
+        freeform: false,
+      };
+    case 3:
+      return {
         question: '어떤 제품/가게인가요?',
         options: CATEGORY_PRODUCT_OPTIONS[categoryKey(spec.category)],
         multiSelect: false,
         freeform: false,
       };
-    case 3:
+    case 4:
       return {
         question: '원하시는 포스터 느낌은 어떤가요?',
         options: TONE_OPTIONS,
         multiSelect: false,
         freeform: false,
       };
-    case 4:
+    case 5:
       return {
         question: '강조하고 싶은 점은 무엇인가요? (복수 선택 가능)',
         options: HIGHLIGHT_OPTIONS,
         multiSelect: true,
         freeform: false,
       };
-    case 5:
+    case 6:
       return {
         question: '추가로 요청하실 사항이 있나요?',
         options: EXTRA_OPTIONS,
@@ -84,12 +106,14 @@ function buildConfirmMessage(step, spec) {
     case 1:
       return `${spec.category} 업종이시군요!`;
     case 2:
-      return `${spec.product}, 멋지네요!`;
+      return `${spec.usage}에 맞는 비율로 준비할게요!`;
     case 3:
-      return '좋은 느낌이에요!';
+      return `${spec.product}, 멋지네요!`;
     case 4:
-      return '강조 포인트 확인했어요!';
+      return '좋은 느낌이에요!';
     case 5:
+      return '강조 포인트 확인했어요!';
+    case 6:
       return '모든 답변을 확인했어요. 문구를 만들어볼게요!';
     default:
       return '';
@@ -110,16 +134,24 @@ export async function suggestOptions({ message, step = 1, spec = {} } = {}) {
     case 1:
       nextSpec.category = message;
       break;
-    case 2:
+    case 2: {
+      nextSpec.usage = message;
+      // 서버 응답 흉내: spec에 purpose/aspect_ratio를 이미 채운 상태로 내려준다.
+      const { purpose, aspect_ratio } = resolvePurpose(message);
+      nextSpec.purpose = purpose;
+      nextSpec.aspect_ratio = aspect_ratio;
+      break;
+    }
+    case 3:
       nextSpec.product = message;
       break;
-    case 3:
+    case 4:
       nextSpec.tone = message;
       break;
-    case 4:
+    case 5:
       nextSpec.highlights = message;
       break;
-    case 5:
+    case 6:
       nextSpec.extra = message;
       break;
     default:

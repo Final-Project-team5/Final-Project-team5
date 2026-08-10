@@ -1,16 +1,6 @@
 import { useState } from 'react';
 import './FinalResult.css';
 
-// 용도별 사이즈 토글 — 지우님 파이프라인에 비율별 크롭이 아직 없어(현재 1024×1024
-// 정사각형만 생성) square만 available:true. 나중에 백엔드가 준비되면 이 배열의
-// available만 true로 바꾸면 바로 열리는 구조로 잡아둠.
-const SIZE_OPTIONS = [
-  { id: 'square', label: '정사각형 1024×1024', available: true },
-  { id: 'sns', label: 'SNS 카드뉴스', available: false },
-  { id: 'banner', label: '배너', available: false },
-  { id: 'detail', label: '상세페이지', available: false },
-];
-
 const BADGE_INFO = {
   pass: { label: '규제 검증 통과', className: 'final-result__badge--pass' },
   warn: { label: '주의 필요', className: 'final-result__badge--warn' },
@@ -43,14 +33,26 @@ function downloadDataUri(dataUri, filename) {
  * 화면 D(/generate/refine mock)의 결과 이미지와 확정 문구를 보여주고 다운로드까지
  * 제공한다. (docs/UIUX_스펙정리.md 4장, docs/AI_생성물_고지_표준안.md 참고)
  *
+ * 사이즈는 챗봇 용도 질문(화면 A)에서 미리 정해지므로 여기엔 사이즈 토글이 없다
+ * (8/8 확정). 대신 flat 배경(단색/그라데이션)일 때만 "같은 배경으로 다른 이미지
+ * 생성하기" 버튼을 노출해 draft는 유지한 채 refine만 다시 호출한다.
+ *
  * 로딩 디테일/재시도/에러 UI는 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
  */
-function FinalResult({ image, headline, sub, status, onRestart }) {
-  const [sizeId, setSizeId] = useState('square');
+function FinalResult({ image, ratio = '1:1', headline, sub, status, canRegenerate, onRegenerate, onRestart }) {
+  const [regenerating, setRegenerating] = useState(false);
   const badge = BADGE_INFO[status] || BADGE_INFO.pass;
+  const aspectRatio = ratio.replace(':', ' / ');
 
   const handleDownload = () => {
     downloadDataUri(image, `ad-poster-${Date.now()}.png`);
+  };
+
+  const handleRegenerate = async () => {
+    if (!onRegenerate) return;
+    setRegenerating(true);
+    await onRegenerate();
+    setRegenerating(false);
   };
 
   return (
@@ -61,7 +63,7 @@ function FinalResult({ image, headline, sub, status, onRestart }) {
       <div className="final-result__card">
         <span className={`final-result__badge ${badge.className}`}>{badge.label}</span>
 
-        <div className="final-result__image-wrap">
+        <div className="final-result__image-wrap" style={{ '--result-ratio': aspectRatio }}>
           <img className="final-result__image" src={image} alt="완성된 광고 포스터" />
         </div>
 
@@ -73,30 +75,21 @@ function FinalResult({ image, headline, sub, status, onRestart }) {
         </div>
       </div>
 
-      <div className="final-result__size-section">
-        <div className="final-result__size-label">용도별 사이즈</div>
-        <div className="final-result__size-options">
-          {SIZE_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              disabled={!opt.available}
-              className={
-                'final-result__size-chip' +
-                (sizeId === opt.id ? ' final-result__size-chip--active' : '') +
-                (!opt.available ? ' final-result__size-chip--disabled' : '')
-              }
-              onClick={() => opt.available && setSizeId(opt.id)}
-            >
-              {opt.label}
-              {!opt.available && <span className="final-result__size-soon">준비 중</span>}
-            </button>
-          ))}
+      {canRegenerate && (
+        <div className="final-result__regenerate-section">
+          <button
+            type="button"
+            className="final-result__regenerate-btn"
+            disabled={regenerating}
+            onClick={handleRegenerate}
+          >
+            {regenerating ? '새로 만드는 중…' : '같은 배경으로 다른 이미지 생성하기'}
+          </button>
+          <p className="final-result__regenerate-note">
+            지금 배경은 그대로 두고 문구·이미지만 다시 만들어드려요.
+          </p>
         </div>
-        <p className="final-result__size-note">
-          현재는 정사각형(1024×1024) 결과만 제공돼요. 용도별 사이즈는 크롭 기능이 준비되면 열릴 예정이에요.
-        </p>
-      </div>
+      )}
 
       <div className="final-result__actions">
         <button type="button" className="final-result__restart" onClick={onRestart}>

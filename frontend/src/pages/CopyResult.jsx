@@ -83,7 +83,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
                 </div>
                 <p className="copy-result__flag-note">{flag.note}</p>
                 <button type="button" className="copy-result__flag-suggestion" onClick={() => applySuggestion(flag)}>
-                  대체 표현 적용: <strong>{flag.suggestion}</strong>
+                  이 표현으로 바꿀게요: <strong>{flag.suggestion}</strong>
                 </button>
               </div>
             ))}
@@ -102,7 +102,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
           <input value={draftSub} onChange={(e) => setDraftSub(e.target.value)} maxLength={60} />
         </label>
         <button type="button" className="copy-result__validate-btn" disabled={validating} onClick={handleRevalidate}>
-          {validating ? '검증 중…' : '수정한 문구 재검증하기'}
+          {validating ? '확인하는 중…' : '수정한 문구 다시 확인하기'}
         </button>
       </div>
 
@@ -116,7 +116,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
           disabled={!canProceed}
           onClick={() => onConfirm({ headline: current.headline, sub: current.sub, status: current.status })}
         >
-          이 문구로 시안 선택하러 가기
+          이 문구로 포스터 만들기
         </button>
       </div>
     </div>
