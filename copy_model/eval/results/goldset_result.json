@@ -1,21 +1,24 @@
 {
   "train": {
     "n": 49,
-    "confusion": {
+    "label_accuracy": 1.0,
+    "confusion_3class": {
+      "block→block": 17,
+      "warn→warn": 15,
+      "safe→safe": 17
+    },
+    "detection": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
       "tp": 32,
       "fp": 0,
       "fn": 0,
       "tn": 17
     },
-    "detection": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
-    },
-    "block_severity_recall": 1.0,
     "false_positives": [],
     "false_negatives": [],
-    "under_severity": [],
+    "severity_errors": [],
     "rows": [
       {
         "id": "F-B1",
@@ -23,9 +26,9 @@
         "text": "아토피 완치 홍삼 / 꾸준히 먹으면 낫는다",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병 치료·완치 단정"
       },
       {
@@ -34,9 +37,9 @@
         "text": "면역력 강화 진액 / 매일 면역력을 높여요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "면역력 강화 = 기능성 미인정 단정"
       },
       {
@@ -45,9 +48,9 @@
         "text": "장 속 디톡스 / 노폐물을 배출해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "디톡스·노폐물 배출"
       },
       {
@@ -56,9 +59,9 @@
         "text": "고혈압에 좋은 흑마늘 / 콜레스테롤을 잡아줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병명+효능 단정"
       },
       {
@@ -67,9 +70,9 @@
         "text": "살 빠지는 도시락 / 체지방 감소 효과",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "다이어트 효과 단정"
       },
       {
@@ -78,9 +81,9 @@
         "text": "노폐물 비워내는 유산균 / 장 속을 비워요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] 디톡스 회피 '비우다'"
       },
       {
@@ -89,9 +92,9 @@
         "text": "피로엔 직빵 홍삼스틱 / 즉각 원기충전",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] 피로회복 회피 '직빵/원기충전'"
       },
       {
@@ -100,9 +103,9 @@
         "text": "당뇨에 좋은 여주즙 / 혈당을 낮춰줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "당뇨 질병 효능"
       },
       {
@@ -111,9 +114,9 @@
         "text": "항암 버섯즙 / 암을 예방해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "항암·예방"
       },
       {
@@ -122,9 +125,9 @@
         "text": "지방 분해 젤리 / 체지방 감소",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "지방 분해"
       },
       {
@@ -133,9 +136,9 @@
         "text": "장 건강 챙기는 유산균 / 매일 아침 한 컵",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "장 건강 = 기능성 경계"
       },
       {
@@ -144,9 +147,9 @@
         "text": "숙취해소 음료 / 다음날이 개운해요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "기능성 근거 요건"
       },
       {
@@ -155,9 +158,9 @@
         "text": "천연 발효종 빵 / 정성껏 구워요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "'천연' 식품 표현 실증 필요"
       },
       {
@@ -166,9 +169,9 @@
         "text": "혈액순환 홍삼 / 혈액순환에 좋아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "혈액순환 기능성 경계"
       },
       {
@@ -177,9 +180,9 @@
         "text": "무첨가 딸기잼 / 정성껏 만들어요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무첨가 실증 필요"
       },
       {
@@ -188,9 +191,9 @@
         "text": "유기농 원두 / 향긋하게 내려요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "유기농 인증 필요"
       },
       {
@@ -199,9 +202,9 @@
         "text": "든든하게 채우는 홍삼 / 6년근의 진한 기운",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "일반 감성"
       },
       {
@@ -210,9 +213,9 @@
         "text": "정성으로 달인 흑마늘 / 국내산으로 진하게 우렸어요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "제조·감성"
       },
       {
@@ -221,9 +224,9 @@
         "text": "가볍게 즐기는 한 끼 / 저칼로리 도시락",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "저칼로리 사실 표시"
       },
       {
@@ -232,9 +235,9 @@
         "text": "매일 아침 요거트 / 부드럽고 산뜻한 시작",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -243,9 +246,9 @@
         "text": "진한 사골 국물 / 푹 끓였어요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 정보"
       },
       {
@@ -254,9 +257,9 @@
         "text": "달콤한 딸기 케이크 / 매장에서 매일 구워요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -265,9 +268,9 @@
         "text": "주름 제거 크림 / 완전히 없애줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "주름 제거 단정"
       },
       {
@@ -276,9 +279,9 @@
         "text": "완전 미백 앰플 / 미백을 보장해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "미백 보장"
       },
       {
@@ -287,9 +290,9 @@
         "text": "여드름 없애는 세럼 / 여드름 치료 효과",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "여드름 치료·제거"
       },
       {
@@ -298,9 +301,9 @@
         "text": "보톡스 효과 크림 / 시술급 리프팅",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "시술급 효과"
       },
       {
@@ -309,9 +312,9 @@
         "text": "부작용 전혀 없는 크림 / 무해함을 보장",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무부작용 보장"
       },
       {
@@ -320,9 +323,9 @@
         "text": "아토피 치료 크림 / 낫게 해줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질환 치료"
       },
       {
@@ -331,9 +334,9 @@
         "text": "탈모 치료 토닉 / 모발이 자라요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "탈모 치료"
       },
       {
@@ -342,9 +345,9 @@
         "text": "세포 재생 앰플 / 피부가 새로워져요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "세포 재생 단정 주의"
       },
       {
@@ -353,9 +356,9 @@
         "text": "모든 피부 타입 세럼 / 누구에게나 맞아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "전 피부 적합 단정"
       },
       {
@@ -364,9 +367,9 @@
         "text": "콜라겐 생성 크림 / 탄탄하게",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "콜라겐 생성 단정"
       },
       {
@@ -375,9 +378,9 @@
         "text": "주름 개선에 도움을 주는 크림 / 탄력 케어를 더해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현] 기능성 허용 문구"
       },
       {
@@ -386,9 +389,9 @@
         "text": "피부 미백에 도움을 주는 앰플 / 화사한 톤업",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현] 기능성 허용 문구"
       },
       {
@@ -397,9 +400,9 @@
         "text": "촉촉한 보습 크림 / 순한 사용감으로 매일 케어",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -408,9 +411,9 @@
         "text": "예민한 날 진정 세럼 / 부드럽게 스며드는 저자극",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -419,9 +422,9 @@
         "text": "맑게 빛나는 톤업 / 생기 있게 화사하게",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "톤업·화사 허용"
       },
       {
@@ -430,9 +433,9 @@
         "text": "수분 가득 토너 / 촉촉하게 스며요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -441,9 +444,9 @@
         "text": "100% 천연 소이캔들 / 감성 선물",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "100% 확정"
       },
       {
@@ -452,9 +455,9 @@
         "text": "최고급 캔들 / 마음까지 포근한 선물",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "최상급"
       },
       {
@@ -463,9 +466,9 @@
         "text": "무공해 물티슈 / 매일 안심하고 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] '무공해' 그린워싱"
       },
       {
@@ -474,9 +477,9 @@
         "text": "완벽한 친환경 가방 / 매일 들기 좋아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "완벽 확정 + 친환경"
       },
       {
@@ -485,9 +488,9 @@
         "text": "명품급 가죽 지갑 / 고급스럽게",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "명품급 연상"
       },
       {
@@ -496,9 +499,9 @@
         "text": "한정판 굿즈 / 놓치지 마세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "한정판 수량 명시 필요"
       },
       {
@@ -507,9 +510,9 @@
         "text": "매일 들기 좋은 에코백 / 데일리룩에 잘 어울려요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[오탐시드] '에코백' 제품명"
       },
       {
@@ -518,9 +521,9 @@
         "text": "감성 가득 소이 캔들 / 따뜻한 분위기를 더해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -529,9 +532,9 @@
         "text": "일상에 작은 향기 / 선물하기 좋은 캔들",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -540,9 +543,9 @@
         "text": "책상 위 감성 소품 / 하루를 기록하는 다이어리",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -551,28 +554,56 @@
         "text": "아기자기한 스티커 세트 / 다이어리 꾸미기 좋아요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       }
     ]
   },
   "holdout": {
-    "n": 19,
-    "confusion": {
-      "tp": 13,
-      "fp": 0,
-      "fn": 1,
-      "tn": 5
+    "n": 32,
+    "label_accuracy": 0.906,
+    "confusion_3class": {
+      "block→block": 5,
+      "warn→warn": 8,
+      "safe→safe": 16,
+      "block→safe": 1,
+      "safe→warn": 2
     },
     "detection": {
-      "precision": 1.0,
+      "precision": 0.867,
       "recall": 0.929,
-      "f1": 0.963
+      "f1": 0.897,
+      "tp": 13,
+      "fp": 2,
+      "fn": 1,
+      "tn": 16
     },
-    "block_severity_recall": 0.833,
-    "false_positives": [],
+    "false_positives": [
+      {
+        "id": "H-BD11",
+        "category": "goods",
+        "text": "최고의 하루를 담은 다이어리 / 매일 기록해요",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '최고의 하루'는 제품 최상급 아님 — 정규식이 맥락 못 봄"
+      },
+      {
+        "id": "H-BD13",
+        "category": "goods",
+        "text": "완벽한 오후를 위한 캔들 / 은은한 향",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '완벽한 오후'는 제품 단정 아님 — 정규식이 맥락 못 봄"
+      }
+    ],
     "false_negatives": [
       {
         "id": "H-LIMIT1",
@@ -580,13 +611,13 @@
         "text": "면역 쑥쑥 올려주는 홍삼 / 기운이 솟아요",
         "expected": "block",
         "predicted": "safe",
+        "exact": false,
         "exp_flagged": true,
         "pred_flagged": false,
-        "under_severity": true,
         "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"
       }
     ],
-    "under_severity": [],
+    "severity_errors": [],
     "rows": [
       {
         "id": "H-FB1",
@@ -594,9 +625,9 @@
         "text": "혈압 낮추는 흑마늘 / 고혈압에 좋아요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병 효능"
       },
       {
@@ -605,9 +636,9 @@
         "text": "장 대청소 요거트 / 노폐물 싹 비워요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[일반화] 디톡스 회피 변형"
       },
       {
@@ -616,9 +647,9 @@
         "text": "지방 연소 다이어트 환 / 살이 빠져요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "지방 연소"
       },
       {
@@ -627,9 +658,9 @@
         "text": "혈액순환 개선 도라지즙 / 건강하게 챙겨요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "혈액순환 경계"
       },
       {
@@ -638,9 +669,9 @@
         "text": "무농약 채소즙 / 깨끗하게 갈았어요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무농약 인증 필요"
       },
       {
@@ -649,9 +680,9 @@
         "text": "세계 유일 발효법 / 특별한 맛이에요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "배타성 주장"
       },
       {
@@ -660,9 +691,9 @@
         "text": "고소한 아침 그래놀라 / 든든하게 시작해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -671,9 +702,9 @@
         "text": "향긋한 국내산 녹차 / 편하게 즐겨요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 정보"
       },
       {
@@ -682,9 +713,9 @@
         "text": "여드름 없애는 토너 / 깨끗하게 관리",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "여드름 제거"
       },
       {
@@ -693,9 +724,9 @@
         "text": "미백을 보장하는 크림 / 하얗게",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "미백 보장"
       },
       {
@@ -704,9 +735,9 @@
         "text": "즉각 탄력 크림 / 바르는 순간 탱탱",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "즉효성 주장"
       },
       {
@@ -715,9 +746,9 @@
         "text": "콜라겐 생성 앰플 / 탄탄하게 채워요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "콜라겐 생성"
       },
       {
@@ -726,9 +757,9 @@
         "text": "피부과 추천 크림 / 안심하고 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "의료인 추천 표현"
       },
       {
@@ -737,9 +768,9 @@
         "text": "산뜻한 젤 크림 / 가볍게 발려요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -748,9 +779,9 @@
         "text": "주름 개선에 도움을 주는 아이크림 / 눈가를 부드럽게",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현]"
       },
       {
@@ -759,9 +790,9 @@
         "text": "친환경 대나무 칫솔 / 지구를 생각해요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "친환경 미인증"
       },
       {
@@ -770,9 +801,9 @@
         "text": "평생 보증 텀블러 / 오래 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "보증 조건 명시 필요"
       },
       {
@@ -781,9 +812,9 @@
         "text": "귀여운 캐릭터 키링 / 가방에 달아요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -792,28 +823,199 @@
         "text": "면역 쑥쑥 올려주는 홍삼 / 기운이 솟아요",
         "expected": "block",
         "predicted": "safe",
+        "exact": false,
         "exp_flagged": true,
         "pred_flagged": false,
-        "under_severity": true,
         "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"
+      },
+      {
+        "id": "H-BD1",
+        "category": "food",
+        "text": "주름 하나 없이 팽팽한 만두피 / 쫄깃하게 빚었어요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '주름'(식품 비규제)"
+      },
+      {
+        "id": "H-BD2",
+        "category": "food",
+        "text": "장이 편안한 하루 되세요 / 매일 챙기는 요거트",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '장'≠장건강"
+      },
+      {
+        "id": "H-BD3",
+        "category": "food",
+        "text": "면역이 궁금한 당신께 / 6년근 홍삼 진액",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '면역'≠면역력 강화"
+      },
+      {
+        "id": "H-BD4",
+        "category": "food",
+        "text": "피로한 하루의 끝 / 따뜻한 차 한 잔",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '피로'≠피로 회복"
+      },
+      {
+        "id": "H-BD5",
+        "category": "food",
+        "text": "노폐물 걱정 없이 깔끔한 뒷맛 / 담백한 사골 국물",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '노폐물'≠배출/비우"
+      },
+      {
+        "id": "H-BD6",
+        "category": "beauty",
+        "text": "주름이 신경 쓰이는 밤 / 촉촉하게 채워요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '주름'≠제거"
+      },
+      {
+        "id": "H-BD7",
+        "category": "beauty",
+        "text": "미백 관리의 첫걸음 / 화사한 톤업",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '미백'≠보장/완전"
+      },
+      {
+        "id": "H-BD8",
+        "category": "beauty",
+        "text": "여드름 고민 상담해요 / 순한 진정 세럼",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '여드름'≠치료/제거"
+      },
+      {
+        "id": "H-BD9",
+        "category": "beauty",
+        "text": "탄력이 필요한 밤에 / 부드러운 크림",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '탄력'(비규제)"
+      },
+      {
+        "id": "H-BD10",
+        "category": "goods",
+        "text": "에코백에 쏙 들어가요 / 가벼운 파우치",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '에코백' 제품명"
+      },
+      {
+        "id": "H-BD11",
+        "category": "goods",
+        "text": "최고의 하루를 담은 다이어리 / 매일 기록해요",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '최고의 하루'는 제품 최상급 아님 — 정규식이 맥락 못 봄"
+      },
+      {
+        "id": "H-BD12",
+        "category": "goods",
+        "text": "100일 기념 굿즈 / 특별하게 준비했어요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '100일'≠100%"
+      },
+      {
+        "id": "H-BD13",
+        "category": "goods",
+        "text": "완벽한 오후를 위한 캔들 / 은은한 향",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '완벽한 오후'는 제품 단정 아님 — 정규식이 맥락 못 봄"
       }
     ]
   },
   "all": {
-    "n": 68,
-    "confusion": {
-      "tp": 45,
-      "fp": 0,
-      "fn": 1,
-      "tn": 22
+    "n": 81,
+    "label_accuracy": 0.963,
+    "confusion_3class": {
+      "block→block": 22,
+      "warn→warn": 23,
+      "safe→safe": 33,
+      "block→safe": 1,
+      "safe→warn": 2
     },
     "detection": {
-      "precision": 1.0,
+      "precision": 0.957,
       "recall": 0.978,
-      "f1": 0.989
+      "f1": 0.967,
+      "tp": 45,
+      "fp": 2,
+      "fn": 1,
+      "tn": 33
     },
-    "block_severity_recall": 0.957,
-    "false_positives": [],
+    "false_positives": [
+      {
+        "id": "H-BD11",
+        "category": "goods",
+        "text": "최고의 하루를 담은 다이어리 / 매일 기록해요",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '최고의 하루'는 제품 최상급 아님 — 정규식이 맥락 못 봄"
+      },
+      {
+        "id": "H-BD13",
+        "category": "goods",
+        "text": "완벽한 오후를 위한 캔들 / 은은한 향",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '완벽한 오후'는 제품 단정 아님 — 정규식이 맥락 못 봄"
+      }
+    ],
     "false_negatives": [
       {
         "id": "H-LIMIT1",
@@ -821,13 +1023,13 @@
         "text": "면역 쑥쑥 올려주는 홍삼 / 기운이 솟아요",
         "expected": "block",
         "predicted": "safe",
+        "exact": false,
         "exp_flagged": true,
         "pred_flagged": false,
-        "under_severity": true,
         "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"
       }
     ],
-    "under_severity": [],
+    "severity_errors": [],
     "rows": [
       {
         "id": "F-B1",
@@ -835,9 +1037,9 @@
         "text": "아토피 완치 홍삼 / 꾸준히 먹으면 낫는다",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병 치료·완치 단정"
       },
       {
@@ -846,9 +1048,9 @@
         "text": "면역력 강화 진액 / 매일 면역력을 높여요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "면역력 강화 = 기능성 미인정 단정"
       },
       {
@@ -857,9 +1059,9 @@
         "text": "장 속 디톡스 / 노폐물을 배출해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "디톡스·노폐물 배출"
       },
       {
@@ -868,9 +1070,9 @@
         "text": "고혈압에 좋은 흑마늘 / 콜레스테롤을 잡아줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병명+효능 단정"
       },
       {
@@ -879,9 +1081,9 @@
         "text": "살 빠지는 도시락 / 체지방 감소 효과",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "다이어트 효과 단정"
       },
       {
@@ -890,9 +1092,9 @@
         "text": "노폐물 비워내는 유산균 / 장 속을 비워요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] 디톡스 회피 '비우다'"
       },
       {
@@ -901,9 +1103,9 @@
         "text": "피로엔 직빵 홍삼스틱 / 즉각 원기충전",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] 피로회복 회피 '직빵/원기충전'"
       },
       {
@@ -912,9 +1114,9 @@
         "text": "당뇨에 좋은 여주즙 / 혈당을 낮춰줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "당뇨 질병 효능"
       },
       {
@@ -923,9 +1125,9 @@
         "text": "항암 버섯즙 / 암을 예방해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "항암·예방"
       },
       {
@@ -934,9 +1136,9 @@
         "text": "지방 분해 젤리 / 체지방 감소",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "지방 분해"
       },
       {
@@ -945,9 +1147,9 @@
         "text": "장 건강 챙기는 유산균 / 매일 아침 한 컵",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "장 건강 = 기능성 경계"
       },
       {
@@ -956,9 +1158,9 @@
         "text": "숙취해소 음료 / 다음날이 개운해요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "기능성 근거 요건"
       },
       {
@@ -967,9 +1169,9 @@
         "text": "천연 발효종 빵 / 정성껏 구워요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "'천연' 식품 표현 실증 필요"
       },
       {
@@ -978,9 +1180,9 @@
         "text": "혈액순환 홍삼 / 혈액순환에 좋아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "혈액순환 기능성 경계"
       },
       {
@@ -989,9 +1191,9 @@
         "text": "무첨가 딸기잼 / 정성껏 만들어요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무첨가 실증 필요"
       },
       {
@@ -1000,9 +1202,9 @@
         "text": "유기농 원두 / 향긋하게 내려요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "유기농 인증 필요"
       },
       {
@@ -1011,9 +1213,9 @@
         "text": "든든하게 채우는 홍삼 / 6년근의 진한 기운",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "일반 감성"
       },
       {
@@ -1022,9 +1224,9 @@
         "text": "정성으로 달인 흑마늘 / 국내산으로 진하게 우렸어요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "제조·감성"
       },
       {
@@ -1033,9 +1235,9 @@
         "text": "가볍게 즐기는 한 끼 / 저칼로리 도시락",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "저칼로리 사실 표시"
       },
       {
@@ -1044,9 +1246,9 @@
         "text": "매일 아침 요거트 / 부드럽고 산뜻한 시작",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1055,9 +1257,9 @@
         "text": "진한 사골 국물 / 푹 끓였어요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 정보"
       },
       {
@@ -1066,9 +1268,9 @@
         "text": "달콤한 딸기 케이크 / 매장에서 매일 구워요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1077,9 +1279,9 @@
         "text": "주름 제거 크림 / 완전히 없애줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "주름 제거 단정"
       },
       {
@@ -1088,9 +1290,9 @@
         "text": "완전 미백 앰플 / 미백을 보장해요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "미백 보장"
       },
       {
@@ -1099,9 +1301,9 @@
         "text": "여드름 없애는 세럼 / 여드름 치료 효과",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "여드름 치료·제거"
       },
       {
@@ -1110,9 +1312,9 @@
         "text": "보톡스 효과 크림 / 시술급 리프팅",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "시술급 효과"
       },
       {
@@ -1121,9 +1323,9 @@
         "text": "부작용 전혀 없는 크림 / 무해함을 보장",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무부작용 보장"
       },
       {
@@ -1132,9 +1334,9 @@
         "text": "아토피 치료 크림 / 낫게 해줘요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질환 치료"
       },
       {
@@ -1143,9 +1345,9 @@
         "text": "탈모 치료 토닉 / 모발이 자라요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "탈모 치료"
       },
       {
@@ -1154,9 +1356,9 @@
         "text": "세포 재생 앰플 / 피부가 새로워져요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "세포 재생 단정 주의"
       },
       {
@@ -1165,9 +1367,9 @@
         "text": "모든 피부 타입 세럼 / 누구에게나 맞아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "전 피부 적합 단정"
       },
       {
@@ -1176,9 +1378,9 @@
         "text": "콜라겐 생성 크림 / 탄탄하게",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "콜라겐 생성 단정"
       },
       {
@@ -1187,9 +1389,9 @@
         "text": "주름 개선에 도움을 주는 크림 / 탄력 케어를 더해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현] 기능성 허용 문구"
       },
       {
@@ -1198,9 +1400,9 @@
         "text": "피부 미백에 도움을 주는 앰플 / 화사한 톤업",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현] 기능성 허용 문구"
       },
       {
@@ -1209,9 +1411,9 @@
         "text": "촉촉한 보습 크림 / 순한 사용감으로 매일 케어",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -1220,9 +1422,9 @@
         "text": "예민한 날 진정 세럼 / 부드럽게 스며드는 저자극",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -1231,9 +1433,9 @@
         "text": "맑게 빛나는 톤업 / 생기 있게 화사하게",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "톤업·화사 허용"
       },
       {
@@ -1242,9 +1444,9 @@
         "text": "수분 가득 토너 / 촉촉하게 스며요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -1253,9 +1455,9 @@
         "text": "100% 천연 소이캔들 / 감성 선물",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "100% 확정"
       },
       {
@@ -1264,9 +1466,9 @@
         "text": "최고급 캔들 / 마음까지 포근한 선물",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "최상급"
       },
       {
@@ -1275,9 +1477,9 @@
         "text": "무공해 물티슈 / 매일 안심하고 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[미탐시드] '무공해' 그린워싱"
       },
       {
@@ -1286,9 +1488,9 @@
         "text": "완벽한 친환경 가방 / 매일 들기 좋아요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "완벽 확정 + 친환경"
       },
       {
@@ -1297,9 +1499,9 @@
         "text": "명품급 가죽 지갑 / 고급스럽게",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "명품급 연상"
       },
       {
@@ -1308,9 +1510,9 @@
         "text": "한정판 굿즈 / 놓치지 마세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "한정판 수량 명시 필요"
       },
       {
@@ -1319,9 +1521,9 @@
         "text": "매일 들기 좋은 에코백 / 데일리룩에 잘 어울려요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[오탐시드] '에코백' 제품명"
       },
       {
@@ -1330,9 +1532,9 @@
         "text": "감성 가득 소이 캔들 / 따뜻한 분위기를 더해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1341,9 +1543,9 @@
         "text": "일상에 작은 향기 / 선물하기 좋은 캔들",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1352,9 +1554,9 @@
         "text": "책상 위 감성 소품 / 하루를 기록하는 다이어리",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1363,9 +1565,9 @@
         "text": "아기자기한 스티커 세트 / 다이어리 꾸미기 좋아요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1374,9 +1576,9 @@
         "text": "혈압 낮추는 흑마늘 / 고혈압에 좋아요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "질병 효능"
       },
       {
@@ -1385,9 +1587,9 @@
         "text": "장 대청소 요거트 / 노폐물 싹 비워요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "[일반화] 디톡스 회피 변형"
       },
       {
@@ -1396,9 +1598,9 @@
         "text": "지방 연소 다이어트 환 / 살이 빠져요",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "지방 연소"
       },
       {
@@ -1407,9 +1609,9 @@
         "text": "혈액순환 개선 도라지즙 / 건강하게 챙겨요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "혈액순환 경계"
       },
       {
@@ -1418,9 +1620,9 @@
         "text": "무농약 채소즙 / 깨끗하게 갈았어요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "무농약 인증 필요"
       },
       {
@@ -1429,9 +1631,9 @@
         "text": "세계 유일 발효법 / 특별한 맛이에요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "배타성 주장"
       },
       {
@@ -1440,9 +1642,9 @@
         "text": "고소한 아침 그래놀라 / 든든하게 시작해요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1451,9 +1653,9 @@
         "text": "향긋한 국내산 녹차 / 편하게 즐겨요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 정보"
       },
       {
@@ -1462,9 +1664,9 @@
         "text": "여드름 없애는 토너 / 깨끗하게 관리",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "여드름 제거"
       },
       {
@@ -1473,9 +1675,9 @@
         "text": "미백을 보장하는 크림 / 하얗게",
         "expected": "block",
         "predicted": "block",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "미백 보장"
       },
       {
@@ -1484,9 +1686,9 @@
         "text": "즉각 탄력 크림 / 바르는 순간 탱탱",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "즉효성 주장"
       },
       {
@@ -1495,9 +1697,9 @@
         "text": "콜라겐 생성 앰플 / 탄탄하게 채워요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "콜라겐 생성"
       },
       {
@@ -1506,9 +1708,9 @@
         "text": "피부과 추천 크림 / 안심하고 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "의료인 추천 표현"
       },
       {
@@ -1517,9 +1719,9 @@
         "text": "산뜻한 젤 크림 / 가볍게 발려요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 사용감"
       },
       {
@@ -1528,9 +1730,9 @@
         "text": "주름 개선에 도움을 주는 아이크림 / 눈가를 부드럽게",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "[허용표현]"
       },
       {
@@ -1539,9 +1741,9 @@
         "text": "친환경 대나무 칫솔 / 지구를 생각해요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "친환경 미인증"
       },
       {
@@ -1550,9 +1752,9 @@
         "text": "평생 보증 텀블러 / 오래 쓰세요",
         "expected": "warn",
         "predicted": "warn",
+        "exact": true,
         "exp_flagged": true,
         "pred_flagged": true,
-        "under_severity": false,
         "note": "보증 조건 명시 필요"
       },
       {
@@ -1561,9 +1763,9 @@
         "text": "귀여운 캐릭터 키링 / 가방에 달아요",
         "expected": "safe",
         "predicted": "safe",
+        "exact": true,
         "exp_flagged": false,
         "pred_flagged": false,
-        "under_severity": false,
         "note": "중립 감성"
       },
       {
@@ -1572,10 +1774,153 @@
         "text": "면역 쑥쑥 올려주는 홍삼 / 기운이 솟아요",
         "expected": "block",
         "predicted": "safe",
+        "exact": false,
         "exp_flagged": true,
         "pred_flagged": false,
-        "under_severity": true,
         "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"
+      },
+      {
+        "id": "H-BD1",
+        "category": "food",
+        "text": "주름 하나 없이 팽팽한 만두피 / 쫄깃하게 빚었어요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '주름'(식품 비규제)"
+      },
+      {
+        "id": "H-BD2",
+        "category": "food",
+        "text": "장이 편안한 하루 되세요 / 매일 챙기는 요거트",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '장'≠장건강"
+      },
+      {
+        "id": "H-BD3",
+        "category": "food",
+        "text": "면역이 궁금한 당신께 / 6년근 홍삼 진액",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '면역'≠면역력 강화"
+      },
+      {
+        "id": "H-BD4",
+        "category": "food",
+        "text": "피로한 하루의 끝 / 따뜻한 차 한 잔",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '피로'≠피로 회복"
+      },
+      {
+        "id": "H-BD5",
+        "category": "food",
+        "text": "노폐물 걱정 없이 깔끔한 뒷맛 / 담백한 사골 국물",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '노폐물'≠배출/비우"
+      },
+      {
+        "id": "H-BD6",
+        "category": "beauty",
+        "text": "주름이 신경 쓰이는 밤 / 촉촉하게 채워요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '주름'≠제거"
+      },
+      {
+        "id": "H-BD7",
+        "category": "beauty",
+        "text": "미백 관리의 첫걸음 / 화사한 톤업",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '미백'≠보장/완전"
+      },
+      {
+        "id": "H-BD8",
+        "category": "beauty",
+        "text": "여드름 고민 상담해요 / 순한 진정 세럼",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '여드름'≠치료/제거"
+      },
+      {
+        "id": "H-BD9",
+        "category": "beauty",
+        "text": "탄력이 필요한 밤에 / 부드러운 크림",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '탄력'(비규제)"
+      },
+      {
+        "id": "H-BD10",
+        "category": "goods",
+        "text": "에코백에 쏙 들어가요 / 가벼운 파우치",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '에코백' 제품명"
+      },
+      {
+        "id": "H-BD11",
+        "category": "goods",
+        "text": "최고의 하루를 담은 다이어리 / 매일 기록해요",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '최고의 하루'는 제품 최상급 아님 — 정규식이 맥락 못 봄"
+      },
+      {
+        "id": "H-BD12",
+        "category": "goods",
+        "text": "100일 기념 굿즈 / 특별하게 준비했어요",
+        "expected": "safe",
+        "predicted": "safe",
+        "exact": true,
+        "exp_flagged": false,
+        "pred_flagged": false,
+        "note": "[경계] '100일'≠100%"
+      },
+      {
+        "id": "H-BD13",
+        "category": "goods",
+        "text": "완벽한 오후를 위한 캔들 / 은은한 향",
+        "expected": "safe",
+        "predicted": "warn",
+        "exact": false,
+        "exp_flagged": false,
+        "pred_flagged": true,
+        "note": "[경계·오탐예상] '완벽한 오후'는 제품 단정 아님 — 정규식이 맥락 못 봄"
       }
     ]
   }

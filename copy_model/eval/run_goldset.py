@@ -1,24 +1,23 @@
 """규제 룰 회귀 테스트 하니스 (골드셋 기반).
 
 목적:
-    규제 룰을 수정할 때마다 precision/recall을 측정해, 미탐(놓친 위반)을 줄이려다
-    오탐(정상 문구 차단)이 늘어나는 것을 숫자로 잡는다. "감으로" 룰을 고치지 않기 위함.
+    규제 룰을 수정할 때마다 정확도를 측정해, 미탐/오탐/등급오류를 숫자로 잡는다.
+    "감으로" 룰을 고치지 않기 위함.
 
-라벨(gold_cases.json의 expected):
-    block / warn / safe — 사람이 판정한 정답.
+지표 (v2 — PM/강사님 리뷰 반영):
+    이진 지표만 보면 block/warn 등급 오류가 가려진다는 지적을 반영해,
+    등급까지 정확히 맞췄는지(3-클래스 정확 일치율)를 1차 지표로 둔다.
+    - label_accuracy: predicted == expected (라벨 문자열 그대로 일치) 비율  ← 1차
+    - detection P/R/F1: flagged(block|warn) vs safe 이진 탐지 (참고용)
+    - severity_errors: 둘 다 flagged인데 등급이 다른 케이스(warn↔block, 양방향)
+    - 미탐(false_negatives) / 오탐(false_positives)
 
-예측(현재 룰):
-    check_rules 결과에서 block 플래그 있으면 block, 그 외 플래그만 있으면 warn, 없으면 safe.
-
-측정:
-    - 탐지(위반=block+warn 을 flagged 로) 관점의 precision/recall/F1
-    - block 심각도 정확도(expected block 중 실제 block 예측 비율)
-    - 오탐 목록(safe인데 flagged) / 미탐 목록(위반인데 safe 예측 또는 심각도 미달)
-    비용 0 (룰 검사만). API 불필요.
+라벨(gold_cases.json의 expected): block / warn / safe — 사람이 판정한 정답.
+비용 0 (룰 검사만). API 불필요.
 
 사용:
     python -m eval.run_goldset
-    python -m eval.run_goldset --json baseline.json   # 결과 저장(전/후 비교용)
+    python -m eval.run_goldset --json baseline.json
 """
 import argparse
 import json
@@ -47,63 +46,71 @@ def evaluate(cases: list) -> dict:
     for c in cases:
         pred = predict(c["headline"], c["sub"], c["category"])
         exp = c["expected"]
-        # 탐지 관점: block/warn = 위반(1), safe = 정상(0)
-        exp_flagged = exp in ("block", "warn")
-        pred_flagged = pred in ("block", "warn")
         rows.append({
             "id": c["id"], "category": c["category"],
             "text": f'{c["headline"]} / {c["sub"]}',
             "expected": exp, "predicted": pred,
-            "exp_flagged": exp_flagged, "pred_flagged": pred_flagged,
-            "under_severity": _RANK[pred] < _RANK[exp],   # 심각도 미달(예: block인데 warn/safe)
+            "exact": pred == exp,
+            "exp_flagged": exp in ("block", "warn"),
+            "pred_flagged": pred in ("block", "warn"),
             "note": c.get("note", ""),
         })
+    n = len(rows)
 
+    # ── 1차 지표: 3-클래스 정확 일치율 (등급까지 맞췄는지) ──
+    exact = sum(1 for r in rows if r["exact"])
+    label_accuracy = round(exact / n, 3) if n else 0.0
+
+    # 3-클래스 혼동 (정답→예측)
+    conf3 = {}
+    for r in rows:
+        k = f'{r["expected"]}→{r["predicted"]}'
+        conf3[k] = conf3.get(k, 0) + 1
+
+    # ── 참고 지표: 이진 탐지(flagged vs safe) ──
     tp = sum(1 for r in rows if r["exp_flagged"] and r["pred_flagged"])
     fp = sum(1 for r in rows if not r["exp_flagged"] and r["pred_flagged"])
     fn = sum(1 for r in rows if r["exp_flagged"] and not r["pred_flagged"])
     tn = sum(1 for r in rows if not r["exp_flagged"] and not r["pred_flagged"])
-
     precision = round(tp / (tp + fp), 3) if (tp + fp) else 0.0
     recall = round(tp / (tp + fn), 3) if (tp + fn) else 0.0
     f1 = round(2 * precision * recall / (precision + recall), 3) if (precision + recall) else 0.0
 
-    # block 심각도 정확도
-    exp_block = [r for r in rows if r["expected"] == "block"]
-    block_hit = sum(1 for r in exp_block if r["predicted"] == "block")
-    block_recall = round(block_hit / len(exp_block), 3) if exp_block else 0.0
-
-    false_pos = [r for r in rows if not r["exp_flagged"] and r["pred_flagged"]]     # 오탐
-    false_neg = [r for r in rows if r["exp_flagged"] and not r["pred_flagged"]]     # 미탐(완전 통과)
-    under_sev = [r for r in rows if r["under_severity"] and r["pred_flagged"]]      # 잡았지만 심각도 미달
+    # ── 오류 분류 ──
+    false_pos = [r for r in rows if not r["exp_flagged"] and r["pred_flagged"]]   # 오탐(정상→flag)
+    false_neg = [r for r in rows if r["exp_flagged"] and not r["pred_flagged"]]   # 미탐(위반→통과)
+    # 등급 오류: 둘 다 flagged인데 등급이 다름(warn↔block). 양방향 모두 잡음.
+    severity_errors = [r for r in rows
+                       if r["exp_flagged"] and r["pred_flagged"] and not r["exact"]]
 
     return {
-        "n": len(rows),
-        "confusion": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
-        "detection": {"precision": precision, "recall": recall, "f1": f1},
-        "block_severity_recall": block_recall,
-        "false_positives": false_pos,   # 오탐
-        "false_negatives": false_neg,   # 미탐
-        "under_severity": under_sev,
+        "n": n,
+        "label_accuracy": label_accuracy,       # ← 1차 지표
+        "confusion_3class": conf3,
+        "detection": {"precision": precision, "recall": recall, "f1": f1,
+                      "tp": tp, "fp": fp, "fn": fn, "tn": tn},
+        "false_positives": false_pos,           # 오탐
+        "false_negatives": false_neg,           # 미탐
+        "severity_errors": severity_errors,     # 등급 오류(warn↔block)
         "rows": rows,
     }
 
 
 def _report(title: str, res: dict):
     d = res["detection"]
-    c = res["confusion"]
     print("-" * 60)
     print(f"[{title}] n={res['n']}  "
-          f"Precision {d['precision']:.1%}  Recall {d['recall']:.1%}  F1 {d['f1']:.1%}")
-    print(f"   (TP {c['tp']} / FP {c['fp']} / FN {c['fn']} / TN {c['tn']}) "
-          f"block 심각도 recall {res['block_severity_recall']:.1%}")
+          f"라벨 정확일치 {res['label_accuracy']:.1%}  "
+          f"(탐지 P {d['precision']:.1%}/R {d['recall']:.1%}/F1 {d['f1']:.1%})")
+    print(f"   3-클래스 혼동: " +
+          "  ".join(f"{k} {v}" for k, v in sorted(res["confusion_3class"].items())))
     if res["false_negatives"]:
         print(f"   🔴 미탐 {len(res['false_negatives'])}건:")
         for r in res["false_negatives"]:
             print(f"      [{r['id']}] {r['text']} (정답 {r['expected']}→예측 {r['predicted']}) {r['note']}")
-    if res["under_severity"]:
-        print(f"   🟠 심각도 미달 {len(res['under_severity'])}건:")
-        for r in res["under_severity"]:
+    if res["severity_errors"]:
+        print(f"   🟠 등급오류 {len(res['severity_errors'])}건:")
+        for r in res["severity_errors"]:
             print(f"      [{r['id']}] {r['text']} (정답 {r['expected']}→예측 {r['predicted']}) {r['note']}")
     if res["false_positives"]:
         print(f"   🟡 오탐 {len(res['false_positives'])}건:")
@@ -127,7 +134,7 @@ def main():
     res_holdout = evaluate(holdout) if holdout else None
 
     print("=" * 60)
-    print("규제 룰 골드셋 회귀 테스트")
+    print("규제 룰 골드셋 회귀 테스트  (1차 지표 = 라벨 정확일치율)")
     _report("TRAIN (튜닝 대상)", res_train)
     if res_holdout:
         _report("HOLDOUT (미노출 — 과적합 판단 기준)", res_holdout)
