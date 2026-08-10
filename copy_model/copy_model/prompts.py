@@ -41,14 +41,18 @@ SYSTEM_PROMPT = """당신은 한국 소상공인을 위한 광고 카피라이�
 3. 서로 다른 방향의 시안 {num}개를 만들 것 (표현·구도가 겹치지 않게).
 4. 반드시 아래 JSON 형식으로만 응답:
 {{"candidates": [{{"headline": "...", "sub": "..."}}, ...]}}
+{regulation_block}
+{category_guide}
+{tone_guide}"""
 
+# 규제 지침 블록 — 프롬프트에 규제 규칙을 넣을지 결정.
+# A/B 평가(규칙 유무 위반율 비교)에서 이 블록을 빼고 생성해 볼 수 있음.
+REGULATION_BLOCK = """
 [광고 규제 — 절대 금지 표현]
 - "최고", "제일", "100%", "완벽" 등 검증 불가능한 최상급·확정 표현
 - 의학적 효능·효과를 단정하는 표현 (질병 치료·예방, 다이어트 보장 등)
 - 근거 없는 수치나 비교 ("타사 대비 2배" 등)
-
-{category_guide}
-{tone_guide}"""
+"""
 
 USER_PROMPT = """[제품/가게 정보]
 - 이름: {product}
@@ -101,11 +105,18 @@ LOCALIZE_PROMPT = """당신은 한국 브랜드의 글로벌 마케팅을 돕는
 
 
 def build_system_prompt(category: str, tone: str, num: int,
-                        headline_max: int, sub_max: int) -> str:
+                        headline_max: int, sub_max: int,
+                        include_regulation: bool = True) -> str:
+    """시스템 프롬프트 구성.
+
+    include_regulation: 프롬프트에 규제 지침 블록을 넣을지.
+      기본값 True(프로덕션). 평가 실험에서 규칙 유무 위반율을 비교할 때만 False로.
+    """
     return SYSTEM_PROMPT.format(
         headline_max=headline_max,
         sub_max=sub_max,
         num=num,
+        regulation_block=REGULATION_BLOCK if include_regulation else "",
         category_guide=CATEGORY_GUIDES.get(category, CATEGORY_GUIDES["food"]),
         tone_guide=TONE_GUIDES.get(tone, TONE_GUIDES["warm"]),
     )
