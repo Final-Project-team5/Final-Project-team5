@@ -67,8 +67,7 @@ function stripDataUriPrefix(value = '') {
 }
 
 // background 값 mock — 실제로는 draft 응답에 실려 오고, refine 요청 때 그대로
-// echo해야 동일 배경이 재현된다(서버 무상태). type이 'gradient'(flat)인지 'ai'인지로
-// 화면 E의 "같은 배경으로 다른 이미지 생성하기" 버튼 노출 여부를 가른다.
+// echo해야 동일 배경이 재현된다(서버 무상태). type은 'gradient'(flat) 또는 'ai'.
 function mockBackground(seed, backgroundType) {
   if (backgroundType === 'flat') {
     const hue = (seed * 47) % 360;

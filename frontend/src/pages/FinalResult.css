@@ -89,37 +89,6 @@
   line-height: 1.5;
 }
 
-.final-result__regenerate-section {
-  padding: 18px 20px;
-  border-radius: 16px;
-  border: 1px dashed var(--color-border);
-  margin-bottom: 28px;
-  text-align: center;
-}
-
-.final-result__regenerate-btn {
-  width: 100%;
-  padding: 12px 18px;
-  border-radius: 12px;
-  border: 1px solid var(--color-primary);
-  background: var(--color-primary-light);
-  color: var(--color-badge-text);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.final-result__regenerate-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.final-result__regenerate-note {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  line-height: 1.5;
-  margin: 10px 0 0;
-}
-
 .final-result__actions {
   display: flex;
   justify-content: flex-end;
