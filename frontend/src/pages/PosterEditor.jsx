@@ -171,10 +171,15 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
         headline_size: sizeInfo.headline_size,
         sub_size: sizeInfo.sub_size,
         style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
+        font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
       },
     });
     setSubmitting(false);
-    onComplete({ image: toImageSrc(res.image), meta: res.meta, text: { headline, sub, ...pos, ...sizeInfo } });
+    onComplete({
+      image: toImageSrc(res.image),
+      meta: res.meta,
+      text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId },
+    });
   };
 
   return (

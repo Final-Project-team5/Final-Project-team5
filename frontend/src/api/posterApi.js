@@ -132,6 +132,9 @@ export function toImageSrc(base64) {
  * 실제 이미지 합성 모델이 없어 mock에서는 선택한 시안(draft_image)을 그대로
  * "완성 이미지"로 되돌려준다. 응답의 image는 실제 API와 동일하게 순수 base64로
  * 내려보내므로 호출부에서 반드시 toImageSrc()로 감싸서 써야 한다.
+ *
+ * text는 그대로 받아 meta.layout.text로 echo한다 — text.font_id(화면 D 서체
+ * 드롭다운 선택값)도 별도 처리 없이 그 안에 실려 함께 내려간다.
  */
 export async function generateRefine({
   draft_image,
