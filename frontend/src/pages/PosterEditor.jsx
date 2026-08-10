@@ -172,13 +172,14 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
         sub_size: sizeInfo.sub_size,
         style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
         font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
+        align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
       },
     });
     setSubmitting(false);
     onComplete({
       image: toImageSrc(res.image),
       meta: res.meta,
-      text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId },
+      text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId, align: 'center' },
     });
   };
 
