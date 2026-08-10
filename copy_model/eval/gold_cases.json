@@ -1,0 +1,97 @@
+{
+  "_meta": {
+    "설명": "규제 룰 회귀 테스트용 골드셋. expected = 사람이 판정한 정답 라벨.",
+    "버전": "v2 (2026-08-08) — PM 리뷰 반영: 케이스 확충 + holdout warn 균형 보강",
+    "라벨 기준": {
+      "block": "명백한 위반 — 의학적 효능·질병 치료/예방 단정, 식약처 미인정 기능성 단정, 확정적 미백/주름제거 등 (사용 불가)",
+      "warn": "맥락 확인 필요 — 최상급·확정 표현, 인증 없는 환경성·천연 주장, 기능성 경계 표현 (근거 있으면 사용 가능)",
+      "safe": "허용·중립 — 기능성화장품 허용표현('OO에 도움을 주는'), 일반 감성·정보 표현 (통과해야 함)"
+    },
+    "split 설명": {
+      "train": "룰 튜닝에 사용. 오늘 감사 시드(미탐/오탐) 포함.",
+      "holdout": "튜닝에 절대 사용 안 함. 과적합(Goodhart) 방지용 unseen 셋. 최종 성능은 holdout으로 판단."
+    },
+    "출처": "식품표시광고법 §8 / 화장품법 시행규칙 §2 기능성 범위 / 식약처 화장품 표시광고 관리지침 / 공정위 부당표시광고 유형고시 / 환경성 표시광고 고시"
+  },
+  "cases": [
+    {"id": "F-B1", "split": "train", "category": "food", "headline": "아토피 완치 홍삼", "sub": "꾸준히 먹으면 낫는다", "expected": "block", "note": "질병 치료·완치 단정"},
+    {"id": "F-B2", "split": "train", "category": "food", "headline": "면역력 강화 진액", "sub": "매일 면역력을 높여요", "expected": "block", "note": "면역력 강화 = 기능성 미인정 단정"},
+    {"id": "F-B3", "split": "train", "category": "food", "headline": "장 속 디톡스", "sub": "노폐물을 배출해요", "expected": "block", "note": "디톡스·노폐물 배출"},
+    {"id": "F-B4", "split": "train", "category": "food", "headline": "고혈압에 좋은 흑마늘", "sub": "콜레스테롤을 잡아줘요", "expected": "block", "note": "질병명+효능 단정"},
+    {"id": "F-B5", "split": "train", "category": "food", "headline": "살 빠지는 도시락", "sub": "체지방 감소 효과", "expected": "block", "note": "다이어트 효과 단정"},
+    {"id": "F-B6", "split": "train", "category": "food", "headline": "노폐물 비워내는 유산균", "sub": "장 속을 비워요", "expected": "block", "note": "[미탐시드] 디톡스 회피 '비우다'"},
+    {"id": "F-B7", "split": "train", "category": "food", "headline": "피로엔 직빵 홍삼스틱", "sub": "즉각 원기충전", "expected": "block", "note": "[미탐시드] 피로회복 회피 '직빵/원기충전'"},
+    {"id": "F-B8", "split": "train", "category": "food", "headline": "당뇨에 좋은 여주즙", "sub": "혈당을 낮춰줘요", "expected": "block", "note": "당뇨 질병 효능"},
+    {"id": "F-B9", "split": "train", "category": "food", "headline": "항암 버섯즙", "sub": "암을 예방해요", "expected": "block", "note": "항암·예방"},
+    {"id": "F-B10", "split": "train", "category": "food", "headline": "지방 분해 젤리", "sub": "체지방 감소", "expected": "block", "note": "지방 분해"},
+
+    {"id": "F-W1", "split": "train", "category": "food", "headline": "장 건강 챙기는 유산균", "sub": "매일 아침 한 컵", "expected": "warn", "note": "장 건강 = 기능성 경계"},
+    {"id": "F-W2", "split": "train", "category": "food", "headline": "숙취해소 음료", "sub": "다음날이 개운해요", "expected": "warn", "note": "기능성 근거 요건"},
+    {"id": "F-W3", "split": "train", "category": "food", "headline": "천연 발효종 빵", "sub": "정성껏 구워요", "expected": "warn", "note": "'천연' 식품 표현 실증 필요"},
+    {"id": "F-W4", "split": "train", "category": "food", "headline": "혈액순환 홍삼", "sub": "혈액순환에 좋아요", "expected": "warn", "note": "혈액순환 기능성 경계"},
+    {"id": "F-W5", "split": "train", "category": "food", "headline": "무첨가 딸기잼", "sub": "정성껏 만들어요", "expected": "warn", "note": "무첨가 실증 필요"},
+    {"id": "F-W6", "split": "train", "category": "food", "headline": "유기농 원두", "sub": "향긋하게 내려요", "expected": "warn", "note": "유기농 인증 필요"},
+
+    {"id": "F-S1", "split": "train", "category": "food", "headline": "든든하게 채우는 홍삼", "sub": "6년근의 진한 기운", "expected": "safe", "note": "일반 감성"},
+    {"id": "F-S2", "split": "train", "category": "food", "headline": "정성으로 달인 흑마늘", "sub": "국내산으로 진하게 우렸어요", "expected": "safe", "note": "제조·감성"},
+    {"id": "F-S3", "split": "train", "category": "food", "headline": "가볍게 즐기는 한 끼", "sub": "저칼로리 도시락", "expected": "safe", "note": "저칼로리 사실 표시"},
+    {"id": "F-S4", "split": "train", "category": "food", "headline": "매일 아침 요거트", "sub": "부드럽고 산뜻한 시작", "expected": "safe", "note": "중립 감성"},
+    {"id": "F-S5", "split": "train", "category": "food", "headline": "진한 사골 국물", "sub": "푹 끓였어요", "expected": "safe", "note": "중립 정보"},
+    {"id": "F-S6", "split": "train", "category": "food", "headline": "달콤한 딸기 케이크", "sub": "매장에서 매일 구워요", "expected": "safe", "note": "중립 감성"},
+
+    {"id": "B-B1", "split": "train", "category": "beauty", "headline": "주름 제거 크림", "sub": "완전히 없애줘요", "expected": "block", "note": "주름 제거 단정"},
+    {"id": "B-B2", "split": "train", "category": "beauty", "headline": "완전 미백 앰플", "sub": "미백을 보장해요", "expected": "block", "note": "미백 보장"},
+    {"id": "B-B3", "split": "train", "category": "beauty", "headline": "여드름 없애는 세럼", "sub": "여드름 치료 효과", "expected": "block", "note": "여드름 치료·제거"},
+    {"id": "B-B4", "split": "train", "category": "beauty", "headline": "보톡스 효과 크림", "sub": "시술급 리프팅", "expected": "block", "note": "시술급 효과"},
+    {"id": "B-B5", "split": "train", "category": "beauty", "headline": "부작용 전혀 없는 크림", "sub": "무해함을 보장", "expected": "block", "note": "무부작용 보장"},
+    {"id": "B-B6", "split": "train", "category": "beauty", "headline": "아토피 치료 크림", "sub": "낫게 해줘요", "expected": "block", "note": "질환 치료"},
+    {"id": "B-B7", "split": "train", "category": "beauty", "headline": "탈모 치료 토닉", "sub": "모발이 자라요", "expected": "block", "note": "탈모 치료"},
+
+    {"id": "B-W1", "split": "train", "category": "beauty", "headline": "세포 재생 앰플", "sub": "피부가 새로워져요", "expected": "warn", "note": "세포 재생 단정 주의"},
+    {"id": "B-W2", "split": "train", "category": "beauty", "headline": "모든 피부 타입 세럼", "sub": "누구에게나 맞아요", "expected": "warn", "note": "전 피부 적합 단정"},
+    {"id": "B-W3", "split": "train", "category": "beauty", "headline": "콜라겐 생성 크림", "sub": "탄탄하게", "expected": "warn", "note": "콜라겐 생성 단정"},
+
+    {"id": "B-S1", "split": "train", "category": "beauty", "headline": "주름 개선에 도움을 주는 크림", "sub": "탄력 케어를 더해요", "expected": "safe", "note": "[허용표현] 기능성 허용 문구"},
+    {"id": "B-S2", "split": "train", "category": "beauty", "headline": "피부 미백에 도움을 주는 앰플", "sub": "화사한 톤업", "expected": "safe", "note": "[허용표현] 기능성 허용 문구"},
+    {"id": "B-S3", "split": "train", "category": "beauty", "headline": "촉촉한 보습 크림", "sub": "순한 사용감으로 매일 케어", "expected": "safe", "note": "중립 사용감"},
+    {"id": "B-S4", "split": "train", "category": "beauty", "headline": "예민한 날 진정 세럼", "sub": "부드럽게 스며드는 저자극", "expected": "safe", "note": "중립 사용감"},
+    {"id": "B-S5", "split": "train", "category": "beauty", "headline": "맑게 빛나는 톤업", "sub": "생기 있게 화사하게", "expected": "safe", "note": "톤업·화사 허용"},
+    {"id": "B-S6", "split": "train", "category": "beauty", "headline": "수분 가득 토너", "sub": "촉촉하게 스며요", "expected": "safe", "note": "중립 사용감"},
+
+    {"id": "G-W1", "split": "train", "category": "goods", "headline": "100% 천연 소이캔들", "sub": "감성 선물", "expected": "warn", "note": "100% 확정"},
+    {"id": "G-W2", "split": "train", "category": "goods", "headline": "최고급 캔들", "sub": "마음까지 포근한 선물", "expected": "warn", "note": "최상급"},
+    {"id": "G-W3", "split": "train", "category": "goods", "headline": "무공해 물티슈", "sub": "매일 안심하고 쓰세요", "expected": "warn", "note": "[미탐시드] '무공해' 그린워싱"},
+    {"id": "G-W4", "split": "train", "category": "goods", "headline": "완벽한 친환경 가방", "sub": "매일 들기 좋아요", "expected": "warn", "note": "완벽 확정 + 친환경"},
+    {"id": "G-W5", "split": "train", "category": "goods", "headline": "명품급 가죽 지갑", "sub": "고급스럽게", "expected": "warn", "note": "명품급 연상"},
+    {"id": "G-W6", "split": "train", "category": "goods", "headline": "한정판 굿즈", "sub": "놓치지 마세요", "expected": "warn", "note": "한정판 수량 명시 필요"},
+
+    {"id": "G-S1", "split": "train", "category": "goods", "headline": "매일 들기 좋은 에코백", "sub": "데일리룩에 잘 어울려요", "expected": "safe", "note": "[오탐시드] '에코백' 제품명"},
+    {"id": "G-S2", "split": "train", "category": "goods", "headline": "감성 가득 소이 캔들", "sub": "따뜻한 분위기를 더해요", "expected": "safe", "note": "중립 감성"},
+    {"id": "G-S3", "split": "train", "category": "goods", "headline": "일상에 작은 향기", "sub": "선물하기 좋은 캔들", "expected": "safe", "note": "중립 감성"},
+    {"id": "G-S4", "split": "train", "category": "goods", "headline": "책상 위 감성 소품", "sub": "하루를 기록하는 다이어리", "expected": "safe", "note": "중립 감성"},
+    {"id": "G-S5", "split": "train", "category": "goods", "headline": "아기자기한 스티커 세트", "sub": "다이어리 꾸미기 좋아요", "expected": "safe", "note": "중립 감성"},
+
+    {"id": "H-FB1", "split": "holdout", "category": "food", "headline": "혈압 낮추는 흑마늘", "sub": "고혈압에 좋아요", "expected": "block", "note": "질병 효능"},
+    {"id": "H-FB2", "split": "holdout", "category": "food", "headline": "장 대청소 요거트", "sub": "노폐물 싹 비워요", "expected": "block", "note": "[일반화] 디톡스 회피 변형"},
+    {"id": "H-FB3", "split": "holdout", "category": "food", "headline": "지방 연소 다이어트 환", "sub": "살이 빠져요", "expected": "block", "note": "지방 연소"},
+    {"id": "H-FW1", "split": "holdout", "category": "food", "headline": "혈액순환 개선 도라지즙", "sub": "건강하게 챙겨요", "expected": "warn", "note": "혈액순환 경계"},
+    {"id": "H-FW2", "split": "holdout", "category": "food", "headline": "무농약 채소즙", "sub": "깨끗하게 갈았어요", "expected": "warn", "note": "무농약 인증 필요"},
+    {"id": "H-FW3", "split": "holdout", "category": "food", "headline": "세계 유일 발효법", "sub": "특별한 맛이에요", "expected": "warn", "note": "배타성 주장"},
+    {"id": "H-FS1", "split": "holdout", "category": "food", "headline": "고소한 아침 그래놀라", "sub": "든든하게 시작해요", "expected": "safe", "note": "중립 감성"},
+    {"id": "H-FS2", "split": "holdout", "category": "food", "headline": "향긋한 국내산 녹차", "sub": "편하게 즐겨요", "expected": "safe", "note": "중립 정보"},
+
+    {"id": "H-BB1", "split": "holdout", "category": "beauty", "headline": "여드름 없애는 토너", "sub": "깨끗하게 관리", "expected": "block", "note": "여드름 제거"},
+    {"id": "H-BB2", "split": "holdout", "category": "beauty", "headline": "미백을 보장하는 크림", "sub": "하얗게", "expected": "block", "note": "미백 보장"},
+    {"id": "H-BW1", "split": "holdout", "category": "beauty", "headline": "즉각 탄력 크림", "sub": "바르는 순간 탱탱", "expected": "warn", "note": "즉효성 주장"},
+    {"id": "H-BW2", "split": "holdout", "category": "beauty", "headline": "콜라겐 생성 앰플", "sub": "탄탄하게 채워요", "expected": "warn", "note": "콜라겐 생성"},
+    {"id": "H-BW3", "split": "holdout", "category": "beauty", "headline": "피부과 추천 크림", "sub": "안심하고 쓰세요", "expected": "warn", "note": "의료인 추천 표현"},
+    {"id": "H-BS1", "split": "holdout", "category": "beauty", "headline": "산뜻한 젤 크림", "sub": "가볍게 발려요", "expected": "safe", "note": "중립 사용감"},
+    {"id": "H-BS2", "split": "holdout", "category": "beauty", "headline": "주름 개선에 도움을 주는 아이크림", "sub": "눈가를 부드럽게", "expected": "safe", "note": "[허용표현]"},
+
+    {"id": "H-GW1", "split": "holdout", "category": "goods", "headline": "친환경 대나무 칫솔", "sub": "지구를 생각해요", "expected": "warn", "note": "친환경 미인증"},
+    {"id": "H-GW2", "split": "holdout", "category": "goods", "headline": "평생 보증 텀블러", "sub": "오래 쓰세요", "expected": "warn", "note": "보증 조건 명시 필요"},
+    {"id": "H-GS1", "split": "holdout", "category": "goods", "headline": "귀여운 캐릭터 키링", "sub": "가방에 달아요", "expected": "safe", "note": "중립 감성"},
+
+    {"id": "H-LIMIT1", "split": "holdout", "category": "food", "headline": "면역 쑥쑥 올려주는 홍삼", "sub": "기운이 솟아요", "expected": "block", "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"}
+  ]
+}
