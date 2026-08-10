@@ -4,8 +4,8 @@
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
  *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
- *   POST /generate/copy    { spec }                → CopyResult.jsx (화면 B)
- *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B)
+ *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
+ *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  */
 
 const MOCK_DELAY_MS = 400;
@@ -342,29 +342,67 @@ function truncate(text = '', max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function buildCopy(spec) {
-  const product = spec.product || '우리 브랜드';
-  const firstHighlight = (spec.highlights || '특별한 매력').split(',')[0].trim();
-  const tone = spec.tone || '자연스러운';
-
-  return {
-    headline: truncate(`${product}, ${firstHighlight}`, 20),
-    sub: truncate(`${tone} 느낌으로 ${firstHighlight}을 담았어요`, 30),
-  };
+function splitHighlights(spec) {
+  return (spec.highlights || '특별한 매력')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
 }
 
-/** POST /generate/copy 목 함수. 5단계 완료 후 자동으로 이어서 호출한다. */
+/**
+ * 문구 3개(시안) 후보를 만든다 (8/8 진우님 리뷰 반영 — /generate/copy는 headline/sub
+ * 조합을 3개 반환하는 구조). 서로 다른 템플릿을 써서 강조점 조합이 갈리게 해두면,
+ * 문구마다 규제 검증 결과가 달라지는 상황(일부만 block/warn)도 자연스럽게 재현된다.
+ */
+function buildCopyCandidates(spec) {
+  const product = spec.product || '우리 브랜드';
+  const tone = spec.tone || '자연스러운';
+  const highlights = splitHighlights(spec);
+  const first = highlights[0] || '특별한 매력';
+  const second = highlights[1] || first;
+
+  return [
+    {
+      headline: truncate(`${product}, ${first}`, 20),
+      sub: truncate(`${tone} 느낌으로 ${first}을 담았어요`, 30),
+    },
+    {
+      headline: truncate(`${first}, ${product}에서 만나보세요`, 20),
+      sub: truncate(`${tone} 스타일로 준비했어요`, 30),
+    },
+    {
+      headline: truncate(`${product} 추천, ${second}`, 20),
+      sub: truncate(`${second}로 특별한 하루를 만들어보세요`, 30),
+    },
+  ];
+}
+
+/**
+ * POST /generate/copy 목 함수. 6단계 완료 후 자동으로 이어서 호출한다.
+ * 응답은 `copies` 배열(3개) — 각 항목이 headline/sub와 함께 자기 자신의
+ * regulation_flags/safe/status를 따로 갖는다(문구마다 규제 상태가 다를 수 있음).
+ */
 export async function generateCopy(spec = {}) {
   await delay(600);
 
-  const { headline, sub } = buildCopy(spec);
+  const candidates = buildCopyCandidates(spec);
   // 실제 화면에 노출/수정되는 headline+sub만 검사한다 — 그래야 화면 B에서
-  // "대체 표현 적용"을 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
-  // (Q2 "제품/가게"나 Q4 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
+  // "이 표현으로 바꿀게요"를 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
+  // (Q3 "제품/가게"나 Q5 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
   // block/warn 데모를 재현할 수 있다 — 예: 제품에 "아토피 치료 크림" 입력)
-  const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
+  const copies = candidates.map((candidate, idx) => {
+    const { status, flags, safe } = scanRegulation(`${candidate.headline} ${candidate.sub}`, spec);
+    return {
+      id: `c${idx + 1}`,
+      headline: candidate.headline,
+      sub: candidate.sub,
+      status,
+      regulation_flags: flags,
+      safe,
+    };
+  });
 
-  return { headline, sub, status, regulation_flags: flags, safe };
+  return { copies };
 }
 
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */

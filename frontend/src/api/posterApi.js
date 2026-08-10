@@ -60,6 +60,12 @@ function placeholderImage(seed, label, ratio, backgroundType) {
   return canvas.toDataURL('image/png'); // data:image/png;base64,...
 }
 
+/** data URI에서 순수 base64만 뽑아낸다 (이미 prefix가 없으면 그대로 반환). */
+function stripDataUriPrefix(value = '') {
+  const commaIdx = value.indexOf(',');
+  return value.startsWith('data:') && commaIdx >= 0 ? value.slice(commaIdx + 1) : value;
+}
+
 // background 값 mock — 실제로는 draft 응답에 실려 오고, refine 요청 때 그대로
 // echo해야 동일 배경이 재현된다(서버 무상태). type이 'gradient'(flat)인지 'ai'인지로
 // 화면 E의 "같은 배경으로 다른 이미지 생성하기" 버튼 노출 여부를 가른다.
@@ -85,9 +91,12 @@ export async function generateDrafts({
 } = {}) {
   await delay();
 
+  // 실제 /generate/drafts 응답의 image도 prefix 없는 순수 base64라 mock도 캔버스
+  // data URI에서 prefix를 떼어 맞춰준다 — 화면 쪽(화면 C)에서 표시할 땐 toImageSrc()로
+  // 다시 감싸야 하고, refine에 넘길 땐 이 순수 base64를 그대로 재전송하면 된다.
   const drafts = SEEDS.slice(0, num_images).map((seed, idx) => ({
     id: `d${idx + 1}`,
-    image: placeholderImage(seed, `시안 ${idx + 1}`, ratio, backgroundType),
+    image: stripDataUriPrefix(placeholderImage(seed, `시안 ${idx + 1}`, ratio, backgroundType)),
     seed,
     background: mockBackground(seed, backgroundType),
   }));
@@ -106,16 +115,12 @@ export async function generateDrafts({
   };
 }
 
-/** data URI에서 순수 base64만 뽑아낸다 (이미 prefix가 없으면 그대로 반환). */
-function stripDataUriPrefix(value = '') {
-  const commaIdx = value.indexOf(',');
-  return value.startsWith('data:') && commaIdx >= 0 ? value.slice(commaIdx + 1) : value;
-}
-
 /**
- * 실제 /generate/refine 응답의 image는 순수 base64(data: prefix 없음)로 내려온다.
- * 화면에서 <img src>로 바로 쓰려면 이 어댑터로 감싸야 한다 — 실서버 연동 시에도
- * 이 함수 하나만 그대로 붙이면 됨 (docs/UIUX_스펙정리.md 5장 참고).
+ * 실제 /generate/drafts, /generate/refine 응답의 image는 모두 순수 base64
+ * (data: prefix 없음)로 내려온다. 화면에서 <img src>로 바로 쓰려면 이 어댑터로
+ * 감싸야 한다 — 실서버 연동 시에도 이 함수 하나만 그대로 붙이면 됨
+ * (docs/UIUX_스펙정리.md 5장 참고). draft_image로 refine에 재전송할 땐 이 변환
+ * 이전의 순수 base64를 그대로 써야 한다(변환은 표시용일 뿐).
  */
 export function toImageSrc(base64) {
   if (!base64) return '';

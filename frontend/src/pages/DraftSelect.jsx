@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { buildPrompt, generateDrafts } from '../api/posterApi';
+import { buildPrompt, generateDrafts, toImageSrc } from '../api/posterApi';
 import './DraftSelect.css';
 
 // 배경 종류 선택지 — AI 배경(diffusion 모델)과 flat 배경(단색/그라데이션).
@@ -16,8 +16,11 @@ const BACKGROUND_TYPE_OPTIONS = [
  * 하단에 크게 확대해서 보여준다. (docs/UIUX_스펙정리.md 4장 참고)
  *
  * 로딩 디테일(스켈레톤)/재시도 버튼은 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
- * 선택한 시안의 image(base64)·background는 App 상태로 들고 있다가 다음 화면에서
- * draft_image/background로 재사용한다 (서버 stateless 구조).
+ *
+ * ⚠ draft.image는 prefix 없는 순수 base64(8/8 리뷰 반영) — 화면에 <img src>로 보여줄
+ * 때는 toImageSrc()로 감싸고, 선택한 시안을 다음 화면(refine 호출)에 넘길 땐 원본
+ * base64를 그대로 App 상태로 들고 있다가 draft_image/background로 재사용한다
+ * (서버 stateless 구조).
  */
 function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const ratio = spec?.aspect_ratio || '1:1';
@@ -103,7 +106,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
                 }
                 onClick={() => setSelectedId(draft.id)}
               >
-                <img src={draft.image} alt={`시안 ${idx + 1}`} />
+                <img src={toImageSrc(draft.image)} alt={`시안 ${idx + 1}`} />
                 {draft.id === selectedId && <span className="draft-select__check">✓</span>}
               </button>
             ))}
@@ -111,7 +114,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
 
           {selectedDraft && (
             <div className="draft-select__preview" style={{ '--draft-ratio': aspectRatio }}>
-              <img src={selectedDraft.image} alt="선택한 시안 확대 보기" />
+              <img src={toImageSrc(selectedDraft.image)} alt="선택한 시안 확대 보기" />
             </div>
           )}
         </>

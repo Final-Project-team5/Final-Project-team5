@@ -185,7 +185,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
       </p>
 
       <div className="poster-editor__canvas" ref={canvasRef} style={{ '--canvas-ratio': ratio.replace(':', ' / ') }}>
-        <img className="poster-editor__bg" src={draftImage} alt="선택한 시안 배경" />
+        <img className="poster-editor__bg" src={toImageSrc(draftImage)} alt="선택한 시안 배경" />
         <div
           className="poster-editor__safe-guide"
           style={{
