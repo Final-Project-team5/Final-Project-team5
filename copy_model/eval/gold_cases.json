@@ -92,6 +92,20 @@
     {"id": "H-GW2", "split": "holdout", "category": "goods", "headline": "평생 보증 텀블러", "sub": "오래 쓰세요", "expected": "warn", "note": "보증 조건 명시 필요"},
     {"id": "H-GS1", "split": "holdout", "category": "goods", "headline": "귀여운 캐릭터 키링", "sub": "가방에 달아요", "expected": "safe", "note": "중립 감성"},
 
-    {"id": "H-LIMIT1", "split": "holdout", "category": "food", "headline": "면역 쑥쑥 올려주는 홍삼", "sub": "기운이 솟아요", "expected": "block", "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"}
+    {"id": "H-LIMIT1", "split": "holdout", "category": "food", "headline": "면역 쑥쑥 올려주는 홍삼", "sub": "기운이 솟아요", "expected": "block", "note": "[정직한 한계] 정규식 회피 의미표현 — LLM 레이어 필요 근거"},
+
+    {"id": "H-BD1", "split": "holdout", "category": "food", "headline": "주름 하나 없이 팽팽한 만두피", "sub": "쫄깃하게 빚었어요", "expected": "safe", "note": "[경계] '주름'(식품 비규제)"},
+    {"id": "H-BD2", "split": "holdout", "category": "food", "headline": "장이 편안한 하루 되세요", "sub": "매일 챙기는 요거트", "expected": "safe", "note": "[경계] '장'≠장건강"},
+    {"id": "H-BD3", "split": "holdout", "category": "food", "headline": "면역이 궁금한 당신께", "sub": "6년근 홍삼 진액", "expected": "safe", "note": "[경계] '면역'≠면역력 강화"},
+    {"id": "H-BD4", "split": "holdout", "category": "food", "headline": "피로한 하루의 끝", "sub": "따뜻한 차 한 잔", "expected": "safe", "note": "[경계] '피로'≠피로 회복"},
+    {"id": "H-BD5", "split": "holdout", "category": "food", "headline": "노폐물 걱정 없이 깔끔한 뒷맛", "sub": "담백한 사골 국물", "expected": "safe", "note": "[경계] '노폐물'≠배출/비우"},
+    {"id": "H-BD6", "split": "holdout", "category": "beauty", "headline": "주름이 신경 쓰이는 밤", "sub": "촉촉하게 채워요", "expected": "safe", "note": "[경계] '주름'≠제거"},
+    {"id": "H-BD7", "split": "holdout", "category": "beauty", "headline": "미백 관리의 첫걸음", "sub": "화사한 톤업", "expected": "safe", "note": "[경계] '미백'≠보장/완전"},
+    {"id": "H-BD8", "split": "holdout", "category": "beauty", "headline": "여드름 고민 상담해요", "sub": "순한 진정 세럼", "expected": "safe", "note": "[경계] '여드름'≠치료/제거"},
+    {"id": "H-BD9", "split": "holdout", "category": "beauty", "headline": "탄력이 필요한 밤에", "sub": "부드러운 크림", "expected": "safe", "note": "[경계] '탄력'(비규제)"},
+    {"id": "H-BD10", "split": "holdout", "category": "goods", "headline": "에코백에 쏙 들어가요", "sub": "가벼운 파우치", "expected": "safe", "note": "[경계] '에코백' 제품명"},
+    {"id": "H-BD11", "split": "holdout", "category": "goods", "headline": "최고의 하루를 담은 다이어리", "sub": "매일 기록해요", "expected": "safe", "note": "[경계·오탐예상] '최고의 하루'는 제품 최상급 아님 — 정규식이 맥락 못 봄"},
+    {"id": "H-BD12", "split": "holdout", "category": "goods", "headline": "100일 기념 굿즈", "sub": "특별하게 준비했어요", "expected": "safe", "note": "[경계] '100일'≠100%"},
+    {"id": "H-BD13", "split": "holdout", "category": "goods", "headline": "완벽한 오후를 위한 캔들", "sub": "은은한 향", "expected": "safe", "note": "[경계·오탐예상] '완벽한 오후'는 제품 단정 아님 — 정규식이 맥락 못 봄"}
   ]
 }
