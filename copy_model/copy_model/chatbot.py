@@ -1,24 +1,26 @@
 """챗봇 슬롯필링 모듈 (LLM 로직만 — UI/화면 흐름은 프론트 파트 담당).
 
-팀 논의 반영 (8/5):
-- PM진우님 제안: 고정 6단계 질문 흐름, 각 단계마다 선택지 여러 개 + 기타 직접입력
-- 서비스개발소원님 제안: 선택한 값이 메인 화면 키워드 칩으로 자동 추가 + 확인 멘트
-- 포스터모델지우님 제안: 챗봇은 메인이 아닌 보조 도우미 역할
+팀 논의 반영:
+- (8/5) PM진우님: 고정 질문 흐름, 각 단계마다 선택지 여러 개 + 기타 직접입력
+- (8/5) 서비스개발소원님: 선택 값이 메인 화면 키워드 칩으로 자동 추가 + 확인 멘트
+- (8/5) 포스터모델지우님: 챗봇은 메인이 아닌 보조 도우미 역할
+- (8/11) 소원·지우님 확정: 이미지 비율은 챗봇 '용도' 질문에서 받는다.
+    용도 → 비율 매핑: SNS 카드뉴스=1:1 / 배너=3:1 / 상세페이지=3:4
+    (비정사각 생성 구조상 draft 생성 전에 비율이 정해져야 하므로 챗봇에서 수집)
 
 두 가지 모드 지원:
   1) 고정 플로우 (mode="fixed", 기본값) — PM진우님 안.
-     단계가 정해져 있어 프론트가 진행률(1/5) 표시 가능. 선택지는 LLM이
-     앞 단계 맥락에 맞게 생성하되, 질문 순서·개수는 서버가 보장.
+     단계가 정해져 있어 프론트가 진행률(1/6) 표시 가능.
   2) 자유 진행 (mode="auto") — LLM이 미수집 슬롯 중 다음 질문을 판단.
-     자유 입력 대화 위주로 갈 경우 사용.
 
 target_slots (서비스개발소원님 요청):
   물어볼 항목을 지정하면 그것만 채우고 done=true로 끝남.
-  - 메인 흐름: target_slots 없이 호출 → 1단계부터 순서대로 5단계
+  - 메인 흐름: target_slots 없이 호출 → 1단계부터 순서대로 6단계
   - 서브 패널 도우미: target_slots=["tone"] → 톤만 물어보고 종료
-  이미 채워진 값은 spec으로 함께 전달하면 선택지 생성에 맥락으로 반영됨.
 
-어느 모드든 done=true 시 spec을 그대로 /generate/copy 바디로 사용 가능.
+어느 모드든 done=true 시 spec을 그대로 /generate/copy 바디로 사용 가능
+(purpose/aspect_ratio는 이미지 파이프라인용 필드로, CopyRequest는 이를 무시함.
+ 프론트가 aspect_ratio를 drafts 요청에 실어 넘긴다).
 """
 import json
 import time
@@ -28,22 +30,41 @@ from pydantic import BaseModel, Field
 
 from . import config
 
+# ── 용도 → 이미지 비율 매핑 (8/11 소원·지우님 확정) ──────
+#   SNS 카드뉴스 = 1:1 / 배너 = 3:1 / 상세페이지 = 3:4
+#   서버가 결정적으로 매핑한다(LLM 판단에 맡기지 않음 — 항상 고정값).
+PURPOSE_ASPECT = {"sns": "1:1", "banner": "3:1", "detail": "3:4"}
+PURPOSE_LABEL = {"sns": "SNS 카드뉴스", "banner": "배너", "detail": "상세페이지"}
+
+
+def _apply_aspect_ratio(spec: dict) -> dict:
+    """purpose 슬롯이 채워지면 비율(aspect_ratio)을 서버가 결정적으로 매핑."""
+    purpose = spec.get("purpose")
+    if purpose in PURPOSE_ASPECT:
+        spec["aspect_ratio"] = PURPOSE_ASPECT[purpose]
+    return spec
+
+
 # ── 고정 플로우 정의 (PM진우님 제안 기반) ────────────────
 # slot: 채우는 슬롯 / multi: 복수 선택 허용 / free_text: 기타 입력칸 노출
 FLOW_STEPS = [
     {"step": 1, "slot": "category", "multi": False,
      "question": "현재 운영하시는 업종은 어떤 것인가요?",
      "hint": "food/beauty/goods 중 하나로 매핑. 선택지는 업종 예시를 구체적으로."},
-    {"step": 2, "slot": "product", "multi": False,
+    {"step": 2, "slot": "purpose", "multi": False,
+     "question": "만드신 이미지를 주로 어디에 쓰실 건가요?",
+     "hint": "SNS 카드뉴스→'sns' / 배너→'banner' / 상세페이지→'detail' 로 매핑. "
+             "비율(1:1/3:1/3:4)은 서버가 자동 결정하므로 sns/banner/detail 값만 확정할 것."},
+    {"step": 3, "slot": "product", "multi": False,
      "question": "어떤 제품이나 가게를 홍보하시나요?",
      "hint": "제품/가게 이름. 선택지는 해당 업종의 대표 품목 예시로."},
-    {"step": 3, "slot": "tone", "multi": False,
+    {"step": 4, "slot": "tone", "multi": False,
      "question": "원하시는 포스터의 느낌은 어떤 것인가요?",
      "hint": "warm/energetic/luxury/simple 중 하나로 매핑. 선택지는 감성 표현으로."},
-    {"step": 4, "slot": "keywords", "multi": True,
+    {"step": 5, "slot": "keywords", "multi": True,
      "question": "강조하고 싶은 점을 골라주세요.",
      "hint": "복수 선택 가능. 제품 특징·강점 키워드."},
-    {"step": 5, "slot": "request", "multi": False,
+    {"step": 6, "slot": "request", "multi": False,
      "question": "추가로 반영했으면 하는 내용이 있으신가요?",
      "hint": "신메뉴 출시, 할인 행사 등. 없으면 건너뛰기 가능."},
 ]
@@ -66,14 +87,17 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
 [규칙]
 1. 사용자의 이번 답변에서 이번 단계 슬롯 값을 확정한다.
    - category는 반드시 "food" | "beauty" | "goods" 중 하나로 매핑
+   - purpose는 반드시 "sns" | "banner" | "detail" 중 하나로 매핑
+     (SNS/카드뉴스/인스타→sns, 배너/광고배너→banner, 상세페이지/상세/제품페이지→detail)
    - tone은 반드시 "warm" | "energetic" | "luxury" | "simple" 중 하나로 매핑
    - keywords는 문자열 배열
 2. next_question에는 위 "다음 단계 질문"을 그대로 넣고, 그 질문에 쓸 선택지
    4개를 생성한다. 지금까지 파악된 맥락(업종·제품)에 맞게 구체적으로 만든다.
-   (예: 떡볶이 가게 → 톤 선택지를 "활기찬 분식집 느낌" 같이 맥락화)
 3. confirm_message에는 이번에 확정된 값의 확인 멘트를 담는다.
    슬롯 종류에 맞는 표현을 쓸 것 (사용자가 고른 표현 그대로 인용):
    - category → "'푸드'로 업종을 설정했어요."
+   - purpose  → "'SNS 카드뉴스'용으로 정했어요. 정사각(1:1) 비율로 만들어드릴게요."
+     (배너→"가로로 긴 배너(3:1)", 상세페이지→"세로로 긴 상세페이지(3:4)")
    - product  → "'떡볶이'로 정했어요."
    - tone     → "'모던한 K-푸드 스타일'로 분위기를 잡았어요."
    - keywords → "'수제', '당일 생산'을 키워드로 추가했어요."
@@ -81,8 +105,9 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
    뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (마지막 단계는 생략)
 4. 마지막 단계까지 끝나면 done=true, next_question은 마무리 멘트, options는 빈 배열.
 5. 반드시 JSON으로만 응답:
-{{"spec": {{"category": null|"food"|"beauty"|"goods", "product": null|"...",
-  "tone": null|"warm"|"energetic"|"luxury"|"simple",
+{{"spec": {{"category": null|"food"|"beauty"|"goods",
+  "purpose": null|"sns"|"banner"|"detail",
+  "product": null|"...", "tone": null|"warm"|"energetic"|"luxury"|"simple",
   "keywords": null|["..."], "request": null|"..."}},
  "next_question": "...", "options": ["...", "...", "...", "..."],
  "confirm_message": "..."}}"""
@@ -92,6 +117,8 @@ _AUTO_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
 
 [수집할 슬롯]
 - category: "food" | "beauty" | "goods" 중 하나
+- purpose: "sns" | "banner" | "detail" 중 하나 (이미지 용도. SNS/카드뉴스→sns,
+  배너→banner, 상세페이지→detail. 비율은 서버가 자동 결정)
 - product: 제품/가게 이름 (구체적으로)
 - tone: "warm" | "energetic" | "luxury" | "simple" 중 하나
 - keywords: 강조할 키워드 1~3개
@@ -99,20 +126,15 @@ _AUTO_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
 
 [진행 규칙]
 1. 대화 이력과 새 메시지에서 파악 가능한 슬롯을 모두 채운다.
-2. category, product, tone, keywords가 모두 채워지면 done=true.
+2. category, purpose, product, tone, keywords가 모두 채워지면 done=true.
 3. 부족하면 done=false로 하고, 가장 중요한 미수집 슬롯 1개에 대해
    질문 1개 + 사용자가 고르기 쉬운 선택지 4개를 제시한다.
-   선택지는 이미 파악된 맥락에 맞게 구체적으로 만든다.
 4. 한 번에 질문은 반드시 1개만.
 5. 이번 입력으로 새로 확정된 항목이 있으면 confirm_message에 짧은 확인 멘트를 담는다.
-   슬롯 종류에 맞는 표현을 쓸 것:
-   - category → "'푸드'로 업종을 설정했어요."
-   - product  → "'떡볶이'로 정했어요."
-   - tone     → "'모던한 K-푸드 스타일'로 분위기를 잡았어요."
-   - keywords → "'수제', '당일 생산'을 키워드로 추가했어요."
    뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (없으면 빈 문자열)
 6. 반드시 JSON으로만 응답:
-{"spec": {"category": null|"food"|"beauty"|"goods", "product": null|"...",
+{"spec": {"category": null|"food"|"beauty"|"goods",
+  "purpose": null|"sns"|"banner"|"detail", "product": null|"...",
   "tone": null|"warm"|"energetic"|"luxury"|"simple",
   "keywords": null|["..."], "request": null|"..."},
  "done": true|false,
@@ -141,11 +163,13 @@ class SuggestRequest(BaseModel):
         default=None,
         description="물어볼 항목만 지정 (예: [\"tone\"]). 지정하면 해당 항목만 채우고 "
                     "done=true로 종료 — 서브 패널 도우미 용도. "
-                    "생략하면 전체 5단계 흐름 (메인 흐름 용도)")
+                    "생략하면 전체 6단계 흐름 (메인 흐름 용도)")
 
 
 class SuggestResponse(BaseModel):
-    spec: dict = Field(description="현재까지 채워진 슬롯 (done=true면 /generate/copy 바디로 사용)")
+    spec: dict = Field(
+        description="현재까지 채워진 슬롯 (done=true면 /generate/copy 바디로 사용). "
+                    "purpose 확정 시 aspect_ratio(1:1/3:1/3:4)가 함께 채워짐 — 이미지 파이프라인용")
     done: bool
     step: int = Field(description="방금 처리한 단계")
     next_step: Optional[int] = Field(default=None, description="다음 단계 (done이면 null)")
@@ -162,27 +186,34 @@ class SuggestResponse(BaseModel):
     meta: dict
 
 
-_MOCK_BY_STEP = {
-    1: ("어떤 제품이나 가게를 홍보하시나요?",
-        ["떡볶이", "김밥", "분식 세트", "음료"],
-        {"category": "food"},
-        "'푸드'로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"),
-    2: ("원하시는 포스터의 느낌은 어떤 것인가요?",
-        ["활기찬 분식집 느낌", "모던한 K-푸드 스타일", "정겹고 따뜻한 느낌", "깔끔한 정보 전달형"],
-        {"product": "떡볶이"},
-        "'떡볶이'로 정했어요. 왼쪽 화면에서 확인해보세요!"),
-    3: ("강조하고 싶은 점을 골라주세요.",
-        ["수제", "당일 생산", "매운맛 단계 선택", "포장 가능"],
-        {"tone": "energetic"},
-        "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"),
-    4: ("추가로 반영했으면 하는 내용이 있으신가요?",
-        ["신메뉴 출시", "할인 행사", "배달 시작", "없음"],
-        {"keywords": ["수제", "당일 생산"]},
-        "'수제', '당일 생산'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"),
-    5: ("제공해주신 정보를 바탕으로 문구를 만들어드릴게요!",
-        [],
-        {"request": "신메뉴 출시"},
-        "'신메뉴 출시'를 반영할게요."),
+# mock 샘플 (슬롯별) — options는 '그 슬롯을 물을 때' 보여줄 선택지
+_MOCK_SLOT = {
+    "category": {
+        "options": ["음식점·카페", "화장품·뷰티", "소품·잡화", "기타"],
+        "patch": {"category": "food"},
+        "confirm": "'푸드'로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"},
+    "purpose": {
+        "options": ["SNS 카드뉴스 (정사각 1:1)", "배너 (가로로 긴 3:1)",
+                    "상세페이지 (세로로 긴 3:4)"],
+        "patch": {"purpose": "sns"},
+        "confirm": "'SNS 카드뉴스'용으로 정했어요. 정사각(1:1) 비율로 만들어드릴게요!"},
+    "product": {
+        "options": ["떡볶이", "김밥", "분식 세트", "음료"],
+        "patch": {"product": "떡볶이"},
+        "confirm": "'떡볶이'로 정했어요. 왼쪽 화면에서 확인해보세요!"},
+    "tone": {
+        "options": ["활기찬 분식집 느낌", "모던한 K-푸드 스타일", "정겹고 따뜻한 느낌",
+                    "깔끔한 정보 전달형"],
+        "patch": {"tone": "energetic"},
+        "confirm": "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"},
+    "keywords": {
+        "options": ["수제", "당일 생산", "매운맛 단계 선택", "포장 가능"],
+        "patch": {"keywords": ["수제", "당일 생산"]},
+        "confirm": "'수제', '당일 생산'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"},
+    "request": {
+        "options": ["신메뉴 출시", "할인 행사", "배달 시작", "없음"],
+        "patch": {"request": "신메뉴 출시"},
+        "confirm": "'신메뉴 출시'를 반영할게요."},
 }
 
 
@@ -199,23 +230,27 @@ def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
     total = len(flow)
     step = min(req.step, total)
     cfg = flow[step - 1]
-
-    # mock 데이터는 전체 흐름 기준이라 슬롯으로 찾아 매칭
-    src_step = next(i + 1 for i, s in enumerate(FLOW_STEPS) if s["slot"] == cfg["slot"])
-    _, options, patch, confirm = _MOCK_BY_STEP[src_step]
+    m = _MOCK_SLOT[cfg["slot"]]
 
     spec = dict(req.spec or {})
-    spec.update(patch)
+    spec.update(m["patch"])
+    _apply_aspect_ratio(spec)
+
     done = step >= total
     next_step = None if done else step + 1
-    question = ("제공해주신 정보를 바탕으로 문구를 만들어드릴게요!" if done
-                else flow[next_step - 1]["question"])
-    allow_multiple = False if done else flow[next_step - 1]["multi"]
+    if done:
+        question, options, allow_multiple = (
+            "제공해주신 정보를 바탕으로 문구를 만들어드릴게요!", [], False)
+    else:
+        next_cfg = flow[next_step - 1]
+        question = next_cfg["question"]
+        options = _MOCK_SLOT[next_cfg["slot"]]["options"]
+        allow_multiple = next_cfg["multi"]
 
     return SuggestResponse(
         spec=spec, done=done, step=step, next_step=next_step, total_steps=total,
-        question=question, options=[] if done else options,
-        allow_multiple=allow_multiple, confirm_message=confirm,
+        question=question, options=options, allow_multiple=allow_multiple,
+        confirm_message=m["confirm"],
         meta={"elapsed": round(time.time() - t0, 3), "model": "mock", "mock": True},
     )
 
@@ -261,6 +296,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
 
         spec = dict(req.spec or {})
         spec.update({k: v for k, v in (data.get("spec") or {}).items() if v is not None})
+        _apply_aspect_ratio(spec)
 
         return SuggestResponse(
             spec=spec, done=done, step=step,
@@ -280,8 +316,10 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
     messages.append({"role": "user", "content": req.message})
     data = _client_chat(messages)
 
+    spec = data.get("spec", {}) or {}
+    _apply_aspect_ratio(spec)
     return SuggestResponse(
-        spec=data.get("spec", {}),
+        spec=spec,
         done=bool(data.get("done", False)),
         step=req.step, next_step=None,
         question=str(data.get("next_question", "")),
