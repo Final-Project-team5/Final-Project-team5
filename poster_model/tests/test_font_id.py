@@ -4,16 +4,17 @@
 그래서 headline_font_id / sub_font_id로 나누지 않고 text.font_id 하나만 받는다.
 
 확인 대상:
-    1) whitelist — 5종 ID와 PR #27 기준 예상 경로 매핑
+    1) whitelist — 5종 ID와 실제 자산 경로 매핑
     2) resolve — 현재 있는 자산은 정상 해석 / 없는 자산은 font_asset_missing
     3) 400 — 미지원 ID, 자산 없는 ID, 빈 문자열. silent fallback 없음
     4) 렌더링 — font_id 지정 시 headline과 sub가 **같은 파일**로 그려짐
     5) 회귀 — font_id 미전달 결과가 변경 전 overlay와 **픽셀 동일**
     6) 스키마 — TextSpec에 font_id만 추가됨
 
-주의: 지금 작업 브랜치에는 GmarketSans/Galmuri11/NanumPen 자산이 없다.
-"5종 경로가 모두 실제 존재"는 **이 단계의 성공 조건이 아니다**. PR #27 자산이
-병합된 뒤 아래 PENDING_AFTER_MERGE 항목을 성공 조건으로 올린다.
+폰트 자산: 이 브랜치에는 지원 5종이 모두 들어 있다. 그래서 아래 [1]의 경로
+검사와 마지막 절의 5종 렌더링 검사가 실제 성공 조건으로 동작한다.
+자산이 빠진 환경에서도 이 스위트가 죽지 않도록 HAVE / MISSING 분기는 남겨 둔다
+(자산이 없으면 그 ID는 font_asset_missing 400이 되고, 그 동작 자체를 검사한다).
 
 실행 (프로젝트 루트에서):
     PYTHONPATH="$PWD" python tests/test_font_id.py
@@ -46,6 +47,8 @@ BG = (235, 232, 228)
 
 # 프론트가 실제로 보내는 5종. 문자열이 바뀌면 클라이언트 저장값이 깨진다.
 FRONT_IDS = ["pretendard", "nanummyeongjo", "gmarketsans", "galmuri11", "nanumpen"]
+# font_id -> 실제 TTF. gmarketsans는 **Medium**이다. 역할 기반 FONTS["headline"]이
+# 쓰는 Gmarket Sans Bold와는 다른 파일이며, 두 경로는 서로 독립이다.
 EXPECTED_PATHS = {
     "pretendard": "assets/fonts/Pretendard/Pretendard-Regular.ttf",
     "nanummyeongjo": "assets/fonts/NanumMyeongjo/NanumMyeongjoBold.ttf",
@@ -86,7 +89,8 @@ def compose(text, size=(1024, 1024), **extra):
 TEXT = {"headline": "여름 한정 특가", "sub": "오늘 하루만 20% 할인",
         "x": 0.5, "y": 0.5, "align": "center", "style": "plain"}
 
-# 현재 브랜치에 자산이 있는 것 / 없는 것
+# 실제 파일이 있는 ID / 없는 ID. 현재 브랜치에서는 5종 모두 HAVE다.
+# MISSING 분기는 자산이 빠진 환경에서의 400 동작을 검사하기 위해 남겨 둔다.
 HAVE = config.available_font_ids()
 MISSING = [f for f in FRONT_IDS if f not in HAVE]
 
@@ -99,13 +103,13 @@ check("5종 ID가 모두 등록됨", set(config.FONT_IDS) == set(FRONT_IDS),
 check("등록 순서가 프론트 목록과 같음", list(config.FONT_IDS) == FRONT_IDS)
 for fid in FRONT_IDS:
     rel = Path(config.FONT_IDS[fid]).relative_to(ROOT).as_posix()
-    check(f"{fid} 경로 = PR #27 기준", rel == EXPECTED_PATHS[fid], rel)
+    check(f"{fid} 경로 = 계약 경로", rel == EXPECTED_PATHS[fid], rel)
 check("ID에 구분자/대문자 없음", all(f.islower() and f.isalnum() for f in config.FONT_IDS))
 check("역할 기반 FONTS와 별개 테이블", "font_id" not in config.FONTS
       and set(config.FONTS) == {"headline", "body", "body_medium", "elegant", "accent"})
 
 print(f"\n     현재 자산 있음: {HAVE}")
-print(f"     현재 자산 없음: {MISSING}  ← PR #27 병합 대상")
+print(f"     현재 자산 없음: {MISSING}  (비어 있어야 정상)")
 
 
 # ---------------------------------------------------------------------------
@@ -352,12 +356,11 @@ check("OpenAPI에 내부 경로 미노출",
 
 
 # ---------------------------------------------------------------------------
-print("\n[PENDING] PR #27 자산 병합 후 성공 조건으로 올릴 항목")
+print("\n[8] 지원 5종 실제 렌더링")
 for fid in MISSING:
-    print(f"  [TODO] {fid}: 실제 파일 존재 + 렌더링 결과 확인 "
+    print(f"  [SKIP] {fid}: 이 환경에 폰트 파일이 없어 렌더링 검사를 건너뛴다 "
           f"({EXPECTED_PATHS[fid]})")
 if not MISSING:
-    print("  자산이 모두 병합됨 — 아래를 성공 조건으로 검사한다")
     for fid in FRONT_IDS:
         r = compose({**TEXT, "font_id": fid})
         check(f"{fid} 렌더링 200", r.status_code == 200, str(r.status_code))
