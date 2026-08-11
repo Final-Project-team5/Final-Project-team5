@@ -149,7 +149,7 @@
 .chat-question__chip--active {
   background: var(--color-primary-light);
   border-color: var(--color-primary);
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .chat-question__chip--other {
@@ -186,7 +186,7 @@
 .chat-question__submit {
   padding: 9px 16px;
   border-radius: 10px;
-  background: var(--color-primary);
+  background: var(--gradient-cta);
   color: #fff;
   font-size: 13.5px;
   font-weight: 700;

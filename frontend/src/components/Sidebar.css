@@ -13,12 +13,20 @@
 }
 
 .sidebar__logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   align-self: flex-start;
   font-size: 16px;
   font-weight: 800;
   color: var(--color-text);
   letter-spacing: -0.2px;
   margin-bottom: 22px;
+}
+
+.sidebar__logo-icon {
+  flex: none;
+  border-radius: 7px;
 }
 
 .sidebar__new-btn {
@@ -28,7 +36,7 @@
   gap: 6px;
   padding: 12px 0;
   border-radius: 12px;
-  background: var(--color-primary);
+  background: var(--gradient-cta);
   color: #fff;
   font-size: 14px;
   font-weight: 700;
@@ -47,7 +55,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .sidebar__tip-header span {
@@ -59,7 +67,7 @@
 .sidebar__tip-text {
   font-size: 12.5px;
   line-height: 1.55;
-  color: oklch(32% 0.02 150);
+  color: oklch(32% 0.01 290);
   min-height: 57px;
   transition: opacity 0.4s ease;
 }

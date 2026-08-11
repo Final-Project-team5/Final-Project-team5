@@ -1,14 +1,34 @@
 :root {
-  --color-bg: oklch(97% 0.005 150);
+  /* 중립 컬러 — 배경/카드/텍스트는 흰색·연회색 기본, 채도 낮게 (색이 몰리지 않도록) */
+  --color-bg: oklch(97.5% 0.002 290);
   --color-surface: #fff;
-  --color-border: oklch(91% 0.01 150);
-  --color-border-soft: oklch(93% 0.01 150);
-  --color-text: oklch(20% 0.02 150);
-  --color-text-secondary: oklch(50% 0.02 150);
-  --color-text-muted: oklch(65% 0.01 150);
-  --color-primary: oklch(58% 0.14 150);
-  --color-primary-light: oklch(97% 0.02 150);
-  --color-primary-border: oklch(92% 0.02 150);
+  --color-border: oklch(90% 0.01 290);
+  --color-border-soft: oklch(93.5% 0.008 290);
+  --color-text: oklch(20% 0.01 290);
+  --color-text-secondary: oklch(48% 0.015 290);
+  --color-text-muted: oklch(64% 0.01 290);
+
+  /* 브랜드 메인 — 보라. 버튼/로고/강조 텍스트에 사용 */
+  --color-primary: #7b5fea;
+  --color-primary-light: #f1edfd;
+  --color-primary-border: #dcd2f8;
+  --color-primary-text: #5a3fc4;
+
+  /* 브랜드 서브 — 파랑. 보라와 함께 메인 축을 이룸 */
+  --color-secondary: #4d7fff;
+  --color-secondary-light: #eaf1ff;
+  --color-secondary-border: #cbddff;
+
+  /* 브랜드 포인트 — 핑크. 배지 하나·장식 요소 하나처럼 아주 좁은 영역에만 사용 */
+  --color-accent: #ff6fa8;
+  --color-accent-light: #ffeaf3;
+  --color-accent-border: #ffd2e4;
+
+  /* 그라데이션은 버튼/CTA·로고 같은 포인트 요소 전용. 그 외에는 위 단색 토큰을 그대로 사용 */
+  --gradient-cta: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  --gradient-logo: linear-gradient(135deg, var(--color-primary), var(--color-secondary) 55%, var(--color-accent));
+
+  /* 규제 배지(block/warn/pass) 전용 신호등 색 — 브랜드 컬러와 분리, 의미 전달을 위해 변경하지 않음 */
   --color-badge-bg: oklch(93% 0.05 150);
   --color-badge-text: oklch(40% 0.13 150);
 

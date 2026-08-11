@@ -199,11 +199,11 @@
 
 .copy-result__flag-suggestion:hover {
   border-color: var(--color-primary);
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .copy-result__flag-suggestion strong {
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .copy-result__edit {
@@ -280,7 +280,7 @@
 .copy-result__primary {
   padding: 13px 22px;
   border-radius: 12px;
-  background: var(--color-primary);
+  background: var(--gradient-cta);
   color: #fff;
   font-size: 14px;
   font-weight: 700;

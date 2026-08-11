@@ -83,7 +83,7 @@
 .draft-select__bg-type-chip--active {
   background: var(--color-primary-light);
   border-color: var(--color-primary);
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .draft-select__bg-type-chip--disabled {
@@ -185,7 +185,7 @@
 .draft-select__primary {
   padding: 13px 22px;
   border-radius: 12px;
-  background: var(--color-primary);
+  background: var(--gradient-cta);
   color: #fff;
   font-size: 14px;
   font-weight: 700;

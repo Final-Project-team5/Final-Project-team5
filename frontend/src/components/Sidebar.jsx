@@ -9,7 +9,8 @@ function Sidebar({ regTip, regTipVisible, onGoHome, onNewFlow }) {
   return (
     <aside className="sidebar">
       <button type="button" className="sidebar__logo" onClick={onGoHome}>
-        AD메이커
+        <img src="/favicon.svg" alt="" className="sidebar__logo-icon" width="24" height="24" />
+        <span>애드지니</span>
       </button>
 
       <button type="button" className="sidebar__new-btn" onClick={onNewFlow}>
