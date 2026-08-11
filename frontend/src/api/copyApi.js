@@ -6,7 +6,12 @@
  *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
  *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
+ *
+ * 실패 시뮬레이션(?mockFail=options,copy,validate / ?mockFailRate=0.3)은
+ * mockUtils.js 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다.
  */
+
+import { maybeFail } from './mockUtils';
 
 const MOCK_DELAY_MS = 400;
 export const TOTAL_STEPS = 6;
@@ -128,6 +133,7 @@ function buildConfirmMessage(step, spec) {
  */
 export async function suggestOptions({ message, step = 1, spec = {} } = {}) {
   await delay();
+  maybeFail('options');
 
   const nextSpec = { ...spec };
   switch (step) {
@@ -384,6 +390,7 @@ function buildCopyCandidates(spec) {
  */
 export async function generateCopy(spec = {}) {
   await delay(600);
+  maybeFail('copy');
 
   const candidates = buildCopyCandidates(spec);
   // 실제 화면에 노출/수정되는 headline+sub만 검사한다 — 그래야 화면 B에서
@@ -408,6 +415,7 @@ export async function generateCopy(spec = {}) {
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */
 export async function validateCopy({ headline = '', sub = '' } = {}, spec = {}) {
   await delay(300);
+  maybeFail('validate');
   const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
   return { status, flags, safe };
 }

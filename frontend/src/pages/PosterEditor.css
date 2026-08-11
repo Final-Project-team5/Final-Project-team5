@@ -5,6 +5,16 @@
   padding: 48px 24px 40px;
 }
 
+.poster-editor--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.poster-editor__submit-error {
+  margin-top: 20px;
+}
+
 .poster-editor__title {
   font-size: 26px;
   font-weight: 800;

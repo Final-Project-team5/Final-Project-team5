@@ -1,0 +1,131 @@
+.loading-checklist {
+  --loading-accent: var(--color-primary);
+  --loading-accent-light: var(--color-primary-light);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface);
+}
+
+/* 로딩 B(고품질화 중)는 로딩 A(초안 생성 중)와 강조색을 다르게 써서,
+   문구뿐 아니라 색으로도 두 로딩 단계가 시각적으로 구분되게 한다. */
+.loading-checklist--refine {
+  --loading-accent: oklch(55% 0.14 290);
+  --loading-accent-light: oklch(96% 0.03 290);
+}
+
+.loading-checklist__spinner {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.loading-checklist__spinner span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--loading-accent);
+  animation: loading-checklist-bounce 1s infinite ease-in-out;
+}
+
+.loading-checklist__spinner span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.loading-checklist__spinner span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes loading-checklist-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1);
+  }
+}
+
+.loading-checklist__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.loading-checklist__caption {
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  margin: 8px 0 24px;
+  line-height: 1.5;
+}
+
+.loading-checklist__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 300px;
+}
+
+.loading-checklist__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-soft);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  text-align: left;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.loading-checklist__step-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.loading-checklist__step--active {
+  color: var(--color-text);
+  background: var(--loading-accent-light);
+  border-color: var(--loading-accent);
+}
+
+.loading-checklist__step--active .loading-checklist__step-icon {
+  border-color: var(--loading-accent);
+  color: var(--loading-accent);
+}
+
+.loading-checklist__step--done {
+  color: var(--color-text-secondary);
+}
+
+.loading-checklist__step--done .loading-checklist__step-icon {
+  background: var(--loading-accent);
+  border-color: var(--loading-accent);
+  color: #fff;
+}
