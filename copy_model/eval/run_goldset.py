@@ -28,8 +28,6 @@ from copy_model.regulation import check_rules
 _HERE = os.path.dirname(__file__)
 _GOLD = os.path.join(_HERE, "gold_cases.json")
 
-_RANK = {"safe": 0, "warn": 1, "block": 2}
-
 
 def predict(headline: str, sub: str, category: str) -> str:
     """현재 룰의 예측 라벨."""
