@@ -4,18 +4,33 @@
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
  *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
- *   POST /generate/copy    { spec }                → CopyResult.jsx (화면 B)
- *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B)
+ *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
+ *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  */
 
 const MOCK_DELAY_MS = 400;
-export const TOTAL_STEPS = 5;
+export const TOTAL_STEPS = 6;
 
 function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// --- 업종별 2번 질문(제품/가게) 선택지 ---------------------------------
+// --- 용도 질문 (8/11 확정: 비율 매핑은 프론트가 아니라 서버가 결정) --------
+// 프론트는 이 선택지로 질문만 보여주고, 매핑 결과(purpose/aspect_ratio)는
+// 서버가 /suggest/options 응답 spec에 채워서 내려준다. 프론트는 그 값을
+// 그대로 받아 쓸 뿐 계산하지 않는다 — 아래 PURPOSE_BY_USAGE는 mock이 "서버라면
+// 이렇게 채워줬을 값"을 흉내내기 위한 내부 구현일 뿐, 프론트 쪽 매핑 로직이 아니다.
+export const USAGE_OPTIONS = ['SNS 카드뉴스', '배너', '상세페이지'];
+const PURPOSE_BY_USAGE = {
+  'SNS 카드뉴스': { purpose: 'sns', aspect_ratio: '1:1' },
+  배너: { purpose: 'banner', aspect_ratio: '3:1' },
+  상세페이지: { purpose: 'detail', aspect_ratio: '3:4' },
+};
+function resolvePurpose(usage) {
+  return PURPOSE_BY_USAGE[usage] || { purpose: 'sns', aspect_ratio: '1:1' };
+}
+
+// --- 업종별 3번 질문(제품/가게) 선택지 ---------------------------------
 const CATEGORY_PRODUCT_OPTIONS = {
   food: ['떡볶이집', '베이커리·디저트', '카페', '도시락 전문점'],
   beauty: ['스킨케어 브랜드', '헤어살롱', '네일샵', '향수 브랜드'],
@@ -48,26 +63,33 @@ function buildQuestion(step, spec) {
   switch (step) {
     case 2:
       return {
+        question: '이 포스터는 어디에 사용하실 예정인가요?',
+        options: USAGE_OPTIONS,
+        multiSelect: false,
+        freeform: false,
+      };
+    case 3:
+      return {
         question: '어떤 제품/가게인가요?',
         options: CATEGORY_PRODUCT_OPTIONS[categoryKey(spec.category)],
         multiSelect: false,
         freeform: false,
       };
-    case 3:
+    case 4:
       return {
         question: '원하시는 포스터 느낌은 어떤가요?',
         options: TONE_OPTIONS,
         multiSelect: false,
         freeform: false,
       };
-    case 4:
+    case 5:
       return {
         question: '강조하고 싶은 점은 무엇인가요? (복수 선택 가능)',
         options: HIGHLIGHT_OPTIONS,
         multiSelect: true,
         freeform: false,
       };
-    case 5:
+    case 6:
       return {
         question: '추가로 요청하실 사항이 있나요?',
         options: EXTRA_OPTIONS,
@@ -84,12 +106,14 @@ function buildConfirmMessage(step, spec) {
     case 1:
       return `${spec.category} 업종이시군요!`;
     case 2:
-      return `${spec.product}, 멋지네요!`;
+      return `${spec.usage}에 맞는 비율로 준비할게요!`;
     case 3:
-      return '좋은 느낌이에요!';
+      return `${spec.product}, 멋지네요!`;
     case 4:
-      return '강조 포인트 확인했어요!';
+      return '좋은 느낌이에요!';
     case 5:
+      return '강조 포인트 확인했어요!';
+    case 6:
       return '모든 답변을 확인했어요. 문구를 만들어볼게요!';
     default:
       return '';
@@ -110,16 +134,24 @@ export async function suggestOptions({ message, step = 1, spec = {} } = {}) {
     case 1:
       nextSpec.category = message;
       break;
-    case 2:
+    case 2: {
+      nextSpec.usage = message;
+      // 서버 응답 흉내: spec에 purpose/aspect_ratio를 이미 채운 상태로 내려준다.
+      const { purpose, aspect_ratio } = resolvePurpose(message);
+      nextSpec.purpose = purpose;
+      nextSpec.aspect_ratio = aspect_ratio;
+      break;
+    }
+    case 3:
       nextSpec.product = message;
       break;
-    case 3:
+    case 4:
       nextSpec.tone = message;
       break;
-    case 4:
+    case 5:
       nextSpec.highlights = message;
       break;
-    case 5:
+    case 6:
       nextSpec.extra = message;
       break;
     default:
@@ -310,29 +342,67 @@ function truncate(text = '', max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function buildCopy(spec) {
-  const product = spec.product || '우리 브랜드';
-  const firstHighlight = (spec.highlights || '특별한 매력').split(',')[0].trim();
-  const tone = spec.tone || '자연스러운';
-
-  return {
-    headline: truncate(`${product}, ${firstHighlight}`, 20),
-    sub: truncate(`${tone} 느낌으로 ${firstHighlight}을 담았어요`, 30),
-  };
+function splitHighlights(spec) {
+  return (spec.highlights || '특별한 매력')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
 }
 
-/** POST /generate/copy 목 함수. 5단계 완료 후 자동으로 이어서 호출한다. */
+/**
+ * 문구 3개(시안) 후보를 만든다 (8/8 진우님 리뷰 반영 — /generate/copy는 headline/sub
+ * 조합을 3개 반환하는 구조). 서로 다른 템플릿을 써서 강조점 조합이 갈리게 해두면,
+ * 문구마다 규제 검증 결과가 달라지는 상황(일부만 block/warn)도 자연스럽게 재현된다.
+ */
+function buildCopyCandidates(spec) {
+  const product = spec.product || '우리 브랜드';
+  const tone = spec.tone || '자연스러운';
+  const highlights = splitHighlights(spec);
+  const first = highlights[0] || '특별한 매력';
+  const second = highlights[1] || first;
+
+  return [
+    {
+      headline: truncate(`${product}, ${first}`, 20),
+      sub: truncate(`${tone} 느낌으로 ${first}을 담았어요`, 30),
+    },
+    {
+      headline: truncate(`${first}, ${product}에서 만나보세요`, 20),
+      sub: truncate(`${tone} 스타일로 준비했어요`, 30),
+    },
+    {
+      headline: truncate(`${product} 추천, ${second}`, 20),
+      sub: truncate(`${second}로 특별한 하루를 만들어보세요`, 30),
+    },
+  ];
+}
+
+/**
+ * POST /generate/copy 목 함수. 6단계 완료 후 자동으로 이어서 호출한다.
+ * 응답은 `copies` 배열(3개) — 각 항목이 headline/sub와 함께 자기 자신의
+ * regulation_flags/safe/status를 따로 갖는다(문구마다 규제 상태가 다를 수 있음).
+ */
 export async function generateCopy(spec = {}) {
   await delay(600);
 
-  const { headline, sub } = buildCopy(spec);
+  const candidates = buildCopyCandidates(spec);
   // 실제 화면에 노출/수정되는 headline+sub만 검사한다 — 그래야 화면 B에서
-  // "대체 표현 적용"을 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
-  // (Q2 "제품/가게"나 Q4 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
+  // "이 표현으로 바꿀게요"를 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
+  // (Q3 "제품/가게"나 Q5 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
   // block/warn 데모를 재현할 수 있다 — 예: 제품에 "아토피 치료 크림" 입력)
-  const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
+  const copies = candidates.map((candidate, idx) => {
+    const { status, flags, safe } = scanRegulation(`${candidate.headline} ${candidate.sub}`, spec);
+    return {
+      id: `c${idx + 1}`,
+      headline: candidate.headline,
+      sub: candidate.sub,
+      status,
+      regulation_flags: flags,
+      safe,
+    };
+  });
 
-  return { headline, sub, status, regulation_flags: flags, safe };
+  return { copies };
 }
 
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */

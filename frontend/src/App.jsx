@@ -104,6 +104,7 @@ function App() {
             background={selectedDraft.background}
             originalImage={chatOutcome.productImage}
             prompt={buildPrompt(chatOutcome.spec)}
+            ratio={chatOutcome.spec?.aspect_ratio}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
             onComplete={handlePosterComplete}
@@ -113,6 +114,7 @@ function App() {
         {view === 'final' && refineResult && confirmedCopy && (
           <FinalResult
             image={refineResult.image}
+            ratio={chatOutcome?.spec?.aspect_ratio}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
             status={confirmedCopy.status}

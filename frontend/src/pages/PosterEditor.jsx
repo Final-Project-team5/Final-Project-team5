@@ -19,13 +19,15 @@ const SIZE_PRESETS = {
 const HEADLINE_CHARS_PER_LINE = 10;
 const SUB_CHARS_PER_LINE = 15;
 
-// 실제 폰트 파일은 아직 붙이지 않음(폰트 미확정, API 미연동) — 화면 구성만.
-// 상업적 사용이 가능한 무료 한글 폰트로 이름만 예시로 채워둠, 추후 실제 폰트로 교체 예정.
+// 확정 폰트 5종 (8/10, 진우님 완성형 검증 — 한글 음절 11,172자 전체 지원).
+// font_id는 백엔드 whitelist 매핑에 그대로 쓰이는 값이라 이름 그대로 유지해야 한다.
+// 실제 웹폰트 파일 로드는 아직 붙이지 않음(자리만) — family는 미리보기용 폴백 스택.
 const FONT_OPTIONS = [
   { id: 'pretendard', label: 'Pretendard', family: '"Pretendard", sans-serif' },
-  { id: 'noto-sans-kr', label: 'Noto Sans KR', family: '"Noto Sans KR", sans-serif' },
-  { id: 'gmarket-sans', label: 'Gmarket Sans', family: '"Gmarket Sans", sans-serif' },
-  { id: 's-core-dream', label: '에스코어 드림', family: '"S-Core Dream", sans-serif' },
+  { id: 'nanummyeongjo', label: '나눔명조 Bold', family: '"Nanum Myeongjo", serif' },
+  { id: 'gmarketsans', label: 'Gmarket Sans', family: '"Gmarket Sans", sans-serif' },
+  { id: 'galmuri11', label: 'Galmuri11', family: '"Galmuri11", monospace' },
+  { id: 'nanumpen', label: '나눔손글씨펜', family: '"Nanum Pen Script", cursive' },
 ];
 
 function clamp(value, min, max) {
@@ -69,7 +71,7 @@ function wrapTextByChars(text, maxChars) {
  *
  * 로딩 디테일/재시도 버튼은 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
  */
-function PosterEditor({ draftImage, background, originalImage, prompt, headline, sub, onComplete, onBack }) {
+function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '1:1', headline, sub, onComplete, onBack }) {
   const canvasRef = useRef(null);
   const textGroupRef = useRef(null);
   const draggingRef = useRef(false);
@@ -169,10 +171,16 @@ function PosterEditor({ draftImage, background, originalImage, prompt, headline,
         headline_size: sizeInfo.headline_size,
         sub_size: sizeInfo.sub_size,
         style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
+        font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
+        align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
       },
     });
     setSubmitting(false);
-    onComplete({ image: toImageSrc(res.image), meta: res.meta, text: { headline, sub, ...pos, ...sizeInfo } });
+    onComplete({
+      image: toImageSrc(res.image),
+      meta: res.meta,
+      text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId, align: 'center' },
+    });
   };
 
   return (
@@ -182,8 +190,8 @@ function PosterEditor({ draftImage, background, originalImage, prompt, headline,
         문구를 드래그해서 원하는 위치로 옮기고, 크기를 골라보세요. 서버에는 완성하기를 눌렀을 때 한 번만 전송돼요.
       </p>
 
-      <div className="poster-editor__canvas" ref={canvasRef}>
-        <img className="poster-editor__bg" src={draftImage} alt="선택한 시안 배경" />
+      <div className="poster-editor__canvas" ref={canvasRef} style={{ '--canvas-ratio': ratio.replace(':', ' / ') }}>
+        <img className="poster-editor__bg" src={toImageSrc(draftImage)} alt="선택한 시안 배경" />
         <div
           className="poster-editor__safe-guide"
           style={{
@@ -244,22 +252,22 @@ function PosterEditor({ draftImage, background, originalImage, prompt, headline,
       </div>
 
       <div className="poster-editor__font-section">
-        <div className="poster-editor__font-label">
-          서체 <span className="poster-editor__font-note">(화면 구성만 — 실제 폰트는 추후 연동 예정)</span>
-        </div>
-        <div className="poster-editor__font-presets">
+        <label className="poster-editor__font-label" htmlFor="poster-font-select">
+          서체 <span className="poster-editor__font-note">(실제 웹폰트 적용은 곧 붙일 예정)</span>
+        </label>
+        <select
+          id="poster-font-select"
+          className="poster-editor__font-select"
+          value={fontId}
+          style={{ fontFamily: selectedFont.family }}
+          onChange={(e) => setFontId(e.target.value)}
+        >
           {FONT_OPTIONS.map((font) => (
-            <button
-              key={font.id}
-              type="button"
-              className={'poster-editor__preset-chip' + (fontId === font.id ? ' poster-editor__preset-chip--active' : '')}
-              style={{ fontFamily: font.family }}
-              onClick={() => setFontId(font.id)}
-            >
+            <option key={font.id} value={font.id} style={{ fontFamily: font.family }}>
               {font.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       <div className="poster-editor__actions">
@@ -267,7 +275,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, headline,
           이전으로
         </button>
         <button type="button" className="poster-editor__primary" disabled={submitting} onClick={handleComplete}>
-          {submitting ? '완성하는 중…' : '완성하기'}
+          {submitting ? '완성하는 중…' : '포스터 완성하기'}
         </button>
       </div>
     </div>
