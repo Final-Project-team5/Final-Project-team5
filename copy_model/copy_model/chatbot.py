@@ -35,13 +35,26 @@ from . import config
 #   서버가 결정적으로 매핑한다(LLM 판단에 맡기지 않음 — 항상 고정값).
 PURPOSE_ASPECT = {"sns": "1:1", "banner": "3:1", "detail": "3:4"}
 PURPOSE_LABEL = {"sns": "SNS 카드뉴스", "banner": "배너", "detail": "상세페이지"}
+DEFAULT_PURPOSE = "sns"  # 알 수 없는 용도가 들어왔을 때의 안전 기본값(가장 흔한 정사각 1:1)
 
 
 def _apply_aspect_ratio(spec: dict) -> dict:
-    """purpose 슬롯이 채워지면 비율(aspect_ratio)을 서버가 결정적으로 매핑."""
+    """purpose 슬롯이 채워지면 비율(aspect_ratio)을 서버가 결정적으로 매핑.
+
+    방어 가드(지우님 리뷰 반영):
+      - 미선택(None/""): 매핑하지 않음. 비율은 용도 확정 후 결정.
+      - 범위 밖(잘못된) purpose: 기본값(sns/1:1)으로 보정하고 원본을
+        purpose_invalid에 남겨 추적 가능하게 한다. 잘못된 값이 그대로
+        이미지 파이프라인으로 흘러가 aspect_ratio가 비는 것을 막는다.
+    """
     purpose = spec.get("purpose")
-    if purpose in PURPOSE_ASPECT:
-        spec["aspect_ratio"] = PURPOSE_ASPECT[purpose]
+    if not purpose:                       # None 또는 "" — 아직 미선택
+        return spec
+    if purpose not in PURPOSE_ASPECT:     # 범위 밖 값 — 기본값으로 보정
+        spec["purpose_invalid"] = purpose  # 원본 보존(로깅/디버깅용)
+        purpose = DEFAULT_PURPOSE
+        spec["purpose"] = purpose
+    spec["aspect_ratio"] = PURPOSE_ASPECT[purpose]
     return spec
 
 
