@@ -4,8 +4,13 @@ import './ChatFlow.css';
 
 /**
  * 화면 A — 챗봇 진행 화면
- * 6단계 질문을 순서대로 진행하고(2번=용도→비율 매핑, 3번 직후 제품 사진 업로드
- * 여부를 물어 mode(inpaint/text2img) 결정). (docs/UIUX_스펙정리.md 4장 참고)
+ * 6단계 질문을 순서대로 하나씩 진행한다(2번=용도→비율 매핑, 3번 직후 제품 사진
+ * 업로드 여부를 물어 mode(inpaint/text2img) 결정). (docs/UIUX_스펙정리.md 4장 참고)
+ *
+ * 강조점(복수 선택)과 추가 요청(자유 입력)은 각각 독립된 질문 카드로 순서대로
+ * 나온다(8/11 PM 확인 — 한 화면에 합치지 않음). 강조점은 여러 개 고를 수 있어야
+ * 하므로 [다음] 버튼으로 그 질문만 마무리하고 추가 요청으로 넘어가며(완료가 아닌
+ * "계속 진행" 느낌), 추가 요청은 [이 내용으로 완료] 버튼이 전체 흐름의 최종 마무리다.
  *
  * 로딩 디테일/재시도/에러 UI는 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
  */
@@ -181,32 +186,32 @@ function ChatMessage({ message, busy, onAnswer, onPhotoConfirm }) {
   return null;
 }
 
+/**
+ * 질문 카드 — 질문 종류에 따라 세 변형 중 하나로 렌더링한다. 각 질문은
+ * 독립된 카드로 순서대로 나온다(강조점→추가 요청도 별도 카드, 8/11 PM 확인).
+ *   - 단일 선택(업종/용도/제품/느낌): 칩 클릭 즉시 제출
+ *   - 복수 선택(강조점): 칩 토글 + [다음] 버튼으로 그 질문만 마무리
+ *   - 자유 입력(추가 요청): 칩은 텍스트칸을 채울 뿐, [이 내용으로 완료]가 최종 제출
+ */
 function QuestionCard({ question, busy, onAnswer }) {
-  const [selected, setSelected] = useState([]);
+  if (question.multiSelect) {
+    return <MultiSelectQuestion question={question} busy={busy} onAnswer={onAnswer} />;
+  }
+  if (question.freeform) {
+    return <FreeformQuestion question={question} busy={busy} onAnswer={onAnswer} />;
+  }
+  return <SingleSelectQuestion question={question} busy={busy} onAnswer={onAnswer} />;
+}
+
+/** 단일 선택 질문(업종/용도/제품/느낌) — 칩을 클릭하면 그 즉시 답변으로 제출된다. */
+function SingleSelectQuestion({ question, busy, onAnswer }) {
   const [showOther, setShowOther] = useState(false);
   const [otherText, setOtherText] = useState('');
-  const [freeText, setFreeText] = useState('');
-
-  const toggleOption = (opt) => {
-    if (question.multiSelect) {
-      setSelected((prev) => (prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt]));
-    } else {
-      onAnswer(opt);
-    }
-  };
 
   const submitOther = () => {
     const value = otherText.trim();
     if (!value) return;
     onAnswer(value);
-  };
-
-  const submitMulti = () => {
-    onAnswer(selected.length ? selected.join(', ') : '특별히 없음');
-  };
-
-  const submitFree = () => {
-    onAnswer(freeText.trim() || '특별히 없어요');
   };
 
   return (
@@ -216,12 +221,9 @@ function QuestionCard({ question, busy, onAnswer }) {
           <button
             key={opt}
             type="button"
-            className={
-              'chat-question__chip' +
-              (question.multiSelect && selected.includes(opt) ? ' chat-question__chip--active' : '')
-            }
+            className="chat-question__chip"
             disabled={busy}
-            onClick={() => toggleOption(opt)}
+            onClick={() => onAnswer(opt)}
           >
             {opt}
           </button>
@@ -255,32 +257,135 @@ function QuestionCard({ question, busy, onAnswer }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
 
-      {question.multiSelect && (
-        <button type="button" className="chat-question__submit chat-question__submit--block" disabled={busy} onClick={submitMulti}>
-          다 골랐어요
+/**
+ * 복수 선택 질문(강조점) — 여러 개 고를 수 있어야 하므로 칩은 토글만 하고,
+ * [다음] 버튼을 눌러야 그 질문이 마무리되고 추가 요청 질문으로 넘어간다.
+ * "다 골랐어요"처럼 전체 완료 느낌이 아니라 이 질문만 끝내고 계속 진행된다는
+ * 느낌으로 문구를 골랐다 — 전체 흐름의 마무리는 추가 요청 쪽 [이 내용으로 완료]가 맡는다.
+ */
+function MultiSelectQuestion({ question, busy, onAnswer }) {
+  const [selected, setSelected] = useState([]);
+  const [showOther, setShowOther] = useState(false);
+  const [otherText, setOtherText] = useState('');
+
+  const toggleOption = (opt) => {
+    setSelected((prev) => (prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt]));
+  };
+
+  // 기타로 직접 입력하면 곧바로 제출하지 않고, 이미 고른 칩들과 함께 선택 목록에
+  // 추가만 한다 — 그래야 커스텀 항목 하나 때문에 다른 선택이 날아가지 않는다.
+  const addCustom = () => {
+    const value = otherText.trim();
+    if (!value) return;
+    setSelected((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setOtherText('');
+    setShowOther(false);
+  };
+
+  const submit = () => {
+    onAnswer(selected.length ? selected.join(', ') : '특별히 없음');
+  };
+
+  return (
+    <div className="chat-question">
+      <div className="chat-question__options">
+        {question.options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            className={'chat-question__chip' + (selected.includes(opt) ? ' chat-question__chip--active' : '')}
+            disabled={busy}
+            onClick={() => toggleOption(opt)}
+          >
+            {opt}
+          </button>
+        ))}
+        <button
+          type="button"
+          className={'chat-question__chip chat-question__chip--other' + (showOther ? ' chat-question__chip--active' : '')}
+          disabled={busy}
+          onClick={() => setShowOther((v) => !v)}
+        >
+          기타
         </button>
-      )}
+      </div>
 
-      {question.freeform && (
-        <div className="chat-question__inline-form chat-question__inline-form--stacked">
-          <textarea
-            value={freeText}
-            onChange={(e) => setFreeText(e.target.value)}
-            placeholder="자유롭게 남겨주세요 (선택 사항)"
-            rows={2}
+      {showOther && (
+        <div className="chat-question__inline-form">
+          <input
+            type="text"
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
+            placeholder="직접 입력해주세요"
             disabled={busy}
           />
           <button
             type="button"
-            className="chat-question__submit chat-question__submit--block"
-            disabled={busy}
-            onClick={submitFree}
+            className="chat-question__submit"
+            disabled={busy || !otherText.trim()}
+            onClick={addCustom}
           >
-            이 내용으로 완료
+            이렇게 추가할게요
           </button>
         </div>
       )}
+
+      <button type="button" className="chat-question__submit chat-question__submit--block" disabled={busy} onClick={submit}>
+        다음
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 자유 입력 질문(추가 요청) — 이 흐름의 마지막 질문. 선택지 칩은 눌러도 바로
+ * 제출되지 않고 텍스트칸을 채우기만 한다 — 실제 제출은 [이 내용으로 완료]
+ * 버튼을 눌러야만 일어난다.
+ */
+function FreeformQuestion({ question, busy, onAnswer }) {
+  const [freeText, setFreeText] = useState('');
+
+  const submit = () => {
+    onAnswer(freeText.trim() || '특별히 없어요');
+  };
+
+  return (
+    <div className="chat-question">
+      <div className="chat-question__options">
+        {question.options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            className={'chat-question__chip' + (freeText === opt ? ' chat-question__chip--active' : '')}
+            disabled={busy}
+            onClick={() => setFreeText(opt)}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+
+      <div className="chat-question__inline-form chat-question__inline-form--stacked">
+        <textarea
+          value={freeText}
+          onChange={(e) => setFreeText(e.target.value)}
+          placeholder="자유롭게 남겨주세요 (선택 사항)"
+          rows={2}
+          disabled={busy}
+        />
+        <button
+          type="button"
+          className="chat-question__submit chat-question__submit--block"
+          disabled={busy}
+          onClick={submit}
+        >
+          이 내용으로 완료
+        </button>
+      </div>
     </div>
   );
 }
