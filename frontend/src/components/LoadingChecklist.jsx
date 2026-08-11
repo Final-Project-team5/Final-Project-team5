@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Mascot from './Mascot';
 import './LoadingChecklist.css';
 
 /**
@@ -33,17 +34,20 @@ function LoadingChecklist({ title, caption, steps, stepDurationMs = 1300, varian
       </div>
       <h2 className="loading-checklist__title">{title}</h2>
       {caption && <p className="loading-checklist__caption">{caption}</p>}
-      <ul className="loading-checklist__steps">
-        {steps.map((step, idx) => {
-          const state = idx < activeIndex ? 'done' : idx === activeIndex ? 'active' : 'pending';
-          return (
-            <li key={step} className={`loading-checklist__step loading-checklist__step--${state}`}>
-              <span className="loading-checklist__step-icon">{state === 'done' ? '✓' : idx + 1}</span>
-              <span>{step}</span>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="loading-checklist__body">
+        <Mascot expression="working" size={84} className="loading-checklist__mascot" />
+        <ul className="loading-checklist__steps">
+          {steps.map((step, idx) => {
+            const state = idx < activeIndex ? 'done' : idx === activeIndex ? 'active' : 'pending';
+            return (
+              <li key={step} className={`loading-checklist__step loading-checklist__step--${state}`}>
+                <span className="loading-checklist__step-icon">{state === 'done' ? '✓' : idx + 1}</span>
+                <span>{step}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </div>
   );
 }

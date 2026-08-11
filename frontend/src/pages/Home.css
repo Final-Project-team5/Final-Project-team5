@@ -1,15 +1,112 @@
 .home {
+  /* flex-wrap의 자동 줄바꿈 시점은 gap·자식 최소너비에 따라 달라져 예측하기
+     어렵다 — 아래 미디어 쿼리에서 flex-direction을 직접 스위치해 스택 시점을
+     명시적으로 고정하고, 캐릭터 위치 전환도 같은 지점에서 함께 맞춘다. */
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 56px;
+  gap: 80px;
   min-height: 100vh;
   padding: 40px 48px 40px 16px;
 }
 
 .home__intro {
   flex: 0 1 420px;
+}
+
+/* 캐릭터가 카드 왼쪽 가장자리에 걸치도록 카드를 감싸는 위치 기준점 */
+.home__scene {
+  position: relative;
+}
+
+.home__mascot-wrap {
+  position: absolute;
+  left: -84px;
+  bottom: 64px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.home__mascot {
+  /* 카드 쪽을 향해 살짝 기울여 방금 저 카드를 그려준 듯한 자세를 연출 */
+  transform: rotate(-6deg);
+  filter: drop-shadow(0 16px 20px rgba(91, 63, 196, 0.22));
+}
+
+.home__sparkle {
+  position: absolute;
+  line-height: 1;
+  background: var(--gradient-logo);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: home-sparkle-twinkle 2.6s ease-in-out infinite;
+}
+
+.home__sparkle--a {
+  top: -4px;
+  right: 6px;
+  font-size: 22px;
+  animation-delay: 0s;
+}
+
+.home__sparkle--b {
+  top: 38%;
+  left: -20px;
+  font-size: 14px;
+  animation-delay: 0.7s;
+}
+
+.home__sparkle--c {
+  bottom: 10%;
+  right: -14px;
+  font-size: 17px;
+  animation-delay: 1.3s;
+}
+
+@keyframes home-sparkle-twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home__sparkle {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+/* 인트로 + 카드가 한 줄에 들어가기 빠듯해지는 지점에서 세로 스택으로
+   전환한다. 이 지점부터는 캐릭터도 카드 왼쪽에 걸치는 대신 카드 위쪽
+   가운데에 걸치는 자세로 바꿔 겹침 없이 보이게 한다. */
+@media (max-width: 1240px) {
+  .home {
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  .home__scene {
+    margin-top: 76px;
+  }
+
+  .home__mascot-wrap {
+    left: 50%;
+    bottom: auto;
+    top: -70px;
+    transform: translateX(-50%);
+  }
+
+  .home__mascot {
+    transform: rotate(0deg);
+  }
 }
 
 .home__headline {

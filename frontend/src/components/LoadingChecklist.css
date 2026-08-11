@@ -70,6 +70,20 @@
   line-height: 1.5;
 }
 
+/* 마스코트(working)를 체크리스트 목록 옆에 나란히 배치. 좁은 화면에서는
+   위아래로 쌓아 목록이 눌리지 않게 한다. */
+.loading-checklist__body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.loading-checklist__mascot {
+  flex: none;
+}
+
 .loading-checklist__steps {
   display: flex;
   flex-direction: column;
@@ -77,8 +91,19 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  width: 100%;
-  max-width: 300px;
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .loading-checklist__body {
+    flex-direction: column;
+  }
+
+  .loading-checklist__mascot {
+    width: 64px !important;
+    height: 64px !important;
+  }
 }
 
 .loading-checklist__step {

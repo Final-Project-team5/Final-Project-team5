@@ -52,11 +52,37 @@
 }
 
 .chat-bubble--bot {
-  align-self: flex-start;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
   color: var(--color-text);
+}
+
+/* 봇 말풍선 옆 마스코트 아바타 — 카카오톡 프로필 사진처럼 작게, 채팅 흐름은
+   그대로 두고 말풍선 왼쪽에만 붙인다. */
+.chat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-row--bot {
+  align-self: flex-start;
+  max-width: 88%;
+}
+
+.chat-row--bot .chat-bubble {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chat-row__avatar {
+  flex: none;
+  border-radius: 10px;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary-border);
+  padding: 2px;
+  margin-bottom: 2px;
 }
 
 .chat-bubble--user {

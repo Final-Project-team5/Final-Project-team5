@@ -1,9 +1,13 @@
+import Mascot from '../components/Mascot';
 import TickerPreview from '../components/TickerPreview';
 import './Home.css';
 
 /**
  * 화면 -1 — 홈
  * (docs/UIUX_스펙정리.md 4장 참고)
+ *
+ * 마스코트는 예시 카드를 "방금 그린" 것처럼 카드 왼쪽 가장자리에 걸치듯
+ * 배치한다 — 실제 화면 흐름과 무관한 장식이라 스크린리더에는 노출하지 않는다.
  */
 function Home({ onNewFlow }) {
   return (
@@ -25,7 +29,15 @@ function Home({ onNewFlow }) {
         </button>
       </div>
 
-      <TickerPreview />
+      <div className="home__scene">
+        <div className="home__mascot-wrap">
+          <Mascot expression="idle" size={168} className="home__mascot" />
+          <span className="home__sparkle home__sparkle--a" aria-hidden="true">✦</span>
+          <span className="home__sparkle home__sparkle--b" aria-hidden="true">✦</span>
+          <span className="home__sparkle home__sparkle--c" aria-hidden="true">✦</span>
+        </div>
+        <TickerPreview />
+      </div>
     </div>
   );
 }
