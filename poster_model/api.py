@@ -7,12 +7,13 @@
 import base64
 import io
 import re
+import time
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 import pipeline
 
@@ -91,6 +92,13 @@ class TextSpec(BaseModel):
     # 레이어를 분리하는 경우, sub를 headline과 같은 자리에 겹쳐 그리지 않도록 반드시 지정해야 한다.
     sub_x: Optional[float] = Field(default=None, ge=0, le=1)
     sub_y: Optional[float] = Field(default=None, ge=0, le=1)
+    # 사용자가 고른 폰트. 하나를 골라 headline과 sub에 **공통** 적용한다
+    # (프론트에서 폰트를 하나만 선택하는 계약).
+    # 보내지 않으면 기존 기본 렌더링 경로가 그대로 유지된다.
+    # Literal이 아니라 str로 받는 이유: Literal은 pydantic이 422를 내는데,
+    # 여기서는 어떤 폰트가 왜 안 되는지 구분된 400을 내려야 한다.
+    # 실제 허용값 검사는 _validate_font_id에서 한다.
+    font_id: Optional[str] = None
 
 
 class BackgroundSpec(BaseModel):
@@ -100,6 +108,33 @@ class BackgroundSpec(BaseModel):
     mode: Literal["solid", "gradient", "ai"]
     colors: list[str] = Field(default_factory=list)   # "#RRGGBB" 형식. solid=1개, gradient=2개
     direction: Optional[Literal["vertical", "horizontal", "diagonal"]] = None
+
+
+class PlacementSpec(BaseModel):
+    """제품 배치 override. 전부 선택이며, 지정한 필드만 서버 기본값을 덮는다.
+
+    x, y는 **제품 bbox 중심점**의 캔버스 정규화 좌표(0~1)다. 좌상단이 아니다.
+    좌상단을 기준으로 두면 배율을 바꿀 때마다 사용자가 잡은 지점이 같이 움직인다.
+    TextSpec.x / TextSpec.y와 같은 정규화 규약을 쓴다.
+
+    scale_factor는 **서버 기본 배율 대비 배수**다(1.0 = 기본값 그대로). 내부의
+    소스 누끼 대비 절대 배율은 클라이언트가 해석할 수 없어 노출하지 않는다.
+
+    응답 meta.placement에는 source / region_overflow가 더 있지만 그 둘은
+    response-only다. 이어서 적용할 때는 scale_factor / x / y 세 개만 담는다.
+    응답 객체를 통째로 되보내고 extra 무시에 기대는 구조를 쓰지 않는다.
+    le=3은 비상식적인 값을 스키마에서 거르는 용도다. 실제 허용 상한은 제품마다
+    다르며(자동 배율이 이미 크면 여유가 적다), 확대 품질 상한을 넘으면 400과
+    함께 max_scale_factor를 알려준다.
+    """
+    # extra="forbid" — 응답 placement 객체를 통째로 되보내는 것을 막는다.
+    # source / region_overflow는 response-only이며, 조용히 무시하면 클라이언트가
+    # 그 값이 반영된 줄 알게 된다.
+    model_config = ConfigDict(extra="forbid")
+
+    scale_factor: Optional[float] = Field(default=None, gt=0, le=3)
+    x: Optional[float] = Field(default=None, ge=0, le=1)
+    y: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 class DraftRequest(BaseModel):
@@ -112,6 +147,10 @@ class DraftRequest(BaseModel):
     background_mode: Literal["solid", "gradient", "ai"] = "ai"
     bg_colors: Optional[list[str]] = None       # 지정 안 하면 카테고리 기본 팔레트 사용
     gradient_direction: Optional[Literal["vertical", "horizontal", "diagonal"]] = None
+    # 아래 2개를 보내지 않으면 기존 1:1 동작과 완전히 동일하다.
+    # solid/gradient 배경에서만 지원한다(AI 비정사각 생성은 미지원).
+    aspect_ratio: Optional[Literal["1:1", "3:1", "3:4"]] = None
+    placement: Optional[PlacementSpec] = None
 
 
 class DraftItem(BaseModel):
@@ -137,6 +176,11 @@ class RefineRequest(BaseModel):
     ai_notice: bool = True
     # drafts 응답의 background를 그대로 echo. 생략하면(None) 기존처럼 ai(diffusion) 경로.
     background: Optional[BackgroundSpec] = None
+    # 생략하면 draft_image 크기에서 비율을 추론한다. 768x768이면 "1:1"이라
+    # 기존 클라이언트는 아무것도 보내지 않아도 동작이 같다.
+    aspect_ratio: Optional[Literal["1:1", "3:1", "3:4"]] = None
+    # drafts 응답 meta.placement의 scale_factor / x / y만 담아 보낸다.
+    placement: Optional[PlacementSpec] = None
 
 
 class RefineResponse(BaseModel):
@@ -144,20 +188,143 @@ class RefineResponse(BaseModel):
     meta: dict
 
 
+class TextComposeRequest(BaseModel):
+    """/compose/text — diffusion 없이 문구만 다시 합성한다.
+
+    base_image에는 **문구와 AI 생성 표시가 없는 이미지**를 넣는다. 표준 흐름은
+    /generate/refine을 text 없이 ai_notice=false로 호출해 받은 결과를 프론트가
+    보관했다가 여기에 넘기는 것이다. 이미 구워진 픽셀은 서버가 구분할 수 없으므로
+    이 조건은 계약으로만 지켜진다(문구가 있는 이미지를 넣으면 겹쳐 그려지고,
+    표시가 있는 이미지에 ai_notice=true를 주면 표시가 두 번 들어간다).
+
+    text는 /generate/refine과 **같은 TextSpec**이라 프론트가 같은 객체를 양쪽에
+    그대로 쓸 수 있다. 다만 이번 단계는 front 문구만 지원하므로 z_order가
+    "behind"면 400으로 거부한다.
+    """
+    base_image: str
+    text: TextSpec
+    ai_notice: bool = True
+
+
+class TextComposeResponse(BaseModel):
+    image: str
+    meta: dict
+
+
+def _validate_canvas_request(aspect_ratio, placement, background_mode, mode=None) -> None:
+    """비율/배치 요청이 지원되는 조합인지 확인한다.
+
+    AI 배경은 검증된 비율만 연다(config.AI_SUPPORTED_RATIOS). 지원하지 않는
+    비율을 조용히 정사각으로 떨어뜨리지 않고 막는다.
+    placement는 여전히 solid/gradient 전용이다.
+    """
+    non_square = aspect_ratio is not None and aspect_ratio != "1:1"
+    if not non_square and placement is None:
+        return
+    what = "aspect_ratio" if non_square else "placement"
+    if background_mode == "ai":
+        if placement is not None:
+            raise HTTPException(
+                400, "placement는 solid/gradient 배경에서만 지원합니다 "
+                     "(요청: background_mode=ai).")
+        _validate_ai_ratio(aspect_ratio)
+    if mode == "text2img":
+        raise HTTPException(
+            400, f"{what}는 제품 이미지가 있는 요청에서만 지원합니다 "
+                 f"(요청: mode=text2img).")
+
+
+def _validate_ai_ratio(ratio: Optional[str]) -> None:
+    """AI 배경에서 지원하는 비율인지 확인한다.
+
+    3:4는 제품 외부에 구조를 생성하는 continuation이 확인됐고, 투명/위험 제품을
+    구분하는 정책이 아직 없어 기술적으로 미지원 상태다.
+    """
+    if ratio is None or ratio in pipeline.config.AI_SUPPORTED_RATIOS:
+        return
+    raise HTTPException(400, detail={
+        "error": "aspect_ratio_not_supported_for_ai",
+        "message": f"aspect_ratio {ratio!r}는 AI 배경에서 아직 지원하지 않습니다. "
+                   f"solid/gradient 배경에서는 사용할 수 있습니다.",
+        "requested": ratio,
+        "supported": list(pipeline.config.AI_SUPPORTED_RATIOS)})
+
+
+def _canvas_meta(meta: dict, aspect_ratio: Optional[str]) -> dict:
+    """응답 meta에 resolved 비율/캔버스/배치를 채운다.
+
+    - aspect_ratio는 요청에서 생략됐어도 resolved 값("1:1")을 내려준다.
+    - placement는 실제 제품 배치가 있는 경로에서만 값이 있고, text2img처럼
+      배치 개념이 없는 경로는 null이다. 기존 경로의 동작은 바꾸지 않는다.
+    - resolution(짧은 변 정수)은 그대로 두고 canvas를 추가만 한다.
+    """
+    out = dict(meta)
+    out.setdefault("aspect_ratio", aspect_ratio or "1:1")
+    if "canvas" not in out:
+        size = out.get("resolution")
+        out["canvas"] = ({"width": size, "height": size} if size else None)
+    out.setdefault("placement", None)
+    return out
+
+
 # ---------------------------------------------------------------- 문구 레이어
 
-def _layer_info(spec: "TextSpec", which: str, meta: dict) -> dict:
+def _layer_info(spec: "TextSpec", which: str, meta: dict,
+                sub_coords: bool = False) -> dict:
     """meta.text_layers에 남길 레이어별 요약. 기존 meta.text 구조는 건드리지 않고,
     실제로 어떤 순서/좌표/크기로 그려졌는지만 additive하게 덧붙인다.
+
+    sub_coords는 **sub를 별도로 렌더링하면서 sub_x/sub_y를 실제로 썼는지**다.
+    headline과 sub를 한 번에 그리는 경우 sub_x/sub_y는 렌더링에 쓰이지 않으므로,
+    여기서도 기록하면 "응답 meta"와 "실제 적용 좌표"가 어긋난다.
+    _render_text_layers의 draw(sub_coords=...)와 같은 규칙을 쓴다.
     """
     if which == "headline":
         return {"z_order": spec.headline_z_order,
                 "x": spec.x, "y": spec.y,
                 "applied_size": meta.get("applied_headline_ratio")}
     return {"z_order": spec.sub_z_order,
-            "x": spec.sub_x if spec.sub_x is not None else spec.x,
-            "y": spec.sub_y if spec.sub_y is not None else spec.y,
+            "x": spec.sub_x if sub_coords and spec.sub_x is not None else spec.x,
+            "y": spec.sub_y if sub_coords and spec.sub_y is not None else spec.y,
             "applied_size": meta.get("applied_sub_ratio")}
+
+
+def _validate_font_id(spec: "TextSpec | None"):
+    """text.font_id를 실제 렌더링 전에 검사한다.
+
+    **diffusion을 돌기 전에** 부르는 것이 중요하다. 렌더링 시점에 터지면
+    수백 초짜리 생성을 다 돌고 나서 400이 나간다.
+
+    폴백은 하지 않는다. 사용자가 고른 폰트가 아닌 결과를 내보내면 프론트가
+    무엇이 잘못됐는지 알 수 없기 때문이다(placement/aspect_ratio와 같은 기준).
+    """
+    if spec is None or not spec.font_id:
+        return
+    try:
+        pipeline.resolve_font_id_path(spec.font_id)
+    except pipeline.FontRejection as e:
+        raise HTTPException(400, detail=e.payload)
+
+
+def _ignored_fields(spec: "TextSpec") -> list:
+    """요청에는 들어왔지만 실제 렌더링에 쓰이지 않은 필드 이름.
+
+    sub_x/sub_y는 sub를 headline과 **따로** 그릴 때만 쓰인다. 즉 headline과 sub가
+    둘 다 있고 z_order가 서로 다를 때뿐이다. 그 외에는 sub도 headline과 같은
+    좌표(x, y)로 그려지므로 sub_x/sub_y는 무시된다.
+
+    무시된 사실을 응답에서 바로 알 수 있게 하려는 목적이다. 400으로 막지 않는
+    이유는 /generate/refine과 /compose/text가 **같은 TextSpec 객체**를 그대로 받아야
+    하기 때문이다(한쪽만 거부하면 프론트가 호출 전에 필드를 지우는 전처리를 넣어야
+    하고, 빠뜨리면 편집이 통째로 실패한다).
+
+    두 엔드포인트가 같은 기준을 쓰도록 spec만 보고 판단한다.
+    """
+    separate = (bool(spec.headline) and bool(spec.sub)
+                and spec.headline_z_order != spec.sub_z_order)
+    if separate:
+        return []
+    return [n for n in ("sub_x", "sub_y") if getattr(spec, n) is not None]
 
 
 def _render_text_layers(spec: "TextSpec", result: dict):
@@ -186,6 +353,7 @@ def _render_text_layers(spec: "TextSpec", result: dict):
             style=spec.style,
             headline_size=spec.headline_size,
             sub_size=spec.sub_size,
+            font_id=spec.font_id,
             return_meta=True)
 
     # 두 문구의 z_order가 같으면(또는 한쪽만 있으면) 한 번에 그린다 — 기존 동작 그대로.
@@ -241,8 +409,9 @@ def _render_text_layers(spec: "TextSpec", result: dict):
     # sub의 실제 적용 크기만 채워 넣는다. 레이어별 상세는 text_layers에 따로 남는다.
     text_meta = {**head_meta, "applied_sub_px": sub_meta.get("applied_sub_px"),
                  "applied_sub_ratio": sub_meta.get("applied_sub_ratio")}
+    # 이 경로에서만 sub를 따로 그리며 sub_x/sub_y를 실제로 사용한다.
     layers = {"headline": _layer_info(spec, "headline", head_meta),
-              "sub": _layer_info(spec, "sub", sub_meta)}
+              "sub": _layer_info(spec, "sub", sub_meta, sub_coords=True)}
     return img, text_meta, layers
 
 
@@ -302,6 +471,11 @@ def admin_gc():
 
 @app.post("/generate/drafts", response_model=DraftResponse)
 def generate_drafts(req: DraftRequest):
+    # 새 필드를 안 보내면 즉시 반환하므로 기존 요청의 검증 순서·메시지는 그대로다.
+    # 먼저 두어야 placement/aspect_ratio 관련 400이 "image가 필요합니다"에
+    # 가려지지 않는다.
+    _validate_canvas_request(req.aspect_ratio, req.placement,
+                             req.background_mode, req.mode)
     if req.mode == "inpaint" and not req.image:
         raise HTTPException(400, "inpaint 모드에는 image가 필요합니다.")
     if req.background_mode != "ai" and not req.image:
@@ -309,15 +483,24 @@ def generate_drafts(req: DraftRequest):
     _validate_background_colors(req.background_mode, req.bg_colors, "bg_colors")
 
     image = b64_to_image(req.image) if req.image else None
-    result = pipeline.generate_drafts(
-        image=image,
-        prompt=req.prompt,
-        category=req.category,
-        num_images=req.num_images,
-        background_mode=req.background_mode,
-        bg_colors=req.bg_colors,
-        gradient_direction=req.gradient_direction,
-    )
+    override = (req.placement.model_dump(exclude_none=True)
+                if req.placement else None) or None
+    try:
+        result = pipeline.generate_drafts(
+            image=image,
+            prompt=req.prompt,
+            category=req.category,
+            num_images=req.num_images,
+            background_mode=req.background_mode,
+            bg_colors=req.bg_colors,
+            gradient_direction=req.gradient_direction,
+            aspect_ratio=req.aspect_ratio,
+            placement_override=override,
+        )
+    except pipeline.LayoutRejection as e:
+        # 캔버스 이탈·확대 상한 초과 등. 보정하지 않고 거부하며, 복구용
+        # 기본 배치를 suggested로 함께 내려준다.
+        raise HTTPException(400, detail=e.payload)
 
     backgrounds = result.get("backgrounds") or [None] * len(result["images"])
     drafts = [
@@ -326,13 +509,45 @@ def generate_drafts(req: DraftRequest):
         for i, (img, seed, bg) in enumerate(
             zip(result["images"], result["seeds"], backgrounds))
     ]
-    return DraftResponse(drafts=drafts, meta=result["meta"])
+    return DraftResponse(drafts=drafts,
+                         meta=_canvas_meta(result["meta"], req.aspect_ratio))
 
 
 @app.post("/generate/refine", response_model=RefineResponse)
 def generate_refine(req: RefineRequest):
     draft = b64_to_image(req.draft_image)
     original = b64_to_image(req.original_image) if req.original_image else None
+
+    bg_mode = req.background.mode if req.background else "ai"
+    _validate_canvas_request(req.aspect_ratio, req.placement, bg_mode)
+    # 폰트는 diffusion 전에 확인한다. 렌더링 직전에 터지면 생성을 다 돌고 나서
+    # 400이 나가 GPU 시간을 통째로 버린다.
+    _validate_font_id(req.text)
+    # draft 크기에서 **항상** 비율을 추론하고, 명시값이 있으면 교차 검증한다.
+    # aspect_ratio를 보낼 때만 추론하면, 3:1 시안을 고른 프론트가 필드를
+    # 빠뜨렸을 때 조용히 1:1로 떨어진다. 그 실패를 막는 것이 목적이다.
+    # 정사각 draft는 크기와 무관하게 "1:1"로 추론되므로 기존 클라이언트는
+    # 아무것도 보내지 않아도 동작이 같다.
+    try:
+        ratio, warnings = pipeline.resolve_aspect_ratio(
+            req.aspect_ratio, draft.size)
+    except pipeline.LayoutRejection as e:
+        raise HTTPException(400, detail=e.payload)
+
+    if bg_mode == "ai":
+        # 요청 필드가 아니라 **추론된 비율**로도 확인한다. aspect_ratio를 보내지
+        # 않고 3:4 draft를 넣는 경로가 위 검사만으로는 통과하기 때문이다.
+        _validate_ai_ratio(ratio)
+        if ratio != "1:1" and original is None:
+            # 원본이 없으면 img2img 폴백으로 빠져 마스크·배치·제품 재합성이
+            # 통째로 빠진다. 검증한 3:1 경로와 다른 동작이므로 거부한다.
+            # (1:1은 기존 폴백을 그대로 유지한다)
+            raise HTTPException(400, detail={
+                "error": "original_image_required_for_nonsquare_ai",
+                "message": "비정사각 AI 배경 refine에는 original_image가 "
+                           "필요합니다. 제품 보존을 위한 마스크와 재합성이 "
+                           "필요하기 때문입니다.",
+                "aspect_ratio": ratio})
 
     background = None
     if req.background:
@@ -344,18 +559,94 @@ def generate_refine(req: RefineRequest):
                      "colors": req.background.colors,
                      "direction": req.background.direction}
 
-    result = pipeline.refine(draft, original=original,
-                             prompt=req.prompt, category=req.category,
-                             background=background)
+    override = (req.placement.model_dump(exclude_none=True)
+                if req.placement else None) or None
+    try:
+        result = pipeline.refine(draft, original=original,
+                                 prompt=req.prompt, category=req.category,
+                                 background=background,
+                                 aspect_ratio=ratio,
+                                 placement_override=override)
+    except pipeline.LayoutRejection as e:
+        raise HTTPException(400, detail=e.payload)
     img = result["image"]
 
-    meta = result["meta"]
+    meta = _canvas_meta(result["meta"], ratio)
+    if warnings:
+        meta = {**meta, "warnings": warnings}
     if req.text and (req.text.headline or req.text.sub):
         img, text_meta, layers = _render_text_layers(req.text, result)
         meta = {**meta, "text": text_meta, "text_layers": layers}
+        ignored = _ignored_fields(req.text)
+        if ignored:
+            meta["ignored_fields"] = ignored
 
     # AI 생성물 표시는 모든 문구 합성이 끝난 뒤 최상단에 한 번만 적용한다.
     if req.ai_notice:
         img = pipeline.add_ai_notice(img)
 
     return RefineResponse(image=image_to_b64(img), meta=meta)
+
+
+@app.post("/compose/text", response_model=TextComposeResponse)
+def compose_text(req: TextComposeRequest):
+    """이미 만들어진 이미지에 문구만 다시 합성한다. diffusion을 돌지 않는다.
+
+    /generate/refine과 렌더링 순서가 같다: 문구를 그린 뒤 AI 생성 표시를 최상단에
+    올린다. 그래서 표시가 문구에 가려지지 않는다.
+    """
+    spec = req.text
+    if not (spec.headline or spec.sub):
+        raise HTTPException(
+            400, "합성할 문구가 없습니다. headline 또는 sub 중 하나는 필요합니다.")
+    if "behind" in (spec.headline_z_order, spec.sub_z_order):
+        # behind는 제품 마스크와 합성 전 배경이 필요한데 이 API에는 그 재료가 없다.
+        # 조용히 front로 바꾸지 않고 명시적으로 거부한다.
+        raise HTTPException(400, detail={
+            "error": "text_behind_not_supported",
+            "message": '/compose/text는 제품 뒤 문구(z_order="behind")를 아직 '
+                       "지원하지 않습니다. 제품 마스크와 합성 전 배경이 필요한데 "
+                       "이 경로에는 없습니다. /generate/refine을 사용하세요.",
+            "supported": ["front"]})
+    _validate_font_id(spec)
+
+    base = b64_to_image(req.base_image)
+    started = time.time()
+
+    img, text_meta = pipeline.render_text(
+        base, spec.headline, spec.sub,
+        x=spec.x, y=spec.y,
+        position=spec.position,
+        align=spec.align,
+        style=spec.style,
+        headline_size=spec.headline_size,
+        sub_size=spec.sub_size,
+        font_id=spec.font_id,
+        return_meta=True)
+
+    layers = {}
+    if spec.headline:
+        layers["headline"] = _layer_info(spec, "headline", text_meta)
+    if spec.sub:
+        layers["sub"] = _layer_info(spec, "sub", text_meta)
+
+    # 표시는 문구 합성이 끝난 뒤 최상단에 한 번만 (refine과 같은 순서)
+    if req.ai_notice:
+        img = pipeline.add_ai_notice(img)
+
+    W, H = base.size
+    meta = {
+        "elapsed": round(time.time() - started, 2),
+        "diffusion": False,
+        # 짧은 변. refine의 resolution과 같은 의미다.
+        "resolution": min(W, H),
+        "canvas": {"width": W, "height": H},
+        "ai_notice": req.ai_notice,
+        "text": text_meta,
+        "text_layers": layers,
+    }
+    # refine과 같은 기준. 무시된 필드가 없으면 키 자체를 넣지 않는다.
+    ignored = _ignored_fields(spec)
+    if ignored:
+        meta["ignored_fields"] = ignored
+    return TextComposeResponse(image=image_to_b64(img), meta=meta)

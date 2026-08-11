@@ -12,9 +12,16 @@
 """
 
 from . import config
+from .config import (FontRejection, available_font_ids,
+                     resolve_font_id_path)
+from .layout import (LayoutRejection, compute_placement, infer_aspect_ratio,
+                     resolve_ai_gen_size,
+                     resolve_aspect_ratio, resolve_output_size, resolve_placement,
+                     validate_placement)
 from .generate import generate_drafts, refine, unload, warmup
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
-                      make_masks, prepare_image, render_flat_background, resolve_background)
+                      make_masks, place_product_on_canvas, prepare_image,
+                      render_flat_background, resolve_background)
 from .overlay import add_ai_notice, render_text
 
 __all__ = [
@@ -22,5 +29,9 @@ __all__ = [
     "generate_drafts", "refine", "warmup", "unload",
     "make_masks", "prepare_image", "composite_product", "add_ground_shadow",
     "describe_product_bbox", "render_flat_background", "resolve_background",
+    "place_product_on_canvas", "resolve_output_size",
+    "compute_placement", "validate_placement", "resolve_placement",
+    "infer_aspect_ratio", "resolve_aspect_ratio", "LayoutRejection",
+    "resolve_font_id_path", "available_font_ids", "FontRejection",
     "render_text", "add_ai_notice",
 ]

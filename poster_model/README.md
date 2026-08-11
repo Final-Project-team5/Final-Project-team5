@@ -68,8 +68,10 @@ refine에는 **`original_image`(원본 제품 사진)를 항상 함께 보내주
 │   ├── config.py               모델·파라미터 설정 (튜닝은 여기만 수정)
 │   ├── masking.py              누끼, 마스크, 그림자, 단색·그라데이션 배경
 │   ├── generate.py             시안 생성(draft) / 고품질 렌더링(refine)
+│   ├── layout.py               출력 캔버스 크기, 제품 배치, 비율 추론
 │   └── overlay.py              문구 합성, AI 생성물 표시
 ├── tests/                      자동으로 PASS/FAIL을 판정하는 테스트
+│   └── _baseline/              변경 전 모듈 스냅샷 (픽셀 회귀 비교용, 직접 실행 안 함)
 ├── scripts/verification/       수동 실행·육안 검증 스크립트 (카테고리별)
 ├── docs/                       API·검증 문서
 ├── assets/fonts/               번들 폰트 + 라이선스
@@ -84,13 +86,29 @@ refine에는 **`original_image`(원본 제품 사진)를 항상 함께 보내주
 
 ## 테스트
 
-GPU도 서버도 없이 바로 실행할 수 있습니다.
+**전부 GPU도 서버도 없이** 실행됩니다. 12개 스위트가 각각 스스로 PASS/FAIL을 냅니다.
 
 ```bash
-PYTHONPATH="$PWD" python tests/test_zorder_api.py
+for f in tests/test_*.py; do PYTHONPATH="$PWD" python "$f"; done
 ```
 
-z_order 4개 조합, validation 3종, 하위 호환, AI 표시 1회 적용 등을 자동 판정합니다.
+| 스위트 | 내용 |
+|---|---|
+| `test_zorder_api.py` | z_order 4개 조합, validation, 하위 호환, AI 표시 1회 적용 |
+| `test_background_validation.py` | 배경 색상 validation (빈 배열·형식·모드별 차이) |
+| `test_output_size.py` | 비율별 출력 캔버스 크기 계산 |
+| `test_canvas_bridge.py` | W×H 캔버스 변환, 1:1 항등 경로(픽셀 동일) |
+| `test_placement.py` | 비율별 기본 배치, 제품·그림자 clipping |
+| `test_aspect_contract.py` | 비율 추론 tolerance, 배치 좌표 변환 |
+| `test_drafts_canvas_api.py` | drafts의 비율·배치 요청/응답 계약, 1:1 회귀 |
+| `test_refine_canvas_api.py` | refine의 비율 추론·교차검증·placement round-trip |
+| `test_ai_nonsquare_api.py` | 3:1 AI 경로, 1:1 AI 회귀, 3:4 AI 400 유지 |
+| `test_text_coords.py` | 문구 좌표 계약(y=블록 중심), 프리셋 경로 픽셀 회귀 |
+| `test_text_compose_api.py` | `/compose/text` 동작·좌표·ai_notice 순서·오류 |
+| `test_font_id.py` | `font_id` whitelist·400 두 종류·headline/sub 공통 적용·픽셀 회귀 |
+
+`test_text_coords.py`의 "프리셋 경로 회귀" 절은 변경 전 코드 사본을 `/tmp/oldpkg`에서
+찾습니다. 없으면 **그 절만 건너뛰고** 나머지는 정상 판정합니다.
 
 ## 검증 스크립트
 
@@ -103,6 +121,11 @@ z_order 4개 조합, validation 3종, 하위 호환, AI 표시 1회 적용 등�
 | `PYTHONPATH="$PWD" python scripts/verification/shadow/check_shadow_shapes.py` | rembg + 제품 사진 |
 | `PYTHONPATH="$PWD" python scripts/verification/placement/verify_product_placement.py` | rembg + 제품 사진 |
 | `PYTHONPATH="$PWD" python scripts/verification/zorder/verify_zorder_behind.py` | rembg + 제품 사진 |
+| `PYTHONPATH="$PWD" python scripts/verification/aspect/verify_canvas_placement.py` | rembg + 제품 사진 |
+| `PYTHONPATH="$PWD" python scripts/verification/aspect/verify_aspect_ratio.py` | rembg + 제품 사진 |
+| `PYTHONPATH="$PWD" python scripts/verification/aspect/make_contact_sheet.py` | 없음 (기존 결과 이미지 필요) |
+| `PYTHONPATH="$PWD" python scripts/verification/aspect/probe_ai_nonsquare.py` | GPU |
+| `PYTHONPATH="$PWD" python scripts/verification/api/smoke_ai_nonsquare.py` | 서버 + GPU |
 | `PYTHONPATH="$PWD" python scripts/verification/api/smoke_api_endpoints.py` | 서버 + GPU |
 | `PYTHONPATH="$PWD" python scripts/verification/api/smoke_zorder_api.py` | 서버 + GPU |
 | `PYTHONPATH="$PWD" python scripts/verification/poster/verify_poster_real.py <name>` | 서버 + GPU |
@@ -144,16 +167,36 @@ z_order 4개 조합, validation 3종, 하위 호환, AI 표시 1회 적용 등�
 `assets/fonts/`에 번들되어 있습니다. OS 설치에 의존하지 않고 로컬과 배포 환경에서
 같은 폰트가 재현되게 하기 위함입니다.
 
-| 역할 | 폰트 | 라이선스 |
-|---|---|---|
-| `headline` | Gmarket Sans Bold | **미확보** — `assets/fonts/GmarketSans/PENDING.md` 참고 |
-| `body` / `body_medium` | Pretendard Regular / Medium | OFL-1.1 |
-| `elegant` | 나눔명조 Bold | OFL-1.1 |
-| `accent` | 검은고딕 (Black Han Sans) | OFL-1.1 |
+폰트를 고르는 경로가 **두 가지**입니다. 목적이 달라 테이블도 분리되어 있습니다.
 
-Gmarket Sans는 아직 없어서 `config.resolve_font_path()`가 `accent`로 자동 폴백합니다.
-경고만 출력되고 파이프라인은 정상 동작합니다. 출처와 재배포 조건은
-`assets/fonts/SOURCES.md`에 정리되어 있습니다.
+**1) 역할 기반 (`config.FONTS`) — 서버가 용도에 맞게 고름**
+
+| 역할 | 폰트 |
+|---|---|
+| `headline` | Gmarket Sans Bold |
+| `body` / `body_medium` | Pretendard Regular / Medium |
+| `elegant` | 나눔명조 Bold |
+| `accent` | 검은고딕 (Black Han Sans) |
+
+파일이 없으면 경고를 출력하고 `accent`로 폴백합니다.
+
+**2) `font_id` (`config.FONT_IDS`) — 사용자가 직접 고름**
+
+| `font_id` | 폰트 파일 |
+|---|---|
+| `pretendard` | `Pretendard/Pretendard-Regular.ttf` |
+| `nanummyeongjo` | `NanumMyeongjo/NanumMyeongjoBold.ttf` |
+| `gmarketsans` | `GmarketSans/GmarketSansTTFMedium.ttf` |
+| `galmuri11` | `Galmuri11/Galmuri11.ttf` |
+| `nanumpen` | `NanumPen/NanumPen.ttf` |
+
+고른 폰트 하나가 headline과 sub에 **공통 적용**됩니다. 역할 기반과 달리
+**폴백이 없습니다** — 쓸 수 없는 폰트는 400으로 거부합니다. 사용자가 고른 폰트가
+아닌 결과가 나가면 원인을 추적할 수 없기 때문입니다. 자세한 계약은
+[`docs/api.md`](docs/api.md)를 참고하세요.
+
+출처와 재배포 조건은 `assets/fonts/SOURCES.md`에, 자산 검증은
+`assets/fonts/verify_fonts.py`에 있습니다.
 
 ---
 

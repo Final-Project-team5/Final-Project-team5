@@ -8,7 +8,7 @@ pipeline을 스텁으로 대체해 모델을 전혀 실행하지 않고, api.py�
     colors를 빠뜨리면 스키마 검증은 통과하지만 render_flat_background()의
     colors[0]에서 IndexError가 나 500으로 떨어졌다. 그 경로를 400으로 막았는지 본다.
 
-실행 (poster_model 디렉터리에서):
+실행 (프로젝트 루트에서):
     PYTHONPATH="$PWD" python tests/test_background_validation.py
 """
 import base64
@@ -30,7 +30,8 @@ SIZE = 64
 
 pkg = types.ModuleType("pipeline")
 pkg.__path__ = [str(ROOT / "pipeline")]
-pkg.config = types.SimpleNamespace(DRAFT_MODEL="sd15", REFINE_MODEL="sdxl")
+pkg.config = types.SimpleNamespace(DRAFT_MODEL="sd15", REFINE_MODEL="sdxl",
+                                   AI_SUPPORTED_RATIOS=("1:1", "3:1"))
 
 
 def _fake_drafts(**kwargs):
@@ -40,7 +41,7 @@ def _fake_drafts(**kwargs):
 
 
 def _fake_refine(draft, original=None, prompt=None, category=None,
-                 background=None, strength=None):
+                 background=None, strength=None, **_kw):
     CALLS["refine"] += 1
     return {"image": draft, "pre_product": None, "base": None,
             "product_mask": None, "meta": {}}
@@ -53,6 +54,19 @@ pkg.add_ai_notice = lambda img, text="AI 생성 이미지": img
 pkg.composite_product = lambda *a, **k: a[0]
 pkg.warmup = lambda: None
 pkg.unload = lambda: None
+class _StubLayoutRejection(ValueError):
+    """pipeline.LayoutRejection 스텁. api.py가 400 변환에 쓴다."""
+
+    def __init__(self, error, message, **detail):
+        super().__init__(message)
+        self.payload = {"error": error, "message": message, **detail}
+
+
+pkg.LayoutRejection = _StubLayoutRejection
+# 이 스위트는 비율 기능을 다루지 않으므로 항상 1:1로 해석한다.
+pkg.resolve_aspect_ratio = lambda requested=None, image_size=None: (
+    requested or "1:1", [])
+
 sys.modules["pipeline"] = pkg
 
 sys.path.insert(0, str(ROOT))

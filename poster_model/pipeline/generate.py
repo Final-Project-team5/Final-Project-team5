@@ -6,15 +6,23 @@ import torch
 from PIL import Image
 
 from . import config
+from . import layout
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
-                      make_masks, prepare_image, render_flat_background, resolve_background)
+                      make_masks, place_product_on_canvas, prepare_image,
+                      render_flat_background, resolve_background)
 
 _pipes = {}
 
 
-def _load(kind: str, task: str):
-    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img'."""
-    key = f"{kind}_{task}"
+def _load(kind: str, task: str, tiling: bool = True):
+    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img'.
+
+    tiling=False면 VAE tiling을 끈 **별도 인스턴스**를 따로 캐시한다.
+    같은 객체의 tiling을 요청마다 켰다 껐다 하면 동시 요청이 서로 간섭하므로
+    상태를 토글하지 않고 인스턴스를 나눈다. 기본값이 True라 기존 호출부는
+    동작이 그대로다.
+    """
+    key = f"{kind}_{task}" if tiling else f"{kind}_{task}_notile"
     if key in _pipes:
         return _pipes[key]
 
@@ -42,7 +50,8 @@ def _load(kind: str, task: str):
     if config.USE_CPU_OFFLOAD:
         pipe.enable_model_cpu_offload()
         pipe.vae.enable_slicing()
-        pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
+        if tiling:
+            pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
     else:
         pipe.to("cuda")
 
@@ -78,23 +87,37 @@ def resolve_prompt(prompt: str = None, category: str = None) -> str:
 
 
 def _flat_background_drafts(image, category, num_images,
-                            background_mode, bg_colors, gradient_direction) -> dict:
+                            background_mode, bg_colors, gradient_direction,
+                            aspect_ratio=None, placement_override=None) -> dict:
     """background_mode가 solid/gradient일 때: diffusion을 완전히 생략하고
     PIL로만 배경을 채운 뒤 기존 그림자/원본 합성 로직을 그대로 재사용한다.
+
+    aspect_ratio는 아직 API에 노출하지 않는 내부 인자다. None이면 정사각
+    캔버스 + 항등 배치라 기존 동작과 픽셀 단위로 같다.
+
+    제품 추출은 항상 정사각 source_size에서 하고(prepare_image), 캔버스 이동은
+    place_product_on_canvas가 맡는다. 비정사각에서는 blur margin 축소를 생략해
+    캔버스 배치가 제품 크기를 단독으로 책임진다.
+    placement_override는 {"scale_factor", "x", "y"} 부분 지정(외부 계약 좌표계).
+    지정하더라도 서버가 product+shadow footprint를 다시 검증한다.
     """
     if image is None:
         raise ValueError("solid/gradient 배경 모드는 제품 이미지(image)가 필요합니다.")
 
     size = config.MODELS[config.DRAFT_MODEL]["size"]
+    canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     started = time.time()
 
-    base, masks, mode = prepare_image(image, size)
+    base, masks, mode = prepare_image(image, size, apply_blur_margin=use_margin)
+    place, place_public = layout.resolve_placement(masks, canvas, aspect_ratio,
+                                                   placement_override)
+    base, masks = place_product_on_canvas(base, masks, canvas, **place.as_kwargs())
     bg_specs = resolve_background(background_mode, bg_colors, gradient_direction,
                                   category, num_images)
 
     images = []
     for spec in bg_specs:
-        flat = render_flat_background(size, spec["colors"], spec.get("direction"))
+        flat = render_flat_background(canvas, spec["colors"], spec.get("direction"))
         shadowed = add_ground_shadow(flat, masks.product)
         images.append(composite_product(base, shadowed, masks.product))
 
@@ -109,7 +132,152 @@ def _flat_background_drafts(image, category, num_images,
                  "layout": describe_product_bbox(masks.product),
                  "diffusion": False,
                  "background_mode": background_mode,
-                 "resolution": size},
+                 "resolution": size,
+                 # 아래 3개는 additive. resolution은 짧은 변 정수 그대로 둔다.
+                 "aspect_ratio": aspect_ratio or config.DEFAULT_ASPECT_RATIO,
+                 "canvas": {"width": canvas[0], "height": canvas[1]},
+                 "placement": place_public},
+    }
+
+
+def _place_both(base, masks, canvas_wh, gen_wh, ratio):
+    """최종 캔버스와 생성 캔버스에 **같은 정규화 배치**로 제품을 올린다.
+
+    해상도가 다르면 compute_placement의 자동 결과가 미세하게 달라지므로
+    (blur pad가 절대 픽셀), 최종에서 계산한 정규화 배치를 생성 캔버스에
+    override로 넣는다. A4 실험에서 검증된 방식이다.
+    """
+    place, public = layout.resolve_placement(masks, canvas_wh, ratio, None)
+    base_cv, masks_cv = place_product_on_canvas(base, masks, canvas_wh,
+                                                **place.as_kwargs())
+    if tuple(gen_wh) == tuple(canvas_wh):
+        return (base_cv, masks_cv), (base_cv, masks_cv), public
+    ov = {k: public[k] for k in ("scale_factor", "x", "y")}
+    gp = layout.compute_placement(masks, gen_wh, ratio, ov)
+    layout.validate_placement(masks, gen_wh, gp, strict=True)
+    base_gen, masks_gen = place_product_on_canvas(base, masks, gen_wh,
+                                                  **gp.as_kwargs())
+    return (base_cv, masks_cv), (base_gen, masks_gen), public
+
+
+def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
+                         aspect_ratio) -> dict:
+    """비정사각 AI draft (현재 3:1만).
+
+    기존 1:1 경로는 건드리지 않고 별도 함수로 둔다. AI는 GPU가 필요해 픽셀 단위
+    회귀 테스트를 돌릴 수 없으므로, 공통화보다 기존 코드 보존을 우선한다.
+
+    흐름: 생성 해상도로 diffusion → 최종 캔버스로 업스케일 → 최종 해상도에서
+    그림자·원본 제품 재합성. 제품 선명도가 생성 해상도와 분리된다.
+    """
+    if image is None:
+        raise ValueError("비정사각 AI 배경은 제품 이미지(image)가 필요합니다.")
+
+    size = config.MODELS[config.DRAFT_MODEL]["size"]
+    canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
+    gen = layout.resolve_ai_gen_size(aspect_ratio, "draft", canvas)
+    prompt = resolve_prompt(prompt, category)
+
+    if seeds is None:
+        seeds = torch.randint(0, 2**31 - 1, (num_images,)).tolist()
+    gens = [torch.Generator("cuda").manual_seed(s) for s in seeds]
+    started = time.time()
+
+    base, masks, mode = prepare_image(image, size, apply_blur_margin=use_margin)
+    (base_cv, masks_cv), (base_gen, masks_gen), public = _place_both(
+        base, masks, canvas, gen, aspect_ratio)
+
+    # VAE tiling을 끈 인스턴스를 쓴다. 3:1 draft(1536x512)에서 좌측 가장자리에
+    # 색 띠가 생기는 것이 seed 고정 A/B로 확인됐다(ON 19px / OFF 0px, ON 재현 일치).
+    # 1:1은 같은 조건에서 재현되지 않아 기존 인스턴스를 그대로 쓴다.
+    # 실험 기록: outputs/verification/api/ai_nonsquare_smoke/tilingab_*_summary.txt
+    pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
+    outs = pipe(prompt=prompt,
+                negative_prompt=config.NEGATIVE_PROMPT,
+                image=base_gen,
+                mask_image=masks_gen.inpaint,
+                height=gen[1], width=gen[0],
+                num_inference_steps=config.DRAFT_STEPS,
+                num_images_per_prompt=num_images,
+                generator=gens).images
+    if tuple(gen) != tuple(canvas):
+        outs = [o.resize(canvas, Image.LANCZOS) for o in outs]
+    # 그림자·합성은 항상 최종 캔버스 해상도에서 (1:1 경로와 같은 순서)
+    shadowed = [add_ground_shadow(o, masks_cv.product) for o in outs]
+    images = [composite_product(base_cv, o, masks_cv.product) for o in shadowed]
+
+    return {
+        "images": images,
+        "seeds": seeds,
+        "backgrounds": [None] * num_images,
+        "meta": {"elapsed": round(time.time() - started, 2),
+                 "model": config.DRAFT_MODEL,
+                 "mode": mode,
+                 "area_ratio": round(masks_cv.area_ratio, 3),
+                 "layout": describe_product_bbox(masks_cv.product),
+                 "diffusion": True,
+                 "background_mode": "ai",
+                 "resolution": size,
+                 "aspect_ratio": aspect_ratio,
+                 "canvas": {"width": canvas[0], "height": canvas[1]},
+                 "placement": public},
+    }
+
+
+def _ai_nonsquare_refine(draft, original, prompt, category, strength,
+                         aspect_ratio) -> dict:
+    """비정사각 AI refine (현재 3:1만).
+
+    입력은 **사용자가 고른 실제 draft**다. draft를 못 찾았을 때의 대체 배경 같은
+    폴백을 두지 않는다. original_image가 없으면 마스크·배치·제품 재합성이 빠져
+    검증한 경로와 달라지므로 호출 전에 거부해야 한다(api.py에서 400).
+    """
+    if original is None:
+        raise ValueError(
+            "비정사각 AI 배경 refine에는 original_image가 필요합니다.")
+
+    size = config.MODELS[config.REFINE_MODEL]["size"]
+    canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
+    gen = layout.resolve_ai_gen_size(aspect_ratio, "refine", canvas)
+    prompt = resolve_prompt(prompt, category)
+    strength = config.REFINE_STRENGTH if strength is None else strength
+    started = time.time()
+
+    base, masks, _mode = prepare_image(original, size,
+                                       apply_blur_margin=use_margin)
+    (base_cv, masks_cv), (base_gen, masks_gen), public = _place_both(
+        base, masks, canvas, gen, aspect_ratio)
+
+    draft_in = draft.convert("RGB").resize(gen, Image.LANCZOS)
+    pipe = _load(config.REFINE_MODEL, "inpaint")
+    out = pipe(prompt=prompt,
+               negative_prompt=config.NEGATIVE_PROMPT,
+               image=draft_in,
+               mask_image=masks_gen.inpaint,
+               height=gen[1], width=gen[0],
+               num_inference_steps=config.REFINE_STEPS,
+               strength=strength).images[0]
+    if tuple(gen) != tuple(canvas):
+        out = out.resize(canvas, Image.LANCZOS)
+    out = add_ground_shadow(out, masks_cv.product)
+    pre_product = out
+    out = composite_product(base_cv, out, masks_cv.product)
+
+    return {
+        "image": out,
+        "pre_product": pre_product,
+        "base": base_cv,
+        "product_mask": masks_cv.product,
+        "meta": {"elapsed": round(time.time() - started, 2),
+                 "model": config.REFINE_MODEL,
+                 "strength": strength,
+                 "layout": describe_product_bbox(masks_cv.product),
+                 "diffusion": True,
+                 "background_mode": "ai",
+                 "resolution": size,
+                 "aspect_ratio": aspect_ratio,
+                 "canvas": {"width": canvas[0], "height": canvas[1]},
+                 "placement": public},
     }
 
 
@@ -120,18 +288,29 @@ def generate_drafts(image=None,
                     seeds: list[int] = None,
                     background_mode: str = "ai",
                     bg_colors: list[str] = None,
-                    gradient_direction: str = None) -> dict:
+                    gradient_direction: str = None,
+                    aspect_ratio: str = None,
+                    placement_override: dict = None) -> dict:
     """1단계: 시안 여러 장 생성.
 
     image가 있으면 inpaint(제품 보존), 없으면 text2img.
     background_mode="ai"(기본값)면 기존 diffusion 경로를 그대로 사용한다.
     "solid"/"gradient"면 diffusion을 생략하고 PIL로만 배경을 채운다.
+
+    aspect_ratio / placement_override는 solid/gradient 경로에만 적용된다.
+    AI 경로의 비정사각 생성은 아직 지원하지 않는다(A4). 둘 다 None이면
+    기존 동작과 완전히 동일하다.
     """
     num_images = num_images or config.NUM_DRAFTS
 
     if background_mode != "ai":
         return _flat_background_drafts(image, category, num_images,
-                                       background_mode, bg_colors, gradient_direction)
+                                       background_mode, bg_colors, gradient_direction,
+                                       aspect_ratio, placement_override)
+    if aspect_ratio not in (None, "1:1"):
+        # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
+        return _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
+                                    aspect_ratio)
 
     prompt = resolve_prompt(prompt, category)
     size = config.MODELS[config.DRAFT_MODEL]["size"]
@@ -182,20 +361,28 @@ def generate_drafts(image=None,
     }
 
 
-def _flat_background_refine(original, background: dict) -> dict:
+def _flat_background_refine(original, background: dict,
+                            aspect_ratio=None, placement_override=None) -> dict:
     """background_mode가 solid/gradient일 때의 2단계.
 
     draft(768 시안)를 단순 확대하지 않고, 원본 이미지+마스크로 1024에서
     "동일한 배경 설정"을 다시 렌더링한다. diffusion은 호출하지 않는다.
+
+    aspect_ratio/placement_override는 _flat_background_drafts와 같은 의미다.
+    None이면 항등 경로라 기존 정사각 동작과 동일하다.
     """
     if original is None:
         raise ValueError("solid/gradient 배경 refine에는 original(원본 이미지)이 필요합니다.")
 
     size = config.MODELS[config.REFINE_MODEL]["size"]
+    canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     started = time.time()
 
-    base, masks, mode = prepare_image(original, size)
-    flat = render_flat_background(size, background["colors"], background.get("direction"))
+    base, masks, mode = prepare_image(original, size, apply_blur_margin=use_margin)
+    place, place_public = layout.resolve_placement(masks, canvas, aspect_ratio,
+                                                   placement_override)
+    base, masks = place_product_on_canvas(base, masks, canvas, **place.as_kwargs())
+    flat = render_flat_background(canvas, background["colors"], background.get("direction"))
     shadowed = add_ground_shadow(flat, masks.product)
     out = composite_product(base, shadowed, masks.product)
 
@@ -216,7 +403,10 @@ def _flat_background_refine(original, background: dict) -> dict:
                  "layout": describe_product_bbox(masks.product),
                  "diffusion": False,
                  "background_mode": background["mode"],
-                 "resolution": size},
+                 "resolution": size,
+                 "aspect_ratio": aspect_ratio or config.DEFAULT_ASPECT_RATIO,
+                 "canvas": {"width": canvas[0], "height": canvas[1]},
+                 "placement": place_public},
     }
 
 
@@ -225,7 +415,9 @@ def refine(draft: Image.Image,
            prompt: str = None,
            category: str = None,
            strength: float = None,
-           background: dict = None) -> dict:
+           background: dict = None,
+           aspect_ratio: str = None,
+           placement_override: dict = None) -> dict:
     """2단계: 선택한 시안을 고품질로 다시 렌더링.
 
     original(사용자 원본 사진)이 주어지면 제품 영역을 다시 보존한다.
@@ -234,9 +426,17 @@ def refine(draft: Image.Image,
     background가 주어지고 mode가 "solid"/"gradient"면 diffusion을 완전히
     생략한다(_flat_background_refine). background가 없거나 mode="ai"면
     기존 동작 그대로다.
+
+    aspect_ratio / placement_override는 solid/gradient 경로에만 적용된다.
+    둘 다 None이면 기존 동작과 완전히 동일하다.
     """
     if background and background.get("mode") in ("solid", "gradient"):
-        return _flat_background_refine(original, background)
+        return _flat_background_refine(original, background,
+                                       aspect_ratio, placement_override)
+    if aspect_ratio not in (None, "1:1"):
+        # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
+        return _ai_nonsquare_refine(draft, original, prompt, category, strength,
+                                    aspect_ratio)
 
     prompt = resolve_prompt(prompt, category)
     strength = config.REFINE_STRENGTH if strength is None else strength

@@ -24,6 +24,19 @@ def load_real(name, path):
 
 pkg = types.ModuleType("pipeline")
 pkg.__path__ = [str(ROOT / "pipeline")]
+class _StubLayoutRejection(ValueError):
+    """pipeline.LayoutRejection 스텁. api.py가 400 변환에 쓴다."""
+
+    def __init__(self, error, message, **detail):
+        super().__init__(message)
+        self.payload = {"error": error, "message": message, **detail}
+
+
+pkg.LayoutRejection = _StubLayoutRejection
+# 이 스위트는 비율 기능을 다루지 않으므로 항상 1:1로 해석한다.
+pkg.resolve_aspect_ratio = lambda requested=None, image_size=None: (
+    requested or "1:1", [])
+
 sys.modules["pipeline"] = pkg
 real_config = load_real("pipeline.config", ROOT / "pipeline" / "config.py")
 pkg.config = real_config
@@ -57,7 +70,7 @@ from PIL import ImageDraw
 ImageDraw.Draw(_mask).rectangle([60, 100, 200, 230], fill=255)
 
 REFINE_RESULT = {}
-def fake_refine(draft, original=None, prompt=None, category=None, background=None, strength=None):
+def fake_refine(draft, original=None, prompt=None, category=None, background=None, strength=None, **_kw):
     return dict(REFINE_RESULT)
 pkg.refine = fake_refine
 
@@ -187,13 +200,69 @@ check("headline만 behind: 200", r.status_code == 200, r.text[:300])
 check("render_text 1회", CALLS["render_text"] == 1, CALLS)
 check("sub 레이어 없음", "sub" not in r.json()["meta"]["text_layers"])
 
+# --- meta.text_layers가 "실제 적용 좌표"를 기록하는지 -------------------------
+# 한 번에 렌더링하는 경우 sub_x/sub_y는 렌더링에 쓰이지 않는다. 그때도 meta에
+# 기록하면 응답과 실제 결과가 어긋난다.
+print("\n[sub 좌표 기록 정합성]")
+r = post({"headline": "제목", "sub": "보조", "x": 0.1, "y": 0.2,
+          "sub_x": 0.7, "sub_y": 0.88,
+          "headline_z_order": "front", "sub_z_order": "front", "style": "plain"})
+m = r.json()["meta"]["text_layers"]
+check("같은 z_order: sub 좌표가 실제 사용값(x/y)으로 기록",
+      m["sub"]["x"] == 0.1 and m["sub"]["y"] == 0.2, m["sub"])
+check("같은 z_order: headline 좌표도 x/y",
+      m["headline"]["x"] == 0.1 and m["headline"]["y"] == 0.2)
+
+r = post({"headline": "제목", "sub": "보조", "x": 0.1, "y": 0.2,
+          "sub_x": 0.7, "sub_y": 0.88,
+          "headline_z_order": "behind", "sub_z_order": "front", "style": "plain"})
+m = r.json()["meta"]["text_layers"]
+check("다른 z_order: sub 좌표가 sub_x/sub_y로 기록",
+      m["sub"]["x"] == 0.7 and m["sub"]["y"] == 0.88, m["sub"])
+check("다른 z_order: headline은 x/y 유지",
+      m["headline"]["x"] == 0.1 and m["headline"]["y"] == 0.2)
+
+# --- meta.ignored_fields: 요청됐지만 적용되지 않은 필드만 기록 -----------------
+print("\n[ignored_fields]")
+base = {"headline": "제목", "sub": "보조", "x": 0.1, "y": 0.2, "style": "plain"}
+
+r = post({**base, "sub_x": 0.7, "sub_y": 0.88})          # 같은 z_order → 무시됨
+check("같은 z_order + sub_x/sub_y → 둘 다 기록",
+      r.json()["meta"].get("ignored_fields") == ["sub_x", "sub_y"],
+      r.json()["meta"].get("ignored_fields"))
+
+r = post({**base, "sub_x": 0.7})
+check("sub_x만 무시되면 [sub_x]",
+      r.json()["meta"].get("ignored_fields") == ["sub_x"],
+      r.json()["meta"].get("ignored_fields"))
+
+r = post({**base, "sub_y": 0.88})
+check("sub_y만 무시되면 [sub_y]",
+      r.json()["meta"].get("ignored_fields") == ["sub_y"],
+      r.json()["meta"].get("ignored_fields"))
+
+r = post(base)
+check("무시된 필드 없으면 키 자체가 없음",
+      "ignored_fields" not in r.json()["meta"], r.json()["meta"].get("ignored_fields"))
+
+r = post({**base, "sub_x": 0.7, "sub_y": 0.88,
+          "headline_z_order": "behind", "sub_z_order": "front"})
+check("다른 z_order면 실제 사용되므로 키 없음",
+      "ignored_fields" not in r.json()["meta"], r.json()["meta"].get("ignored_fields"))
+
+r = post({"headline": "제목만", "x": 0.1, "y": 0.2, "style": "plain", "sub_x": 0.7})
+check("sub가 없으면 sub_x도 무시로 기록",
+      r.json()["meta"].get("ignored_fields") == ["sub_x"],
+      r.json()["meta"].get("ignored_fields"))
+
+
 set_result(); CALLS.update({k: 0 for k in CALLS})
 r = post({"sub": "부제만", "x": 0.5, "y": 0.8, "align": "center",
           "style": "plain", "sub_z_order": "behind"})
 check("sub만 behind: 200", r.status_code == 200, r.text[:300])
 check("headline 레이어 없음", "headline" not in r.json()["meta"]["text_layers"])
 
-print("\n[11] render_text 인터페이스 유지 확인 (시그니처에 z_order 인자 없음)")
+print("\n[11] overlay.py 무변경 확인 (render_text 시그니처에 z_order 인자 없음)")
 import inspect
 sig = inspect.signature(real_overlay.render_text)
 check("render_text에 z_order 관련 인자 없음",
