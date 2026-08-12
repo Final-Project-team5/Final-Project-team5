@@ -3,6 +3,7 @@
   margin: 0 auto;
   min-height: 100vh;
   padding: 48px 24px 40px;
+  animation: page-fade-in 0.35s ease;
 }
 
 .final-result__title {
@@ -26,6 +27,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
 }
 
 .final-result__badge {
@@ -102,6 +104,17 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--color-text-secondary);
+  transition: border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.final-result__restart:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+  transform: translateY(-1px);
+}
+
+.final-result__restart:active {
+  transform: scale(0.97);
 }
 
 .final-result__download {
@@ -111,6 +124,20 @@
   color: #fff;
   font-size: 14px;
   font-weight: 700;
+  box-shadow: var(--shadow-btn);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+}
+
+.final-result__download:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-btn-hover);
+  filter: brightness(1.04);
+}
+
+.final-result__download:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-btn);
+  filter: brightness(0.98);
 }
 
 .final-result__download-note {

@@ -3,6 +3,7 @@
   margin: 0 auto;
   min-height: 100vh;
   padding: 48px 24px 40px;
+  animation: page-fade-in 0.35s ease;
 }
 
 .draft-select__title {
@@ -25,6 +26,7 @@
   border-radius: 14px;
   border: 1px solid var(--color-border-soft);
   margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .draft-select__bg-type-label {
@@ -52,6 +54,16 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
+  transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.draft-select__bg-type-chip:hover:not(.draft-select__bg-type-chip--disabled):not(.draft-select__bg-type-chip--active) {
+  border-color: var(--color-primary-border);
+  transform: translateY(-1px);
+}
+
+.draft-select__bg-type-chip:active:not(.draft-select__bg-type-chip--disabled) {
+  transform: scale(0.97);
 }
 
 .draft-select__bg-type-chip--active {
@@ -94,6 +106,13 @@
   overflow: hidden;
   border: 2px solid var(--color-border);
   padding: 0;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.draft-select__card:hover:not(.draft-select__card--active) {
+  border-color: var(--color-primary-border);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .draft-select__card img {
@@ -154,6 +173,17 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--color-text-secondary);
+  transition: border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.draft-select__secondary:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+  transform: translateY(-1px);
+}
+
+.draft-select__secondary:active {
+  transform: scale(0.97);
 }
 
 .draft-select__primary {
@@ -163,9 +193,24 @@
   color: #fff;
   font-size: 14px;
   font-weight: 700;
+  box-shadow: var(--shadow-btn);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+}
+
+.draft-select__primary:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-btn-hover);
+  filter: brightness(1.04);
+}
+
+.draft-select__primary:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-btn);
+  filter: brightness(0.98);
 }
 
 .draft-select__primary:disabled {
   opacity: 0.45;
   cursor: default;
+  box-shadow: none;
 }

@@ -32,6 +32,15 @@
   --color-badge-bg: oklch(93% 0.05 150);
   --color-badge-text: oklch(40% 0.13 150);
 
+  /* 카드/버튼 그림자 톤 통일 — 화면마다 진하기가 들쭉날쭉하지 않도록 한 곳에서만 정의.
+     카드는 무채색 저채도 그림자, 버튼(그라데이션 CTA)은 보라 톤이 살짝 도는 그림자. */
+  --shadow-sm: 0 1px 4px rgba(17, 15, 30, 0.05);
+  --shadow-md: 0 4px 16px rgba(17, 15, 30, 0.07);
+  --shadow-btn: 0 2px 10px rgba(123, 95, 234, 0.22);
+  --shadow-btn-hover: 0 6px 18px rgba(123, 95, 234, 0.3);
+
+  --transition-fast: 0.15s ease;
+
   --font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
@@ -43,6 +52,13 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* 세로 스크롤바가 나타났다 사라지며 폭이 바뀌는 걸 막는다 — 화면마다 콘텐츠
+   높이가 달라 스크롤바 유무가 오갈 때, 가운데 정렬된 본문(.home, .chat-flow
+   등)이 옆으로 밀리는 레이아웃 시프트를 방지한다. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -64,4 +80,32 @@ button {
 input,
 textarea {
   font-family: inherit;
+}
+
+/* 화면 전환 시 은은한 fade-in — 각 화면 최상위 클래스(.home, .chat-flow 등)에서
+   재사용한다. React가 view를 바꿀 때 그 화면 컴포넌트가 새로 마운트되면서
+   자동으로 재생된다.
+   opacity만 사용한다 — translateY를 섞으면, min-height:100vh인 이 요소들이
+   애니메이션 도중 잠깐 뷰포트 아래로 밀려나면서 세로 스크롤바가 순간적으로
+   나타났다 사라지고, 그 폭 변화 때문에 가운데 정렬된 본문이 옆으로 살짝
+   튀는 레이아웃 시프트가 있었다. */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 모든 트랜지션/애니메이션에 대한 접근성 안전장치 — 과한 모션을 원치 않는
+   사용자에게는 즉시 상태만 바뀌게 한다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

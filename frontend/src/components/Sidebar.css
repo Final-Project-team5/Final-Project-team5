@@ -22,11 +22,21 @@
   color: var(--color-text);
   letter-spacing: -0.2px;
   margin-bottom: 22px;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar__logo:hover {
+  opacity: 0.8;
 }
 
 .sidebar__logo-icon {
   flex: none;
   border-radius: 7px;
+  transition: transform var(--transition-fast);
+}
+
+.sidebar__logo:hover .sidebar__logo-icon {
+  transform: scale(1.06);
 }
 
 .sidebar__new-btn {
@@ -41,6 +51,20 @@
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 24px;
+  box-shadow: var(--shadow-btn);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+}
+
+.sidebar__new-btn:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-btn-hover);
+  filter: brightness(1.04);
+}
+
+.sidebar__new-btn:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-btn);
+  filter: brightness(0.98);
 }
 
 /* 진행 상황 위젯 — 다른 사이드바 카드와 톤을 맞춘 중립 카드(연회색 배경) 안에
@@ -51,6 +75,7 @@
   border-radius: 14px;
   background: var(--color-bg);
   border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar__steps-label {
@@ -147,6 +172,7 @@
   border-radius: 14px;
   background: var(--color-primary-light);
   border: 1px solid var(--color-primary-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar__tip-header {
@@ -220,10 +246,12 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--color-primary-text);
+  transition: color var(--transition-fast), transform var(--transition-fast);
 }
 
 .sidebar__faq-more:hover {
   color: var(--color-primary);
+  transform: translateX(2px);
 }
 
 .sidebar__spacer {

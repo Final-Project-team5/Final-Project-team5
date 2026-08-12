@@ -10,6 +10,7 @@
   border-radius: 20px;
   border: 1px solid var(--color-border-soft);
   background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 로딩 B(고품질화 중)는 로딩 A(초안 생성 중)와 강조색을 다르게 써서,

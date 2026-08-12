@@ -3,6 +3,7 @@
   margin: 0 auto;
   min-height: 100vh;
   padding: 48px 24px 40px;
+  animation: page-fade-in 0.35s ease;
 }
 
 .faq-page__title {
@@ -34,6 +35,12 @@
   border-radius: 14px;
   background: var(--color-surface);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-fast);
+}
+
+.faq-page__item:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .faq-page__question {
@@ -47,6 +54,11 @@
   font-size: 14.5px;
   font-weight: 700;
   color: var(--color-text);
+  transition: background var(--transition-fast);
+}
+
+.faq-page__question:hover {
+  background: var(--color-bg);
 }
 
 .faq-page__chevron {
