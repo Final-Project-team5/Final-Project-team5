@@ -5,8 +5,8 @@ import ErrorNotice from '../components/ErrorNotice';
 import Mascot from '../components/Mascot';
 import './ChatFlow.css';
 
-// 챗봇 말풍선 옆 아바타 크기(카카오톡 프로필 사진 정도의 작은 크기)
-const CHAT_AVATAR_SIZE = 36;
+// 챗봇 말풍선 옆 아바타 크기 — 말풍선 세로 높이보다 살짝 크게
+const CHAT_AVATAR_SIZE = 92;
 
 /**
  * 화면 A — 챗봇 진행 화면

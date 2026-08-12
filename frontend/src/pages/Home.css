@@ -1,12 +1,10 @@
+/* 데스크톱 화면만 지원 — 모바일/반응형 대응은 스코프 밖 (frontend/CLAUDE.md 참고) */
 .home {
-  /* flex-wrap의 자동 줄바꿈 시점은 gap·자식 최소너비에 따라 달라져 예측하기
-     어렵다 — 아래 미디어 쿼리에서 flex-direction을 직접 스위치해 스택 시점을
-     명시적으로 고정하고, 캐릭터 위치 전환도 같은 지점에서 함께 맞춘다. */
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 80px;
+  gap: 176px;
   min-height: 100vh;
   padding: 40px 48px 40px 16px;
 }
@@ -15,23 +13,29 @@
   flex: 0 1 420px;
 }
 
-/* 캐릭터가 카드 왼쪽 가장자리에 걸치도록 카드를 감싸는 위치 기준점 */
+/* 캐릭터가 카드 왼쪽 절반까지 자연스럽게 침범하도록 카드를 감싸는 위치 기준점.
+   내부(마스코트-카드 상대 배치)는 그대로 두고, transform으로 그룹 전체만
+   오른쪽으로 이동시킨다 — flex 레이아웃(간격, intro 위치)에는 영향 없음. */
 .home__scene {
   position: relative;
+  transform: translateX(64px);
 }
 
 .home__mascot-wrap {
   position: absolute;
-  left: -84px;
-  bottom: 64px;
-  z-index: 1;
+  /* 캐릭터 상반신이 카드 왼쪽 절반 정도까지 걸치도록 깊이 겹쳐 배치 */
+  left: -190px;
+  bottom: 70px;
+  /* ticker-preview__card가 회전 중 z-index:2까지 올라가므로, 카드보다 항상
+     위에 그려지도록 넉넉히 높은 값을 준다. */
+  z-index: 20;
   pointer-events: none;
 }
 
 .home__mascot {
   /* 카드 쪽을 향해 살짝 기울여 방금 저 카드를 그려준 듯한 자세를 연출 */
   transform: rotate(-6deg);
-  filter: drop-shadow(0 16px 20px rgba(91, 63, 196, 0.22));
+  filter: drop-shadow(0 22px 28px rgba(91, 63, 196, 0.25));
 }
 
 .home__sparkle {
@@ -45,23 +49,23 @@
 }
 
 .home__sparkle--a {
-  top: -4px;
-  right: 6px;
-  font-size: 22px;
+  top: -8px;
+  right: 16px;
+  font-size: 34px;
   animation-delay: 0s;
 }
 
 .home__sparkle--b {
-  top: 38%;
-  left: -20px;
-  font-size: 14px;
+  top: 36%;
+  left: -34px;
+  font-size: 22px;
   animation-delay: 0.7s;
 }
 
 .home__sparkle--c {
-  bottom: 10%;
-  right: -14px;
-  font-size: 17px;
+  bottom: 12%;
+  right: -22px;
+  font-size: 26px;
   animation-delay: 1.3s;
 }
 
@@ -81,31 +85,6 @@
   .home__sparkle {
     animation: none;
     opacity: 0.85;
-  }
-}
-
-/* 인트로 + 카드가 한 줄에 들어가기 빠듯해지는 지점에서 세로 스택으로
-   전환한다. 이 지점부터는 캐릭터도 카드 왼쪽에 걸치는 대신 카드 위쪽
-   가운데에 걸치는 자세로 바꿔 겹침 없이 보이게 한다. */
-@media (max-width: 1240px) {
-  .home {
-    flex-direction: column;
-    gap: 48px;
-  }
-
-  .home__scene {
-    margin-top: 76px;
-  }
-
-  .home__mascot-wrap {
-    left: 50%;
-    bottom: auto;
-    top: -70px;
-    transform: translateX(-50%);
-  }
-
-  .home__mascot {
-    transform: rotate(0deg);
   }
 }
 

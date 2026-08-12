@@ -114,20 +114,12 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
       </div>
 
       {!drafts && !loadError && (
-        <>
-          <LoadingChecklist
-            variant="draft"
-            title="배경 시안을 만들고 있어요"
-            caption="가벼운 모델로 3장을 빠르게 그려드릴게요"
-            steps={DRAFT_LOADING_STEPS}
-          />
-          {/* 스켈레톤 카드로 그리드 자리를 미리 확보해서 결과가 도착했을 때 레이아웃이 흔들리지 않게 한다. */}
-          <div className="draft-select__grid draft-select__grid--skeleton" style={{ '--draft-ratio': aspectRatio }}>
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="draft-select__skeleton-card" />
-            ))}
-          </div>
-        </>
+        <LoadingChecklist
+          variant="draft"
+          title="배경 시안을 만들고 있어요"
+          caption="가벼운 모델로 3장을 빠르게 그려드릴게요"
+          steps={DRAFT_LOADING_STEPS}
+        />
       )}
 
       {loadError && (

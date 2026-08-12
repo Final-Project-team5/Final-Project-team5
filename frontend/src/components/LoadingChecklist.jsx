@@ -35,7 +35,7 @@ function LoadingChecklist({ title, caption, steps, stepDurationMs = 1300, varian
       <h2 className="loading-checklist__title">{title}</h2>
       {caption && <p className="loading-checklist__caption">{caption}</p>}
       <div className="loading-checklist__body">
-        <Mascot expression="working" size={84} className="loading-checklist__mascot" />
+        <Mascot expression="working" size={230} className="loading-checklist__mascot" />
         <ul className="loading-checklist__steps">
           {steps.map((step, idx) => {
             const state = idx < activeIndex ? 'done' : idx === activeIndex ? 'active' : 'pending';
