@@ -101,6 +101,19 @@ LLM 판정이 '완벽하다면' 현재 라우팅으로 도달 가능한 천장(u
 - 결정 포인트(비용 민감): API 예산이 빡빡하면 lexicon 기본 + 필요 시 broad를
   '고보증 모드'로 옵션화하는 절충이 현실적. 임계값은 팀 합의 사항.
 
+## 5-4. 굿즈 룰 보강 결과 (선작업 추가, §5-1~5-3은 보강 전 발견 기록)
+
+레드팀이 드러낸 goods 갭(미신·배타성)을 원칙적 룰로 보강.
+
+- 추가 룰(goods): 배타성 변형("하나뿐인/둘도 없는/세상에 하나"), 미신적 효과
+  단정("운이 트이는/재물운/부자 되는"). 장식적 표현("행운을 담은")은 안 잡도록 좁게.
+- 안전성: 대표셋(TRAIN+HOLDOUT) 오탐 0건 추가, 라벨 정확일치 96.3% 불변.
+- 효과: 레드팀 룰 단독 9.1%→27.3%(goods 2건 + 디톡스 1건 포착).
+- 보강 후 oracle 상한(레드팀): lexicon 54.5% / **broad 100%(사각 0)**.
+  룰이 잡을 건 룰이, 의미회피 food/beauty는 LLM이 커버하는 분담 구조가 성립.
+- 정직한 단서: 레드팀은 자체 작성이라 goods 2건 포착은 독립 검증이 아니다.
+  판단 근거는 '룰이 원칙적이고 대표셋에 오탐이 없다'는 점.
+
 ## 6. 아직 안 한 것 (정직한 경계)
 
 - LLM 판정의 실제 정확도는 측정 안 됨. API 키로 `build_llm_judge`를 붙여
@@ -113,3 +126,29 @@ LLM 판정이 '완벽하다면' 현재 라우팅으로 도달 가능한 천장(u
 1. API 키 확보 후 `run_escalation`에 실제 judge 연결한 효과 측정 하니스 추가.
 2. 레드팀 케이스 확대로 의미회피 미탐 표본을 늘려 라우팅 재현율 재확인.
 3. 효과가 확인되면 `/validate/copy`(use_llm=true)를 하이브리드로 승격.
+
+## 8. 실행법 (eval 도구)
+
+모두 API 키 불필요(mock/오프라인). `copy_model/` 디렉터리에서 실행.
+
+```
+# 골드셋 회귀 (대표 지표 + 레드팀 별도 진단)
+COPY_MOCK=1 python -m eval.run_goldset
+
+# 에스컬레이션 라우팅만 (어떤 케이스를 LLM으로 넘기나)
+COPY_MOCK=1 python -m eval.run_escalation
+
+# 하이브리드 효과 상한 + 정책 비교 (oracle = 완벽 판정 가정)
+COPY_MOCK=1 python -m eval.run_hybrid_eval --mode oracle --policy all
+
+# 하니스 정합성 확인 (null = 룰 단독과 일치해야 함)
+COPY_MOCK=1 python -m eval.run_hybrid_eval --mode null
+
+# 레이어 단위 테스트 (레포 루트에서)
+COPY_MOCK=1 python test_regulation_llm.py
+```
+
+읽는 법:
+- `run_goldset`: 대표는 TRAIN+HOLDOUT. REDTEAM은 적대적 진단이라 대표 지표에 미포함.
+- `run_hybrid_eval` oracle: 라우팅이 도달 가능한 '천장'. 실제 LLM은 이보다 낮다.
+- 에스컬레이션율이 높을수록 LLM 호출 비용이 크다(정상 문구까지 태우는 정도).
