@@ -81,17 +81,35 @@ def _validate(client, headline: str, sub: str) -> tuple[str, str, bool]:
 
 
 _MOCK_EN = ("Freshly Baked Happiness, Daily", "Handcrafted in-store every morning")
+_MOCK_LOCALIZED = {
+    "en": _MOCK_EN,
+    "ja": ("毎日焼きたての幸せをひと切れ", "毎朝お店で手作りするケーキ"),
+    "zh": ("每日现烤的幸福滋味", "每天清晨店内手工烘焙"),
+    "es": ("Felicidad recién horneada, cada día", "Hecho a mano cada mañana"),
+    "fr": ("Le bonheur tout juste sorti du four", "Fait maison chaque matin"),
+}
 
 
-def _localize(client, headline: str, sub: str, product: str, category: str) -> tuple[str, str]:
-    """한국어 문구를 영어권 감성에 맞게 재창작(transcreation)."""
-    prompt = prompts.LOCALIZE_PROMPT.format(
-        headline_max_en=config.HEADLINE_MAX_EN, sub_max_en=config.SUB_MAX_EN,
+def _resolve_langs(req: CopyRequest) -> list[str]:
+    """현지화 대상 언어 목록 결정. include_en=true는 ['en']으로 해석(하위호환)."""
+    langs = list(req.target_langs or [])
+    if req.include_en and "en" not in langs:
+        langs.insert(0, "en")
+    return [l for l in langs if l in config.SUPPORTED_LANGS]
+
+
+def _localize(client, headline: str, sub: str, product: str, category: str,
+              lang: str = "en") -> tuple[str, str]:
+    """한국어 문구를 대상 언어 감성에 맞게 재창작(transcreation)."""
+    h_max, s_max = config.LANG_LIMITS[lang]
+    prompt = prompts.LOCALIZE_PROMPT_MULTI.format(
+        lang_name=config.LANG_NAMES[lang], lang_guide=prompts.LANG_GUIDES[lang],
+        headline_max=h_max, sub_max=s_max,
         headline=headline, sub=sub, product=product, category=category,
     )
     data = _chat_json(client, "You are a transcreation copywriter.", prompt)
-    return (str(data.get("headline_en", "")).strip()[: config.HEADLINE_MAX_EN + 10],
-            str(data.get("sub_en", "")).strip()[: config.SUB_MAX_EN + 20])
+    return (str(data.get("headline", "")).strip()[: h_max + 10],
+            str(data.get("sub", "")).strip()[: s_max + 20])
 
 
 def _ensure_diversity(client, cands: list[dict], req: CopyRequest
@@ -130,14 +148,19 @@ def _ensure_diversity(client, cands: list[dict], req: CopyRequest
 
 def _mock_response(req: CopyRequest, t0: float) -> CopyResponse:
     samples = _MOCK_SAMPLES[req.category][: req.num_candidates]
+    langs = _resolve_langs(req)
     candidates = []
     for i, (h, s) in enumerate(samples):
         flags = check_rules(f"{h} {s}", req.category)
+        localized = ({l: {"headline": _MOCK_LOCALIZED[l][0],
+                          "sub": _MOCK_LOCALIZED[l][1]} for l in langs}
+                     if langs else None)
         candidates.append(CopyCandidate(
             id=f"c{i+1}", headline=h, sub=s,
             headline_chars=_count(h), sub_chars=_count(s),
-            headline_en=_MOCK_EN[0] if req.include_en else None,
-            sub_en=_MOCK_EN[1] if req.include_en else None,
+            headline_en=localized["en"]["headline"] if localized and "en" in localized else None,
+            sub_en=localized["en"]["sub"] if localized and "en" in localized else None,
+            localized=localized,
             regulation_flags=[f.model_dump() for f in flags],
             safe=not any(f.severity == "block" for f in flags),
         ))
@@ -173,19 +196,28 @@ def generate_copy(req: CopyRequest) -> CopyResponse:
 
     raw, retried = _ensure_diversity(client, raw, req)
 
+    langs = _resolve_langs(req)
     candidates = []
     for i, c in enumerate(raw):
         headline, sub, over = _validate(client, c["headline"], c["sub"])
-        headline_en = sub_en = None
-        if req.include_en:
-            headline_en, sub_en = _localize(client, headline, sub,
-                                            req.product, req.category)
         flags = check_rules(f"{headline} {sub}", req.category)
         safe = not any(f.severity == "block" for f in flags)
+        # 현지화는 규제 통과(safe) 시안만 대상 — 위반 소지 문구를 번역해
+        # 내보내지 않기 위함. 대상국 규제는 미검증(스키마 설명 참고).
+        localized = None
+        if langs and safe:
+            localized = {}
+            for lang in langs:
+                lh, ls = _localize(client, headline, sub,
+                                   req.product, req.category, lang)
+                localized[lang] = {"headline": lh, "sub": ls}
         candidates.append(CopyCandidate(
             id=f"c{i+1}", headline=headline, sub=sub,
             headline_chars=_count(headline), sub_chars=_count(sub),
-            over_limit=over, headline_en=headline_en, sub_en=sub_en,
+            over_limit=over,
+            headline_en=localized["en"]["headline"] if localized and "en" in localized else None,
+            sub_en=localized["en"]["sub"] if localized and "en" in localized else None,
+            localized=localized,
             regulation_flags=[f.model_dump() for f in flags], safe=safe,
         ))
 

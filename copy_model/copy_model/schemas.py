@@ -25,7 +25,12 @@ class CopyRequest(BaseModel):
         description="생성할 시안 개수")
     include_en: bool = Field(
         default=False,
-        description="영어 현지화 문구 병행 생성 (글로벌 타깃 고도화 옵션)")
+        description="영어 현지화 문구 병행 생성 (하위호환 — target_langs=['en']과 동일)")
+    target_langs: Optional[list[Literal["en", "ja", "zh", "es", "fr"]]] = Field(
+        default=None,
+        description="현지화 대상 언어 목록 (transcreation). "
+                    "규제 검증은 한국어 원문 기준이며 대상국 규제는 미검증(별도 확인 필요). "
+                    "include_en=true는 ['en']으로 해석됨")
 
 
 class CopyCandidate(BaseModel):
@@ -38,9 +43,13 @@ class CopyCandidate(BaseModel):
         default=False,
         description="축약 재시도 후에도 제한 초과 시 True (포스터 쪽 자동 줄바꿈 참고용)")
     headline_en: Optional[str] = Field(
-        default=None, description="영어 현지화 headline (include_en=true 시)")
+        default=None, description="영어 현지화 headline (하위호환 — localized['en']과 동일)")
     sub_en: Optional[str] = Field(
-        default=None, description="영어 현지화 sub (include_en=true 시)")
+        default=None, description="영어 현지화 sub (하위호환 — localized['en']과 동일)")
+    localized: Optional[dict[str, dict]] = Field(
+        default=None,
+        description="언어별 현지화 {lang: {headline, sub}} (target_langs 지정 시). "
+                    "대상국 규제는 미검증 — 한국어 원문 기준으로만 규제 통과")
     regulation_flags: list[dict] = Field(
         default_factory=list,
         description="룰 기반 규제 검사 결과 (비어있으면 통과). 상세 검증은 /validate/copy")
