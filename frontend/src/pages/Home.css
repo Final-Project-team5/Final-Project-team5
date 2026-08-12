@@ -39,56 +39,6 @@
   filter: drop-shadow(0 22px 28px rgba(91, 63, 196, 0.25));
 }
 
-.home__sparkle {
-  position: absolute;
-  line-height: 1;
-  background: var(--gradient-logo);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: home-sparkle-twinkle 2.6s ease-in-out infinite;
-}
-
-.home__sparkle--a {
-  top: -8px;
-  right: 16px;
-  font-size: 34px;
-  animation-delay: 0s;
-}
-
-.home__sparkle--b {
-  top: 36%;
-  left: -34px;
-  font-size: 22px;
-  animation-delay: 0.7s;
-}
-
-.home__sparkle--c {
-  bottom: 12%;
-  right: -22px;
-  font-size: 26px;
-  animation-delay: 1.3s;
-}
-
-@keyframes home-sparkle-twinkle {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home__sparkle {
-    animation: none;
-    opacity: 0.85;
-  }
-}
-
 .home__headline {
   font-size: 32px;
   font-weight: 800;

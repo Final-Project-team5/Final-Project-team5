@@ -32,9 +32,6 @@ function Home({ onNewFlow }) {
       <div className="home__scene">
         <div className="home__mascot-wrap">
           <Mascot expression="idle" size={300} className="home__mascot" />
-          <span className="home__sparkle home__sparkle--a" aria-hidden="true">✦</span>
-          <span className="home__sparkle home__sparkle--b" aria-hidden="true">✦</span>
-          <span className="home__sparkle home__sparkle--c" aria-hidden="true">✦</span>
         </div>
         <TickerPreview />
       </div>
