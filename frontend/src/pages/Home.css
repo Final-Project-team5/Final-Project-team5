@@ -4,68 +4,55 @@
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 176px;
+  /* 마스코트가 빠지면서 마스코트 자리를 위해 벌려뒀던 간격(176px)도 함께
+     정리 — 억지로 다른 요소를 키우지 않고 자연스러운 간격으로만 되돌린다. */
+  gap: 64px;
   min-height: 100vh;
   padding: 40px 48px 40px 16px;
   animation: page-fade-in 0.35s ease;
 }
 
+/* 메인 보드(.home) 크기·정렬은 그대로 두고, 예시 카드만 시각적으로 오른쪽으로
+   살짝 옮긴다 — transform은 레이아웃 흐름/정렬 계산에 영향을 주지 않으므로
+   .home의 justify-content:center 기준 위치나 intro 폭은 그대로 유지된다. */
+.home__ticker {
+  transform: translateX(90px);
+}
+
 .home__intro {
-  flex: 0 1 420px;
+  /* 헤딩 텍스트가 원본의 1.2배로 커진 만큼 줄바꿈 폭도 함께 넓힌다 */
+  flex: 0 1 440px;
 }
 
-/* 캐릭터가 카드 왼쪽 절반까지 자연스럽게 침범하도록 카드를 감싸는 위치 기준점.
-   내부(마스코트-카드 상대 배치)는 그대로 두고, transform으로 그룹 전체만
-   오른쪽으로 이동시킨다 — flex 레이아웃(간격, intro 위치)에는 영향 없음. */
-.home__scene {
-  position: relative;
-  transform: translateX(64px);
-}
-
-.home__mascot-wrap {
-  position: absolute;
-  /* 캐릭터 상반신이 카드 왼쪽 절반 정도까지 걸치도록 깊이 겹쳐 배치 */
-  left: -190px;
-  bottom: 70px;
-  /* ticker-preview__card가 회전 중 z-index:2까지 올라가므로, 카드보다 항상
-     위에 그려지도록 넉넉히 높은 값을 준다. */
-  z-index: 20;
-  pointer-events: none;
-}
-
-.home__mascot {
-  /* 카드 쪽을 향해 살짝 기울여 방금 저 카드를 그려준 듯한 자세를 연출 */
-  transform: rotate(-6deg);
-  filter: drop-shadow(0 22px 28px rgba(91, 63, 196, 0.25));
-}
-
+/* 아래 텍스트/여백 값은 전부 "원본 크기 × 1.2"로 계산한 값이다
+   (헤딩 32→38.4px, 서브 15→18px, 버튼 16→19.2px 등). */
 .home__headline {
-  font-size: 32px;
+  font-size: 38.4px;
   font-weight: 800;
   color: var(--color-text);
-  letter-spacing: -0.5px;
+  letter-spacing: -0.6px;
   line-height: 1.35;
   margin: 0;
 }
 
 .home__description {
-  font-size: 15px;
+  font-size: 18px;
   color: var(--color-text-secondary);
-  margin: 14px 0 0;
+  margin: 16.8px 0 0;
   line-height: 1.5;
 }
 
 .home__cta {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 28px;
-  border-radius: 14px;
+  gap: 12px;
+  padding: 19.2px 33.6px;
+  border-radius: 16.8px;
   background: var(--gradient-cta);
   color: #fff;
-  font-size: 16px;
+  font-size: 19.2px;
   font-weight: 700;
-  margin-top: 28px;
+  margin-top: 33.6px;
   box-shadow: var(--shadow-btn);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
 }

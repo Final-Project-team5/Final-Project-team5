@@ -1,12 +1,13 @@
 import idleImg from '../assets/mascot/idle.png';
 import workingImg from '../assets/mascot/working.png';
+import successImg from '../assets/mascot/success.png';
 import './Mascot.css';
 
-// success.png는 아직 준비되지 않았다 — 매핑에 없는 표정은 idle로 대체된다.
-// 나중에 파일이 추가되면 이 객체에 success: successImg 한 줄만 추가하면 된다.
+// 매핑에 없는 표정을 넘기면 idle로 대체된다.
 const EXPRESSIONS = {
   idle: idleImg,
   working: workingImg,
+  success: successImg,
 };
 
 /**

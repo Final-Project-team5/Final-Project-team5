@@ -21,6 +21,33 @@
   line-height: 1.5;
 }
 
+/* 카드와 success 캐릭터를 함께 감싸는 기준점 — 캐릭터는 카드 오른쪽 아래,
+   카드 완전히 바깥쪽에 독립적으로 배치된다. left:100%로 카드 오른쪽 경계선에
+   딱 붙여서 시작하기 때문에(margin-left로 회전 여유분만큼만 더 띄움) 세로
+   위치를 얼마나 내리든 카드 박스와는 가로축이 겹치지 않아 카드 내부(시안
+   이미지·배지·텍스트)를 절대 침범하지 않는다. */
+.final-result__scene {
+  position: relative;
+}
+
+.final-result__mascot-wrap {
+  position: absolute;
+  left: 100%;
+  /* rotate(12deg) 때문에 실제 렌더링된(회전 후) 박스는 이미지 자체보다
+     가로/세로로 더 커진다 — 그 여유분만큼만 띄워서 겹치지 않는 선에서
+     카드에 최대한 붙인다. */
+  margin-left: -40px;
+  top: 450px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.final-result__mascot {
+  /* 오른쪽으로 살짝 기울여 역동적인 느낌을 준다 */
+  transform: rotate(12deg);
+  filter: drop-shadow(0 18px 24px rgba(91, 63, 234, 0.22));
+}
+
 .final-result__card {
   padding: 24px;
   border-radius: 18px;

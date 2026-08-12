@@ -1,4 +1,5 @@
 import { FAQ_ITEMS, FAQ_PREVIEW_COUNT } from '../constants/faqItems';
+import faceIcon from '../assets/mascot/face.png';
 import './Sidebar.css';
 
 // 사이드바 미니 진행 표시가 따라가는 전체 흐름 순서. App.jsx의 view 값과 key로 매칭한다.
@@ -24,7 +25,7 @@ function Sidebar({ regTip, regTipVisible, currentView, onGoHome, onNewFlow, onGo
   return (
     <aside className="sidebar">
       <button type="button" className="sidebar__logo" onClick={onGoHome}>
-        <img src="/favicon.svg" alt="" className="sidebar__logo-icon" width="24" height="24" />
+        <img src={faceIcon} alt="" className="sidebar__logo-icon" width="54" height="54" />
         <span>애드지니</span>
       </button>
 

@@ -1,3 +1,4 @@
+import Mascot from '../components/Mascot';
 import './FinalResult.css';
 
 const BADGE_INFO = {
@@ -54,18 +55,26 @@ function FinalResult({ image, ratio = '1:1', headline, sub, status, onRestart })
       <h1 className="final-result__title">광고 포스터가 완성됐어요</h1>
       <p className="final-result__description">문구와 이미지가 모두 준비됐어요. 마음에 들면 다운로드해보세요.</p>
 
-      <div className="final-result__card">
-        <span className={`final-result__badge ${badge.className}`}>{badge.label}</span>
+      <div className="final-result__scene">
+        <div className="final-result__card">
+          <span className={`final-result__badge ${badge.className}`}>{badge.label}</span>
 
-        <div className="final-result__image-wrap" style={{ '--result-ratio': aspectRatio }}>
-          <img className="final-result__image" src={image} alt="완성된 광고 포스터" />
+          <div className="final-result__image-wrap" style={{ '--result-ratio': aspectRatio }}>
+            <img className="final-result__image" src={image} alt="완성된 광고 포스터" />
+          </div>
+
+          <p className="final-result__ai-caption">이 콘텐츠는 생성형 AI로 제작되었습니다.</p>
+
+          <div className="final-result__copy">
+            <div className="final-result__headline">{headline}</div>
+            <div className="final-result__sub">{sub}</div>
+          </div>
         </div>
 
-        <p className="final-result__ai-caption">이 콘텐츠는 생성형 AI로 제작되었습니다.</p>
-
-        <div className="final-result__copy">
-          <div className="final-result__headline">{headline}</div>
-          <div className="final-result__sub">{sub}</div>
+        {/* 완성을 축하하는 success 캐릭터 — 카드 오른쪽 아래, 카드 밖에 독립적으로
+            서 있게 배치한다(카드 안 제목·배지·시안 이미지는 가리지 않음). */}
+        <div className="final-result__mascot-wrap">
+          <Mascot expression="success" size={250} className="final-result__mascot" />
         </div>
       </div>
 
