@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { INITIAL_QUESTION, TOTAL_STEPS, generateCopy, suggestOptions } from '../api/copyApi';
+import { toFriendlyMessage } from '../api/mockUtils';
+import ErrorNotice from '../components/ErrorNotice';
 import './ChatFlow.css';
 
 /**
@@ -12,7 +14,9 @@ import './ChatFlow.css';
  * 하므로 [다음] 버튼으로 그 질문만 마무리하고 추가 요청으로 넘어가며(완료가 아닌
  * "계속 진행" 느낌), 추가 요청은 [이 내용으로 완료] 버튼이 전체 흐름의 최종 마무리다.
  *
- * 로딩 디테일/재시도/에러 UI는 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
+ * /suggest/options, /generate/copy 호출이 실패하면 말풍선 자리에 에러 카드를
+ * 띄우고 "다시 시도"를 누르면 같은 요청을 다시 보낸다(mock 실패 재현은
+ * api/mockUtils.js 참고).
  */
 function ChatFlow({ onComplete }) {
   const [messages, setMessages] = useState([
@@ -66,37 +70,70 @@ function ChatFlow({ onComplete }) {
   const finishChat = async (finalSpec) => {
     setBusy(true);
     addMessage({ id: uid(), role: 'bot', kind: 'note', text: '제공해주신 정보를 바탕으로 문구를 만들고 있어요…' });
-    const result = await generateCopy(finalSpec);
-    setBusy(false);
-    onComplete({ spec: finalSpec, mode, productImage, result });
+    try {
+      const result = await generateCopy(finalSpec);
+      setBusy(false);
+      onComplete({ spec: finalSpec, mode, productImage, result });
+    } catch (err) {
+      setBusy(false);
+      const errId = uid();
+      addMessage({
+        id: errId,
+        role: 'bot',
+        kind: 'error',
+        text: toFriendlyMessage(err, 'copy'),
+        retry: () => {
+          setMessages((prev) => prev.filter((m) => m.id !== errId));
+          finishChat(finalSpec);
+        },
+      });
+    }
+  };
+
+  const runSuggestOptions = async (question, answerText) => {
+    setBusy(true);
+    try {
+      const res = await suggestOptions({ message: answerText, step: question.step, spec });
+      setBusy(false);
+      setSpec(res.spec);
+      if (typeof res.total_steps === 'number') setTotalSteps(res.total_steps);
+
+      if (res.confirm_message) {
+        addMessage({ id: uid(), role: 'bot', kind: 'note', text: res.confirm_message });
+      }
+
+      // 3번 질문(제품/가게) 답변 직후엔 사진 업로드 여부부터 물어본다.
+      if (question.step === 3) {
+        addMessage({ id: uid(), role: 'bot', kind: 'photo', resolved: false, pendingResult: res });
+        return;
+      }
+
+      if (res.done) {
+        await finishChat(res.spec);
+        return;
+      }
+
+      pushQuestion(res);
+    } catch (err) {
+      setBusy(false);
+      const errId = uid();
+      addMessage({
+        id: errId,
+        role: 'bot',
+        kind: 'error',
+        text: toFriendlyMessage(err, 'options'),
+        retry: () => {
+          setMessages((prev) => prev.filter((m) => m.id !== errId));
+          runSuggestOptions(question, answerText);
+        },
+      });
+    }
   };
 
   const handleAnswerStep = async (question, answerText) => {
     setMessages((prev) => prev.map((m) => (m.id === question.id ? { ...m, answered: true } : m)));
     addMessage({ id: uid(), role: 'user', kind: 'text', text: answerText });
-
-    setBusy(true);
-    const res = await suggestOptions({ message: answerText, step: question.step, spec });
-    setBusy(false);
-    setSpec(res.spec);
-    if (typeof res.total_steps === 'number') setTotalSteps(res.total_steps);
-
-    if (res.confirm_message) {
-      addMessage({ id: uid(), role: 'bot', kind: 'note', text: res.confirm_message });
-    }
-
-    // 3번 질문(제품/가게) 답변 직후엔 사진 업로드 여부부터 물어본다.
-    if (question.step === 3) {
-      addMessage({ id: uid(), role: 'bot', kind: 'photo', resolved: false, pendingResult: res });
-      return;
-    }
-
-    if (res.done) {
-      await finishChat(res.spec);
-      return;
-    }
-
-    pushQuestion(res);
+    await runSuggestOptions(question, answerText);
   };
 
   const handlePhotoConfirm = (photoMsg, { mode: chosenMode, image }) => {
@@ -162,6 +199,10 @@ function ChatMessage({ message, busy, onAnswer, onPhotoConfirm }) {
 
   if (message.kind === 'note') {
     return <div className="chat-flow__note">{message.text}</div>;
+  }
+
+  if (message.kind === 'error') {
+    return <ErrorNotice message={message.text} onRetry={message.retry} retrying={busy} compact />;
   }
 
   if (message.kind === 'question') {

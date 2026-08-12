@@ -3,9 +3,14 @@
  * 실서버(지우님 파트)가 준비되기 전까지 프론트 흐름 검증용으로 사용한다.
  * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/10 용도→비율 매핑 반영)
  *
- *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundType?, num_images } → DraftSelect.jsx (화면 C)
- *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D)
+ *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundType?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
+ *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D, 로딩 B)
+ *
+ * 실패 시뮬레이션(?mockFail=drafts,refine / ?mockFailRate=0.3)은 mockUtils.js 참고
+ * — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다.
  */
+
+import { maybeFail } from './mockUtils';
 
 const MOCK_DELAY_MS = 900;
 const SEEDS = [12345, 67890, 24680];
@@ -89,6 +94,7 @@ export async function generateDrafts({
   num_images = 3,
 } = {}) {
   await delay();
+  maybeFail('drafts');
 
   // 실제 /generate/drafts 응답의 image도 prefix 없는 순수 base64라 mock도 캔버스
   // data URI에서 prefix를 떼어 맞춰준다 — 화면 쪽(화면 C)에서 표시할 땐 toImageSrc()로
@@ -143,6 +149,7 @@ export async function generateRefine({
   text = {},
 } = {}) {
   await delay(1100);
+  maybeFail('refine');
 
   return {
     image: stripDataUriPrefix(draft_image),

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { generateRefine, toImageSrc } from '../api/posterApi';
+import { toFriendlyMessage } from '../api/mockUtils';
+import ErrorNotice from '../components/ErrorNotice';
+import LoadingChecklist from '../components/LoadingChecklist';
 import './PosterEditor.css';
+
+// 로딩 B — [완성하기] 클릭 후 /generate/refine 호출 중 보여주는 체크리스트
+// (docs/UIUX_스펙정리.md 3장). 로딩 A(화면 C)와 문구·강조색을 다르게 해서
+// "왜 또 기다리지" 하고 헷갈리지 않게 한다.
+const REFINE_LOADING_STEPS = ['이미지 고품질화 중', '문구 배치 최적화 중', '규격에 맞게 마무리 중'];
 
 const CANVAS_SIZE = 480; // px — headline_size/sub_size(비율)을 실제 폰트 px로 환산하는 기준값
 
@@ -69,7 +77,9 @@ function wrapTextByChars(text, maxChars) {
  * 정한다. 서버 호출 없이 CSS로 실시간 미리보기만 하다가 [완성하기]를 누를 때
  * 딱 한 번 /generate/refine(mock)을 호출한다. (docs/UIUX_스펙정리.md 4장·5장 참고)
  *
- * 로딩 디테일/재시도 버튼은 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
+ * [완성하기]를 누르면 로딩 B(고품질화 중) 체크리스트로 화면이 전환되고,
+ * /generate/refine이 실패하면 편집 화면으로 돌아와 ErrorNotice와 "다시 시도"를
+ * 보여준다(문구 위치·크기·서체 등 지금까지 정한 값은 그대로 유지된다).
  */
 function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '1:1', headline, sub, onComplete, onBack }) {
   const canvasRef = useRef(null);
@@ -79,6 +89,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
   const [preset, setPreset] = useState('medium');
   const [fontId, setFontId] = useState(FONT_OPTIONS[0].id);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   // 실제로 적용되는 안전 여백(비율) — 프리셋 최소값과 "지금 렌더된 텍스트 박스의
   // 절반 크기" 중 더 큰 쪽. 텍스트 중심이 아니라 텍스트 박스 가장자리가 안전선을
   // 넘지 않도록 하기 위한 보정값이다.
@@ -158,30 +169,51 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
 
   const handleComplete = async () => {
     setSubmitting(true);
-    const res = await generateRefine({
-      draft_image: draftImage,
-      original_image: originalImage,
-      background,
-      prompt,
-      text: {
-        headline,
-        sub,
-        x: pos.x,
-        y: pos.y,
-        headline_size: sizeInfo.headline_size,
-        sub_size: sizeInfo.sub_size,
-        style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
-        font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
-        align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
-      },
-    });
-    setSubmitting(false);
-    onComplete({
-      image: toImageSrc(res.image),
-      meta: res.meta,
-      text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId, align: 'center' },
-    });
+    setSubmitError(null);
+    try {
+      const res = await generateRefine({
+        draft_image: draftImage,
+        original_image: originalImage,
+        background,
+        prompt,
+        text: {
+          headline,
+          sub,
+          x: pos.x,
+          y: pos.y,
+          headline_size: sizeInfo.headline_size,
+          sub_size: sizeInfo.sub_size,
+          style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
+          font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
+          align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
+        },
+      });
+      setSubmitting(false);
+      onComplete({
+        image: toImageSrc(res.image),
+        meta: res.meta,
+        text: { headline, sub, ...pos, ...sizeInfo, font_id: fontId, align: 'center' },
+      });
+    } catch (err) {
+      setSubmitting(false);
+      setSubmitError(toFriendlyMessage(err, 'refine'));
+    }
   };
+
+  // 로딩 B — [완성하기] 클릭 후 /generate/refine 응답을 기다리는 동안은 편집
+  // UI 대신 전체 화면 체크리스트로 전환한다(로딩 A와 시각적으로 구분, 8/10 요구사항).
+  if (submitting) {
+    return (
+      <div className="poster-editor poster-editor--loading">
+        <LoadingChecklist
+          variant="refine"
+          title="고품질 이미지로 다듬고 있어요"
+          caption="원본을 살려 배경을 다듬고 문구를 자연스럽게 얹는 중이에요"
+          steps={REFINE_LOADING_STEPS}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="poster-editor">
@@ -270,12 +302,18 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
         </select>
       </div>
 
+      {submitError && (
+        <div className="poster-editor__submit-error">
+          <ErrorNotice message={submitError} onRetry={handleComplete} />
+        </div>
+      )}
+
       <div className="poster-editor__actions">
-        <button type="button" className="poster-editor__secondary" onClick={onBack} disabled={submitting}>
+        <button type="button" className="poster-editor__secondary" onClick={onBack}>
           이전으로
         </button>
-        <button type="button" className="poster-editor__primary" disabled={submitting} onClick={handleComplete}>
-          {submitting ? '완성하는 중…' : '포스터 완성하기'}
+        <button type="button" className="poster-editor__primary" onClick={handleComplete}>
+          포스터 완성하기
         </button>
       </div>
     </div>

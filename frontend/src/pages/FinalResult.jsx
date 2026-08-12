@@ -37,7 +37,9 @@ function downloadDataUri(dataUri, filename) {
  * 각각 구현이 필요해 1차 서비스 스코프에서 제외하기로 팀 논의로 확정됨(8/11) —
  * 관련 버튼/로직은 넣지 않는다.
  *
- * 로딩 디테일/재시도/에러 UI는 다음 단계 고도화 스코프 — 이번엔 뼈대만 구현.
+ * 이 화면은 API를 직접 호출하지 않는다(화면 D에서 이미 받은 결과를 보여주고
+ * 로컬 다운로드만 수행) — 그래서 로딩/에러 UI 고도화 대상에서 제외됨
+ * (8/11 요청 범위: 화면 A~D). 다운로드 실패 같은 로컬 동작 에러는 스코프 밖.
  */
 function FinalResult({ image, ratio = '1:1', headline, sub, status, onRestart }) {
   const badge = BADGE_INFO[status] || BADGE_INFO.pass;

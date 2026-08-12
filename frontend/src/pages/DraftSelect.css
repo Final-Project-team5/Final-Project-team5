@@ -20,9 +20,30 @@
   line-height: 1.5;
 }
 
-.draft-select__loading {
-  font-size: 14px;
-  color: var(--color-text-muted);
+.draft-select__grid--skeleton {
+  margin-top: 20px;
+}
+
+.draft-select__skeleton-card {
+  aspect-ratio: var(--draft-ratio, 1);
+  border-radius: 14px;
+  background: linear-gradient(
+    100deg,
+    var(--color-border-soft) 30%,
+    var(--color-border) 45%,
+    var(--color-border-soft) 60%
+  );
+  background-size: 250% 100%;
+  animation: draft-select-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes draft-select-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .draft-select__bg-type {

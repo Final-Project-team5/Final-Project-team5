@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { validateCopy } from '../api/copyApi';
+import { toFriendlyMessage } from '../api/mockUtils';
+import ErrorNotice from '../components/ErrorNotice';
 import './CopyResult.css';
 
 const BADGE_INFO = {
@@ -42,6 +44,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
   const [draftHeadline, setDraftHeadline] = useState(initialCopy?.headline ?? '');
   const [draftSub, setDraftSub] = useState(initialCopy?.sub ?? '');
   const [validating, setValidating] = useState(false);
+  const [validateError, setValidateError] = useState(null);
 
   // block 여부는 status를 다시 훑지 않고 safe 필드로 바로 판단한다 — 실제 API가
   // safe를 내려주면(copy_model/regulation.py ValidateResponse.safe와 동일 규칙)
@@ -65,15 +68,21 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
 
   const handleRevalidate = async () => {
     setValidating(true);
-    const res = await validateCopy({ headline: draftHeadline, sub: draftSub }, spec);
-    setValidating(false);
-    setCurrent({
-      headline: draftHeadline,
-      sub: draftSub,
-      status: res.status,
-      flags: res.flags || [],
-      safe: res.safe,
-    });
+    setValidateError(null);
+    try {
+      const res = await validateCopy({ headline: draftHeadline, sub: draftSub }, spec);
+      setValidating(false);
+      setCurrent({
+        headline: draftHeadline,
+        sub: draftSub,
+        status: res.status,
+        flags: res.flags || [],
+        safe: res.safe,
+      });
+    } catch (err) {
+      setValidating(false);
+      setValidateError(toFriendlyMessage(err, 'validate'));
+    }
   };
 
   return (
@@ -153,6 +162,11 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
             <button type="button" className="copy-result__validate-btn" disabled={validating} onClick={handleRevalidate}>
               {validating ? '확인하는 중…' : '수정한 문구 다시 확인하기'}
             </button>
+            {validateError && (
+              <div className="copy-result__validate-error">
+                <ErrorNotice message={validateError} onRetry={handleRevalidate} retrying={validating} compact />
+              </div>
+            )}
           </div>
         </>
       )}

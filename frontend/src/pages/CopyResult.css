@@ -258,6 +258,10 @@
   cursor: default;
 }
 
+.copy-result__validate-error {
+  margin-top: 12px;
+}
+
 .copy-result__actions {
   display: flex;
   justify-content: flex-end;
