@@ -64,6 +64,20 @@ CANVAS_REGIONS = {
 }
 CANVAS_MARGIN_RATIO = 0.04   # 캔버스 가장자리 여백 (짧은 변 대비)
 
+# 제품 회전(Product Layout v2) 허용 각도. 외부 계약은 **양수 = 시계 방향**이다.
+# Product Layout v2에서 검증한 허용 범위. 범위 밖은 조용히 clamp하지 않고 거부한다.
+ROTATION_MAX_ABS_DEG = 20.0
+
+# 회전 시 접지 그림자 계산에 쓰는 값들. rotation_deg == 0이면 이 값들은 쓰이지
+# 않고 기존 legacy 경로가 그대로 돈다(하위 호환).
+#   기울어진 제품은 bbox 중심과 실제 접지점이 어긋나므로, 하단 band의 x 분포로
+#   접지 중심/폭을 다시 잡는다. 실험(B1)에서 검증한 값이며 이번 범위에서
+#   추가 튜닝하지 않는다.
+SHADOW_CONTACT_BAND_RATIO = 0.12   # 성분 높이 대비 하단 band 두께
+SHADOW_CONTACT_PCT = (5, 95)       # band 내 x 백분위수 (min/max 대신)
+SHADOW_CONTACT_MIN_WIDTH_RATIO = 0.45  # 접지 폭 하한 (성분 bbox 폭 대비)
+SHADOW_CONTACT_MAX_SHIFT_RATIO = 0.30  # 중심 이동 상한 (성분 bbox 폭 대비)
+
 # 배치 배율 상수. 실험값을 초기 내부값으로 재사용한다.
 # production 정책 확정값이 아니며 A3 전에 재검증 대상이다.
 CANVAS_MAX_UPSCALE = 1.6     # 소스 누끼 대비 확대 상한. provisional 내부값이다
