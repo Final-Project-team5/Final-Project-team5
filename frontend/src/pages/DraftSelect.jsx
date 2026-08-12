@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { buildPrompt, generateDrafts, toImageSrc } from '../api/posterApi';
-import { toFriendlyMessage } from '../api/mockUtils';
+import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
 import './DraftSelect.css';
@@ -9,6 +9,9 @@ import './DraftSelect.css';
 // (docs/UIUX_스펙정리.md 3장). 실제 서버 진행률이 아니라 체감 대기시간을
 // 줄이기 위한 연출용 순서다.
 const DRAFT_LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
+// mock 응답이 이보다 빨리 와도 체크리스트 3단계가 순서대로 다 보일 때까지는
+// 화면을 넘기지 않는다. 항목별로 균등하게 배분(3초 ÷ 3단계 = 1초씩).
+const DRAFT_LOADING_MIN_MS = 3000;
 
 // 배경 종류 선택지 — AI 배경(diffusion 모델)과 flat 배경(단색/그라데이션).
 // 3:4(상세페이지)는 투명 제품 continuation 문제로 AI 배경이 아직 production
@@ -46,14 +49,17 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
     let cancelled = false;
     setDrafts(null);
     setLoadError(null);
-    generateDrafts({
-      mode,
-      image: productImage,
-      prompt: buildPrompt(spec),
-      ratio,
-      backgroundType,
-      num_images: 3,
-    })
+    withMinDuration(
+      generateDrafts({
+        mode,
+        image: productImage,
+        prompt: buildPrompt(spec),
+        ratio,
+        backgroundType,
+        num_images: 3,
+      }),
+      DRAFT_LOADING_MIN_MS,
+    )
       .then((res) => {
         if (cancelled) return;
         setDrafts(res.drafts);
@@ -119,6 +125,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
           title="배경 시안을 만들고 있어요"
           caption="가벼운 모델로 3장을 빠르게 그려드릴게요"
           steps={DRAFT_LOADING_STEPS}
+          stepDurationMs={DRAFT_LOADING_MIN_MS / DRAFT_LOADING_STEPS.length}
         />
       )}
 
