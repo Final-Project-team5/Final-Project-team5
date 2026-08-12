@@ -38,6 +38,18 @@ class MaskResult:
     area_ratio: float
 
 
+def _as_wh(size) -> tuple[int, int]:
+    """int(정사각) 또는 (W, H)를 모두 받아 (W, H)로 정규화한다.
+
+    기존 호출부는 전부 int를 넘기므로 int 경로는 (size, size)가 되어
+    동작이 완전히 동일하다. 비정사각 캔버스는 튜플로만 들어온다.
+    """
+    if isinstance(size, (tuple, list)):
+        w, h = size
+        return int(w), int(h)
+    return int(size), int(size)
+
+
 def make_masks(img: Image.Image,
                dilate: int = None,
                blur: int = None) -> MaskResult:
@@ -99,11 +111,19 @@ def add_blur_margin(img: Image.Image, scale: float = None) -> Image.Image:
     return canvas
 
 
-def prepare_image(src, size: int) -> tuple[Image.Image, MaskResult, str]:
+def prepare_image(src, size: int,
+                  apply_blur_margin: bool = True) -> tuple[Image.Image, MaskResult, str]:
     """입력 이미지를 생성 가능한 형태로 준비한다.
 
     제품이 화면을 꽉 채우면 배경 재생성 영역이 부족해 배경이 바뀌지 않으므로,
     area_ratio가 임계값을 넘으면 자동으로 여백을 확보한다.
+
+    apply_blur_margin=False는 **여백 확보(축소) 단계만** 건너뛴다. exif 보정,
+    정사각 리사이즈, 마스크 생성 등 나머지 전처리는 동일하게 수행한다.
+    비정사각 캔버스 경로에서 쓴다. 그 경로에서는 캔버스 배치가 제품 크기와
+    여백을 단독으로 책임지므로, 여기서 0.7배로 줄이면 이중 축소가 되어
+    확대 상한의 기준이 흐려지고 리샘플 손실만 커진다.
+    AI 경로는 diffusion이 배경을 그릴 여백이 실제로 필요하므로 항상 True다.
 
     Returns:
         (준비된 이미지, 마스크, 적용 모드)
@@ -117,7 +137,7 @@ def prepare_image(src, size: int) -> tuple[Image.Image, MaskResult, str]:
     img = ImageOps.fit(img, (size, size), method=Image.LANCZOS)
 
     masks = make_masks(img)
-    if masks.area_ratio <= config.AREA_THRESHOLD:
+    if masks.area_ratio <= config.AREA_THRESHOLD or not apply_blur_margin:
         return img, masks, "raw"
 
     img = add_blur_margin(img)
@@ -135,6 +155,123 @@ def composite_product(original: Image.Image,
     soft = product_mask.convert("L").filter(
         ImageFilter.GaussianBlur(config.COMPOSITE_BLUR))
     return Image.composite(original, generated.convert("RGB"), soft)
+
+
+def _bleed(rgb: np.ndarray, mask: np.ndarray, px: int) -> np.ndarray:
+    """마스크 바깥 px를 제품 가장자리 색으로 채운다(합성 경계 fringe 방지).
+
+    composite_product()가 COMPOSITE_BLUR로 마스크를 부드럽게 만들기 때문에
+    마스크 바로 바깥 1~2px이 결과에 섞인다. 캔버스에서 그 영역이 비어 있으면
+    제품 테두리가 어두워진다. 마스크 자체는 넓히지 않는다.
+    """
+    k = np.ones((3, 3), np.uint8)
+    band = cv2.dilate(mask, k, iterations=px)
+    hole = ((band > 0) & (mask == 0)).astype(np.uint8) * 255
+    if hole.max() == 0:
+        return rgb
+    return cv2.inpaint(rgb, hole, 3, cv2.INPAINT_TELEA)
+
+
+def place_product_on_canvas(base: Image.Image,
+                            masks: MaskResult,
+                            canvas_wh,
+                            scale: float = 1.0,
+                            x_px: int = None,
+                            y_px: int = None,
+                            bleed_px: int = 8) -> tuple[Image.Image, MaskResult]:
+    """제품과 마스크를 W×H 캔버스 좌표계로 옮기는 순수 변환.
+
+    배치 정책(어디에 얼마나 크게 둘지)은 이 함수가 정하지 않는다. 호출자가
+    계산한 scale/x_px/y_px를 그대로 적용하기만 한다.
+
+    이 함수를 따로 두는 이유는 prepare_image()가 소스 정규화(정사각)를
+    담당하고, 최종 출력 크기는 그와 독립이기 때문이다. 원본을 목표 W×H로
+    직접 ImageOps.fit()하면 3:1에서 제품이 잘리므로 그 방식은 쓰지 않는다.
+
+    Args:
+        canvas_wh: int 또는 (W, H). 최종 캔버스 크기.
+        scale: 제품 배율. 종횡비는 항상 유지된다.
+        x_px, y_px: 제품 bbox 좌상단이 놓일 캔버스 좌표.
+                    None이면 소스에서의 bbox 위치를 그대로 유지한다.
+        bleed_px: 마스크 바깥으로 가장자리 색을 번지게 할 픽셀 수.
+
+    Returns:
+        (캔버스 크기 base, 캔버스 크기 MaskResult).
+        항등 변환일 때도 입력과 픽셀은 같지만 항상 새 객체를 돌려준다.
+
+    Raises:
+        ValueError: 제품 마스크가 비었거나, 배치 결과가 캔버스 밖으로 잘릴 때.
+    """
+    W, H = _as_wh(canvas_wh)
+    src_w, src_h = base.size
+
+    tight = (np.array(masks.product.convert("L")) > 128).astype(np.uint8)
+    ys, xs = np.where(tight > 0)
+    if len(xs) == 0:
+        raise ValueError("제품 마스크가 비어 있어 캔버스 배치를 할 수 없습니다.")
+    bx0, by0 = int(xs.min()), int(ys.min())
+    bx1, by1 = int(xs.max()), int(ys.max())
+
+    tx = bx0 if x_px is None else int(x_px)
+    ty = by0 if y_px is None else int(y_px)
+
+    # 항등 경로: 캔버스가 소스와 같고 배율 1.0, 이동 없음이면 crop/resize/inpaint를
+    # 전혀 거치지 않는다. 기존 정사각 결과와 픽셀 단위로 동일함이 보장된다.
+    #
+    # 다만 원본 객체를 그대로 돌려주지는 않고 복사본을 만든다. 보장해야 하는 것은
+    # 픽셀 동일성이지 객체 동일성이 아니며, 호출자가 반환값을 in-place로 수정할 때
+    # (PIL의 paste/ImageDraw 등) 소스까지 바뀌는 것을 막기 위해서다.
+    if (W, H) == (src_w, src_h) and float(scale) == 1.0 and (tx, ty) == (bx0, by0):
+        return base.copy(), MaskResult(masks.product.copy(),
+                                       masks.inpaint.copy(),
+                                       masks.area_ratio)
+
+    bw, bh = bx1 - bx0 + 1, by1 - by0 + 1
+    nw = max(1, int(round(bw * scale)))
+    nh = max(1, int(round(bh * scale)))
+    if tx < 0 or ty < 0 or tx + nw > W or ty + nh > H:
+        raise ValueError(
+            f"제품이 캔버스를 벗어납니다: 배치 {nw}x{nh}@({tx},{ty}), 캔버스 {W}x{H}")
+
+    # bleed는 잘라내기 전에 소스 전체에서 적용해야 bbox 경계에서도 색이 이어진다.
+    rgb = _bleed(np.array(base.convert("RGB"), dtype=np.uint8), tight, bleed_px)
+
+    # bbox에 bleed 여유를 두고 잘라 확대/축소한다(경계에서 fringe가 남지 않도록).
+    pad = bleed_px
+    cx0, cy0 = max(0, bx0 - pad), max(0, by0 - pad)
+    cx1, cy1 = min(src_w, bx1 + 1 + pad), min(src_h, by1 + 1 + pad)
+    cw, ch = cx1 - cx0, cy1 - cy0
+    rw = max(1, int(round(cw * scale)))
+    rh = max(1, int(round(ch * scale)))
+
+    crop_rgb = Image.fromarray(rgb).crop((cx0, cy0, cx1, cy1)).resize(
+        (rw, rh), Image.LANCZOS)
+    crop_m = masks.product.convert("L").crop((cx0, cy0, cx1, cy1)).resize(
+        (rw, rh), Image.LANCZOS)
+
+    # bbox 좌상단이 (tx, ty)에 오도록, 패딩만큼 되돌려서 붙인다.
+    px = tx - int(round((bx0 - cx0) * scale))
+    py = ty - int(round((by0 - cy0) * scale))
+
+    base_cv = Image.new("RGB", (W, H), (0, 0, 0))
+    base_cv.paste(crop_rgb, (px, py))
+
+    tight_cv = Image.new("L", (W, H), 0)
+    tight_cv.paste(crop_m, (px, py))
+    tight_arr = (np.array(tight_cv) > 128).astype(np.uint8) * 255
+    tight_cv = Image.fromarray(tight_arr)
+
+    # inpaint 마스크는 옮긴 결과에서 make_masks()와 같은 방식으로 다시 만든다
+    # (반전 마스크를 그대로 옮기면 캔버스 여백의 값이 틀어진다).
+    if config.DILATE > 0:
+        kernel = np.ones((config.DILATE, config.DILATE), np.uint8)
+        dilated = cv2.dilate(tight_arr, kernel, iterations=1)
+    else:
+        dilated = tight_arr
+    inpaint_cv = Image.fromarray(255 - dilated).filter(
+        ImageFilter.GaussianBlur(config.MASK_BLUR))
+
+    return base_cv, MaskResult(tight_cv, inpaint_cv, float((tight_arr > 0).mean()))
 
 
 def add_ground_shadow(img: Image.Image,
@@ -241,22 +378,29 @@ def _shift_lightness(hex_color: str, delta: float) -> str:
     return _rgb_to_hex(mixed)
 
 
-def render_flat_background(size: int,
+def render_flat_background(size,
                            colors: list[str],
                            direction: str = None) -> Image.Image:
     """단색 또는 2색 그라데이션 배경을 생성한다 (diffusion 완전 생략, PIL만 사용).
 
     colors가 1개면 단색, 2개 이상이면 첫 두 색으로 direction 방향
     (vertical/horizontal/diagonal) 선형 그라데이션을 만든다.
+
+    size는 int(정사각) 또는 (W, H)를 받는다. 정규화는 반드시 축별로 한다
+    (이전에는 두 축을 모두 size-1로 나눠 정사각에서만 성립했다).
+    diagonal은 물리적 45도가 아니라 좌상단→우하단 corner-to-corner다.
     """
+    W, H = _as_wh(size)
     if len(colors) <= 1:
-        return Image.new("RGB", (size, size), _hex_to_rgb(colors[0]))
+        return Image.new("RGB", (W, H), _hex_to_rgb(colors[0]))
 
     c1 = np.array(_hex_to_rgb(colors[0]), dtype=np.float32)
     c2 = np.array(_hex_to_rgb(colors[1]), dtype=np.float32)
     direction = direction or "vertical"
 
-    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) / max(size - 1, 1)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    yy = yy / max(H - 1, 1)
+    xx = xx / max(W - 1, 1)
     if direction == "vertical":
         t = yy
     elif direction == "horizontal":

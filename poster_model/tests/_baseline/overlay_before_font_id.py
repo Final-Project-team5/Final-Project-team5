@@ -94,7 +94,6 @@ def render_text(img: Image.Image,
                 min_font_scale: float = 0.4,
                 max_height_ratio: float | None = None,
                 headline_font_role: str = "headline",
-                font_id: str | None = None,
                 stroke_width: int | None = None,
                 fill_color: tuple | None = None,
                 return_meta: bool = False) -> Image.Image:
@@ -129,10 +128,6 @@ def render_text(img: Image.Image,
             그 영역 안으로만 맞춘다. 생략하면 기존처럼 y 지점부터 이미지 하단 여백까지를
             영역으로 본다(제품 등 다른 요소의 위치는 모른다는 뜻이므로, 실제 제품 사진에
             문구를 배치할 때는 호출 측에서 이 값을 반드시 계산해 넘기는 것을 권장한다).
-        font_id: 사용자가 고른 폰트(config.FONT_IDS의 키). 지정하면 headline과 sub
-            **모두** 이 폰트 하나로 그려지고 headline_font_role은 무시된다.
-            None이면 기존 동작 그대로다(headline은 headline_font_role, sub는 "body").
-            해석에 실패하면 config.FontRejection이 올라온다 — 다른 폰트로 바꾸지 않는다.
         headline_font_role: config.FONTS의 역할 이름. 기본은 "headline"(Gmarket Sans Bold,
             없으면 폴백). 절제된 톤이 필요하면 "body_medium"(Pretendard Medium) 등으로 바꿀 수 있다.
         stroke_width: style="plain"일 때 외곽선 두께. None이면 config.STROKE_WIDTH(기존 기본값)를
@@ -183,18 +178,10 @@ def render_text(img: Image.Image,
     else:
         max_w = W - margin * 2
 
-    # 폰트 경로는 auto_fit 루프에서 크기만 바뀌므로 여기서 한 번만 해석한다.
-    # font_id가 오면 headline/sub가 같은 파일을 쓴다(프론트에서 폰트를 하나만 고른다).
-    if font_id:
-        head_path = sub_path = config.resolve_font_id_path(font_id)
-    else:
-        head_path = config.resolve_font_path(headline_font_role)
-        sub_path = config.resolve_font_path("body")
-
     def _measure(hsize: int, ssize: int):
         """주어진 폰트 크기로 줄바꿈/블록 목록/전체 높이를 계산한다."""
-        f_head = ImageFont.truetype(head_path, max(hsize, 4))
-        f_sub = ImageFont.truetype(sub_path, max(ssize, 4)) if sub else None
+        f_head = ImageFont.truetype(config.resolve_font_path(headline_font_role), max(hsize, 4))
+        f_sub = ImageFont.truetype(config.resolve_font_path("body"), max(ssize, 4)) if sub else None
         head_lines = _wrap(draw, headline, f_head, max_w)
         sub_lines = _wrap(draw, sub, f_sub, max_w) if sub else []
         blocks = [(t, f_head, int(hsize * 1.35)) for t in head_lines]
@@ -307,9 +294,7 @@ def render_text(img: Image.Image,
             "block_top_px": y0,
             "block_height_px": total_h,
             "style": style,
-            # font_id를 쓰면 headline_font_role은 무시된다. 실제 적용값을 알 수 있게 둘 다 남긴다.
-            "font_id": font_id,
-            "headline_font_role": None if font_id else headline_font_role,
+            "headline_font_role": headline_font_role,
             "stroke_width": stroke,
             "fill_color": fill,
             "max_w_px": max_w,
