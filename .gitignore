@@ -235,10 +235,13 @@ outputs/
 *.safetensors
 *.bin
 
-# 생성된 이미지
+# 생성된 이미지 (모델 산출물 등) — 단, frontend/src/assets/ 아래 정적 UI 에셋
+# (마스코트, FAQ 스크린샷 등)은 소스에 포함돼야 하므로 예외로 둔다.
 *.png
 *.jpg
 *.jpeg
+!frontend/src/assets/**/*.png
+!frontend/src/assets/**/*.jpg
 
 # 가상환경 (템플릿에 있지만 명시)
 venv/

@@ -72,10 +72,24 @@
   color: var(--color-primary);
 }
 
+.faq-page__answer-wrap {
+  padding: 0 18px 18px;
+}
+
 .faq-page__answer {
   margin: 0;
-  padding: 0 18px 18px;
   font-size: 13.5px;
   color: var(--color-text-secondary);
   line-height: 1.6;
+}
+
+/* 답변과 관련된 화면을 크롭해서 보여주는 스크린샷 — 전체 화면이 아니라
+   해당 UI 요소만 캡처된 이미지라 실제 크기 그대로 두고 카드 폭에만 맞춘다. */
+.faq-page__answer-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
 }
