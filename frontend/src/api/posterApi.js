@@ -53,12 +53,18 @@ function delay(ms = MOCK_DELAY_MS) {
  * spec.highlights(콤마로 합친 문자열)를 쓰고, 실제 백엔드(chatbot.py)는
  * spec.keywords(배열)를 내려준다. 여기서 둘 다 흡수해서 항상 문자열로 맞춘다
  * (실제 백엔드 필드명은 keywords가 우선 — 8/13 확인된 불일치 수정).
+ *
+ * spec.request(6단계 "추가 요청" 자유입력)도 이어붙인다 — 이전에는 buildPrompt()가
+ * 아예 참조하지 않아서 6단계에 뭘 입력해도 포스터 prompt에 반영되지 않았다
+ * (8/13 확인된 누락, 이번에 추가).
  */
 export function buildPrompt(spec = {}) {
   const highlights = Array.isArray(spec.keywords)
     ? spec.keywords.join(', ')
     : spec.keywords || spec.highlights;
-  return [spec.tone, spec.product, highlights].filter(Boolean).join(', ') || '포스터 배경';
+  return (
+    [spec.tone, spec.product, highlights, spec.request].filter(Boolean).join(', ') || '포스터 배경'
+  );
 }
 
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.
