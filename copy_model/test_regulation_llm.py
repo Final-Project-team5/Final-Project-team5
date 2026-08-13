@@ -100,6 +100,56 @@ def test_judge_invalid_severity_falls_back_to_rule():
     assert r.severity == r.rule_severity   # safe로 폴백
 
 
+# ── apply_trust (비대칭 신뢰 정책) ────────────────────────
+def test_trust_upgrade_always_accepted():
+    from copy_model.regulation_llm import apply_trust
+    # 엄격해지는 방향(safe->block)은 근거 없어도 즉시 반영
+    assert apply_trust("safe", LLMVerdict("block", ""), "asymmetric") == "block"
+
+
+def test_trust_downgrade_needs_reason():
+    from copy_model.regulation_llm import apply_trust
+    # 완화(warn->safe)는 근거 없으면 룰 유지, 있으면 반영
+    assert apply_trust("warn", LLMVerdict("safe", ""), "asymmetric") == "warn"
+    assert apply_trust("warn", LLMVerdict("safe", "제품 아닌 시간 수식"),
+                       "asymmetric") == "safe"
+
+
+def test_trust_full_passthrough():
+    from copy_model.regulation_llm import apply_trust
+    assert apply_trust("warn", LLMVerdict("safe", ""), "full") == "safe"
+
+
+# ── /validate/copy 하이브리드 통합 (mock) ─────────────────
+def test_validate_rule_only_has_new_fields():
+    from copy_model.regulation import validate_copy, ValidateRequest
+    r = validate_copy(ValidateRequest(
+        category="beauty", headline="주름 완전 제거", sub="3일이면 끝"))
+    assert r.severity == "block" and r.rule_severity == "block"
+    assert r.safe is False and r.escalated is False
+
+
+def test_validate_hybrid_escalates_boundary_case():
+    from copy_model.regulation import validate_copy, ValidateRequest
+    # broad 기본 정책: food safe 문구는 에스컬레이션됨 (mock은 룰 유지)
+    r = validate_copy(ValidateRequest(
+        category="food", headline="담백한 사골 국물", sub="깊은 맛",
+        use_llm=True))
+    assert r.escalated is True
+    assert r.severity == r.rule_severity == "safe"   # mock: 룰 유지
+    assert r.meta["policy"] == "broad"
+
+
+def test_validate_lexicon_policy_skips_plain_safe():
+    from copy_model.regulation import validate_copy, ValidateRequest
+    # lexicon 정책: 어휘 힌트 없는 safe는 LLM 생략
+    r = validate_copy(ValidateRequest(
+        category="food", headline="오늘의 신선한 김밥", sub="아침에 만들어요",
+        use_llm=True, policy="lexicon"))
+    assert r.escalated is False
+    assert r.severity == "safe"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0
