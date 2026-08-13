@@ -37,6 +37,22 @@ PURPOSE_ASPECT = {"sns": "1:1", "banner": "3:1", "detail": "3:4"}
 PURPOSE_LABEL = {"sns": "SNS 카드뉴스", "banner": "배너", "detail": "상세페이지"}
 DEFAULT_PURPOSE = "sns"  # 알 수 없는 용도가 들어왔을 때의 안전 기본값(가장 흔한 정사각 1:1)
 
+# ── business_type 분기 (방식 B — 무형 서비스업 확장) ─────────
+#   제품형(product): 기존 흐름(food/beauty/goods + 사진 업로드).
+#   서비스형(service): 무형 서비스업(학원/체육관·도장), 사진 스킵 + 1:1 고정.
+#   0단계 질문(제품/서비스)은 프론트가 하드코딩해서 물어보고 그 값만 spec에
+#   실어준다(소원님 협의). 서버는 business_type을 보고 흐름을 분기만 한다.
+DEFAULT_BUSINESS_TYPE = "product"  # 하위호환: 없으면 제품형(기존 프론트 불변)
+BUSINESS_TYPES = ("product", "service")
+PRODUCT_CATEGORIES = ("food", "beauty", "goods")
+SERVICE_CATEGORIES = ("academy", "sports")  # 확정 무형 서비스업(학원/체육관·도장)
+
+
+def _business_type(spec: dict) -> str:
+    """spec에서 business_type을 정규화해 반환. 미지정/이상값은 제품형."""
+    bt = (spec or {}).get("business_type")
+    return bt if bt in BUSINESS_TYPES else DEFAULT_BUSINESS_TYPE
+
 
 def _apply_aspect_ratio(spec: dict) -> dict:
     """purpose 슬롯이 채워지면 비율(aspect_ratio)을 서버가 결정적으로 매핑.
@@ -46,8 +62,16 @@ def _apply_aspect_ratio(spec: dict) -> dict:
       - 범위 밖(잘못된) purpose: 기본값(sns/1:1)으로 보정하고 원본을
         purpose_invalid에 남겨 추적 가능하게 한다. 잘못된 값이 그대로
         이미지 파이프라인으로 흘러가 aspect_ratio가 비는 것을 막는다.
+      - 서비스형(business_type=service): 비정사각(3:1/3:4)은 서버가 막아둔
+        상태(지우님 확인 — 사진 없는 text2img 비정사각은 400)라 purpose를
+        sns(1:1)로 강제 보정하고 원본을 purpose_locked에 남긴다. 프론트가
+        옵션을 잠그지만 서버도 방어한다.
     """
     purpose = spec.get("purpose")
+    if _business_type(spec) == "service" and purpose and purpose != "sns":
+        spec["purpose_locked"] = purpose   # 원본 보존(서비스형 비정사각 차단)
+        purpose = "sns"
+        spec["purpose"] = purpose
     if not purpose:                       # None 또는 "" — 아직 미선택
         return spec
     if purpose not in PURPOSE_ASPECT:     # 범위 밖 값 — 기본값으로 보정
@@ -83,6 +107,48 @@ FLOW_STEPS = [
 ]
 TOTAL_STEPS = len(FLOW_STEPS)
 
+# business_type=service일 때 덮어쓸 단계별 질문/힌트 (방식 B).
+# 공통 단계(purpose 비율·tone·request)는 그대로 두고, 업종·이름·강조점만 교체.
+_SERVICE_STEP_OVERRIDES = {
+    "category": {
+        "question": "어떤 서비스 업종이신가요?",
+        "hint": "academy/sports 중 하나로 매핑. 학원→academy, 체육관/도장/헬스장/피트니스→sports. "
+                "선택지는 서비스 업종 예시로 구체적으로.",
+    },
+    "purpose": {
+        "hint": "서비스형은 정사각(1:1)만 지원하므로 purpose는 'sns'로 확정한다"
+                "(배너 3:1·상세페이지 3:4는 미지원). 비율은 서버가 자동으로 1:1.",
+    },
+    "product": {
+        "question": "어떤 서비스나 가게를 홍보하시나요?",
+        "hint": "서비스/가게 이름. 선택지는 해당 업종의 대표 예시로.",
+    },
+    "keywords": {
+        "hint": "복수 선택 가능. 서비스형 강조점 세트: 전문성·경력 / 후기·평판 / "
+                "접근성(위치·시간) / 상담·가격 안내 등.",
+    },
+}
+
+
+def _prompt_bits(business_type: str) -> dict:
+    """business_type별 프롬프트 조각(category/purpose 매핑 규칙 + JSON enum)."""
+    if business_type == "service":
+        return {
+            "category_rule": 'category는 반드시 "academy" | "sports" 중 하나로 매핑'
+                             ' (학원→academy, 체육관/도장/헬스장/피트니스→sports)',
+            "purpose_rule": 'purpose는 "sns"로 확정 (서비스형은 정사각 1:1만 지원, '
+                            '배너·상세페이지 미지원)',
+            "category_enum": 'null|"academy"|"sports"',
+            "purpose_enum": 'null|"sns"',
+        }
+    return {
+        "category_rule": 'category는 반드시 "food" | "beauty" | "goods" 중 하나로 매핑',
+        "purpose_rule": 'purpose는 반드시 "sns" | "banner" | "detail" 중 하나로 매핑 '
+                        '(SNS/카드뉴스/인스타→sns, 배너/광고배너→banner, 상세페이지/상세/제품페이지→detail)',
+        "category_enum": 'null|"food"|"beauty"|"goods"',
+        "purpose_enum": 'null|"sns"|"banner"|"detail"',
+    }
+
 _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비스의 도우미 챗봇입니다.
 정해진 순서대로 질문하며 광고 문구 제작에 필요한 정보를 수집합니다.
 
@@ -99,9 +165,8 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
 
 [규칙]
 1. 사용자의 이번 답변에서 이번 단계 슬롯 값을 확정한다.
-   - category는 반드시 "food" | "beauty" | "goods" 중 하나로 매핑
-   - purpose는 반드시 "sns" | "banner" | "detail" 중 하나로 매핑
-     (SNS/카드뉴스/인스타→sns, 배너/광고배너→banner, 상세페이지/상세/제품페이지→detail)
+   - {category_rule}
+   - {purpose_rule}
    - tone은 반드시 "warm" | "energetic" | "luxury" | "simple" 중 하나로 매핑
    - keywords는 문자열 배열
 2. next_question에는 위 "다음 단계 질문"을 그대로 넣고, 그 질문에 쓸 선택지
@@ -118,8 +183,8 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
    뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (마지막 단계는 생략)
 4. 마지막 단계까지 끝나면 done=true, next_question은 마무리 멘트, options는 빈 배열.
 5. 반드시 JSON으로만 응답:
-{{"spec": {{"category": null|"food"|"beauty"|"goods",
-  "purpose": null|"sns"|"banner"|"detail",
+{{"spec": {{"category": {category_enum},
+  "purpose": {purpose_enum},
   "product": null|"...", "tone": null|"warm"|"energetic"|"luxury"|"simple",
   "keywords": null|["..."], "request": null|"..."}},
  "next_question": "...", "options": ["...", "...", "...", "..."],
@@ -171,7 +236,9 @@ class SuggestRequest(BaseModel):
         description="fixed 모드에서 현재 진행 중인 단계 (1부터)")
     spec: Optional[dict] = Field(
         default=None,
-        description="이전까지 채워진 슬롯 (fixed 모드에서 프론트가 상태로 들고 있다가 전달)")
+        description="이전까지 채워진 슬롯 (fixed 모드에서 프론트가 상태로 들고 있다가 전달). "
+                    "business_type(\"product\"|\"service\")을 0단계에서 프론트가 담아 보내면 "
+                    "서버가 흐름을 분기한다. 없으면 제품형(product)으로 간주(하위호환).")
     target_slots: Optional[list[str]] = Field(
         default=None,
         description="물어볼 항목만 지정 (예: [\"tone\"]). 지정하면 해당 항목만 채우고 "
@@ -229,21 +296,66 @@ _MOCK_SLOT = {
         "confirm": "'신메뉴 출시'를 반영할게요."},
 }
 
+# 서비스형(business_type=service) mock 샘플 — 학원/체육관 예시.
+# category/product/keywords/purpose만 서비스형으로 교체, tone/request는 공통.
+_MOCK_SLOT_SERVICE = {
+    "category": {
+        "options": ["학원 (입시·보습)", "체육관·도장 (헬스·복싱·태권도)", "기타"],
+        "patch": {"category": "academy"},
+        "confirm": "'학원'으로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"},
+    "purpose": {
+        "options": ["SNS 카드뉴스 (정사각 1:1)"],
+        "patch": {"purpose": "sns"},
+        "confirm": "'SNS 카드뉴스'용으로 정했어요. 서비스형은 정사각(1:1)으로 만들어드릴게요!"},
+    "product": {
+        "options": ["수학 전문 학원", "영어 회화 학원", "입시 종합반", "코딩 학원"],
+        "patch": {"product": "수학 전문 학원"},
+        "confirm": "'수학 전문 학원'으로 정했어요. 왼쪽 화면에서 확인해보세요!"},
+    "tone": {
+        "options": ["신뢰감 있는 전문가 느낌", "활기찬 분위기", "차분하고 깔끔한 느낌",
+                    "따뜻하고 친근한 느낌"],
+        "patch": {"tone": "simple"},
+        "confirm": "'차분하고 깔끔한 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"},
+    "keywords": {
+        "options": ["전문성·경력", "후기·평판", "접근성(위치·시간)", "상담·가격 안내"],
+        "patch": {"keywords": ["전문성·경력", "후기·평판"]},
+        "confirm": "'전문성·경력', '후기·평판'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"},
+    "request": {
+        "options": ["신규 개강", "무료 상담 이벤트", "수강료 할인", "없음"],
+        "patch": {"request": "신규 개강"},
+        "confirm": "'신규 개강'을 반영할게요."},
+}
 
-def _effective_flow(target_slots: Optional[list[str]]) -> list[dict]:
-    """target_slots가 있으면 해당 슬롯만 원래 순서대로 추린 흐름을 반환."""
+
+def _mock_slots_for(business_type: str) -> dict:
+    return _MOCK_SLOT_SERVICE if business_type == "service" else _MOCK_SLOT
+
+
+def _effective_flow(target_slots: Optional[list[str]],
+                    business_type: str = DEFAULT_BUSINESS_TYPE) -> list[dict]:
+    """business_type 분기 + target_slots 필터를 적용한 흐름을 반환.
+
+    - business_type=service면 category/product/keywords/purpose 단계의 질문·힌트를
+      서비스형 세트로 덮어쓴다(단계 수와 순서는 동일).
+    - target_slots가 있으면 해당 슬롯만 원래 순서대로 추린다(서브 패널 도우미).
+    """
+    base = FLOW_STEPS
+    if business_type == "service":
+        base = [{**s, **_SERVICE_STEP_OVERRIDES.get(s["slot"], {})} for s in FLOW_STEPS]
     if not target_slots:
-        return FLOW_STEPS
-    picked = [s for s in FLOW_STEPS if s["slot"] in target_slots]
-    return picked or FLOW_STEPS
+        return base
+    picked = [s for s in base if s["slot"] in target_slots]
+    return picked or base
 
 
 def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
-    flow = _effective_flow(req.target_slots)
+    business_type = _business_type(req.spec)
+    flow = _effective_flow(req.target_slots, business_type)
+    mock_slots = _mock_slots_for(business_type)
     total = len(flow)
     step = min(req.step, total)
     cfg = flow[step - 1]
-    m = _MOCK_SLOT[cfg["slot"]]
+    m = mock_slots[cfg["slot"]]
 
     spec = dict(req.spec or {})
     spec.update(m["patch"])
@@ -257,7 +369,7 @@ def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
     else:
         next_cfg = flow[next_step - 1]
         question = next_cfg["question"]
-        options = _MOCK_SLOT[next_cfg["slot"]]["options"]
+        options = mock_slots[next_cfg["slot"]]["options"]
         allow_multiple = next_cfg["multi"]
 
     return SuggestResponse(
@@ -286,10 +398,13 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
     if config.MOCK_MODE:
         if req.mode == "fixed":
             return _mock_fixed(req, t0)
-        return _mock_fixed(SuggestRequest(message=req.message, step=1), t0)
+        return _mock_fixed(
+            SuggestRequest(message=req.message, step=1, spec=req.spec), t0)
+
+    business_type = _business_type(req.spec)
 
     if req.mode == "fixed":
-        flow = _effective_flow(req.target_slots)
+        flow = _effective_flow(req.target_slots, business_type)
         total = len(flow)
         step = min(req.step, total)
         cfg = flow[step - 1]
@@ -302,6 +417,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
             next_question=("(없음 — 마지막 단계이므로 마무리 멘트를 넣을 것)"
                            if done else next_cfg["question"]),
             current_spec=json.dumps(req.spec or {}, ensure_ascii=False),
+            **_prompt_bits(business_type),
         )
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": req.message}]
@@ -323,13 +439,22 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
         )
 
     # auto 모드
-    messages = [{"role": "system", "content": _AUTO_SYSTEM_PROMPT}]
+    system_auto = _AUTO_SYSTEM_PROMPT
+    if business_type == "service":
+        system_auto += (
+            "\n\n[business_type=service 오버라이드 — 아래를 기본 규칙보다 우선]\n"
+            '- category는 "academy" | "sports" 중 하나로 매핑'
+            "(학원→academy, 체육관/도장/헬스장/피트니스→sports).\n"
+            '- purpose는 "sns"로 확정(서비스형은 정사각 1:1만 지원, 배너·상세 미지원).')
+    messages = [{"role": "system", "content": system_auto}]
     for turn in req.history or []:
         messages.append({"role": turn.role, "content": turn.content})
     messages.append({"role": "user", "content": req.message})
     data = _client_chat(messages)
 
     spec = data.get("spec", {}) or {}
+    if business_type == "service":
+        spec["business_type"] = "service"   # LLM 출력이 흘려도 분기값 보존
     _apply_aspect_ratio(spec)
     return SuggestResponse(
         spec=spec,
