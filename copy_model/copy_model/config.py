@@ -5,6 +5,17 @@
 """
 import os
 
+# ── .env 로드 (소원님 리포트 반영) ──────────────────────
+# 이전엔 load_dotenv가 없어 .env 파일이 무효였다(셸 환경변수만 읽힘).
+# python-dotenv로 .env를 실행 위치 기준으로 탐색해 로드한다.
+# dotenv 미설치 환경에서도 죽지 않게 예외는 조용히 무시(OS 환경변수만 사용).
+# 반드시 아래 os.getenv 호출들보다 먼저 실행되어야 한다.
+try:
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv(usecwd=True))  # 못 찾으면 "" → 아무것도 로드 안 함
+except Exception:
+    pass
+
 # ── OpenAI ──────────────────────────────────────────────
 # 운영진이 전달해준 팀 API 키를 .env 또는 환경변수로 설정 (절대 커밋 금지!)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -19,6 +30,20 @@ SUB_MAX = int(os.getenv("COPY_SUB_MAX", "30"))
 # 영어 문구 제한 (한글 20자 ≈ 시각적으로 영문 약 2배 폭 기준, 팀 확정 전 임시값)
 HEADLINE_MAX_EN = int(os.getenv("COPY_HEADLINE_MAX_EN", "40"))
 SUB_MAX_EN = int(os.getenv("COPY_SUB_MAX_EN", "60"))
+
+# ── 다국어 현지화 (조사_다국어확장.md 기반, 언어 파라미터화) ──
+# 글자 수 제한은 전부 임시값 — 폰트 렌더 폭 실측(이미지 파트 연계) 후 확정.
+# 규제 검증은 한국어 원문 기준(safe 시안만 번역 대상). 대상국 규제는 로드맵.
+SUPPORTED_LANGS = ("en", "ja", "zh", "es", "fr")
+LANG_LIMITS = {          # lang: (headline_max, sub_max)
+    "en": (HEADLINE_MAX_EN, SUB_MAX_EN),
+    "ja": (25, 40),      # 가나+한자 혼용, 한글보다 약간 넓음 (임시)
+    "zh": (20, 35),      # 한자 밀도 높음, 한글과 유사 (임시)
+    "es": (45, 70),      # 라틴계, 영어보다 단어가 긴 편 (임시)
+    "fr": (45, 70),      # 라틴계, 영어보다 단어가 긴 편 (임시)
+}
+LANG_NAMES = {"en": "영어", "ja": "일본어", "zh": "중국어 간체",
+              "es": "스페인어", "fr": "프랑스어"}
 
 # ── 확장 기능 스위치 (팀 합의 전 기본 OFF 성격의 옵션) ──
 # 영어 현지화 병행 생성: 요청 시 include_en=true 로 켬 (글로벌 소상공인 타깃 고도화용)
