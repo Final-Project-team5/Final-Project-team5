@@ -841,6 +841,240 @@
       "sub": "당신만을 위한",
       "expected": "warn",
       "note": "[레드팀] 배타성(유일) 주장"
+    },
+    {
+      "id": "SP-B1",
+      "split": "train",
+      "category": "sports",
+      "headline": "환불 불가 6개월 회원권",
+      "sub": "한번 결제하면 되돌릴 수 없습니다",
+      "expected": "block",
+      "note": "방문판매법: 회원권 환불 불가 표시"
+    },
+    {
+      "id": "SP-W1",
+      "split": "train",
+      "category": "sports",
+      "headline": "지역 1위 복싱 체육관",
+      "sub": "최고의 관장이 직접 지도합니다",
+      "expected": "warn",
+      "note": "표시광고법: 배타성·최상급"
+    },
+    {
+      "id": "SP-W2",
+      "split": "train",
+      "category": "sports",
+      "headline": "국가대표 출신 코치진",
+      "sub": "올림픽 메달리스트가 함께합니다",
+      "expected": "warn",
+      "note": "국민체육진흥법: 지도자 자격 과장"
+    },
+    {
+      "id": "SP-W3",
+      "split": "train",
+      "category": "sports",
+      "headline": "3개월 -10kg 감량 프로그램",
+      "sub": "목표까지 함께 갑니다",
+      "expected": "warn",
+      "note": "표시광고법: 수치 성과 단정"
+    },
+    {
+      "id": "SP-S1",
+      "split": "train",
+      "category": "sports",
+      "headline": "넓은 공간과 최신 기구",
+      "sub": "쾌적한 환경에서 운동하세요",
+      "expected": "safe",
+      "note": "정상: 시설 사실 서술"
+    },
+    {
+      "id": "SP-S2",
+      "split": "train",
+      "category": "sports",
+      "headline": "1:1 맞춤 PT 프로그램",
+      "sub": "체계적으로 관리해드립니다",
+      "expected": "safe",
+      "note": "정상: 서비스 안내"
+    },
+    {
+      "id": "SP-B2",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "중도 해지 불가 약정",
+      "sub": "등록 전 규정을 확인하세요",
+      "expected": "block",
+      "note": "방문판매법: 중도해지 불가 표시"
+    },
+    {
+      "id": "SP-W4",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "국내 최고 시설 프리미엄 짐",
+      "sub": "품격 있는 운동 공간",
+      "expected": "warn",
+      "note": "표시광고법: 최상급"
+    },
+    {
+      "id": "SP-W5",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "공인 3급 자격증 다수 보유 트레이너",
+      "sub": "전문성을 갖춘 코치진",
+      "expected": "warn",
+      "note": "국민체육진흥법: 자격 다수 보유 강조"
+    },
+    {
+      "id": "SP-S3",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "주 3회 그룹 운동 클래스",
+      "sub": "초보자도 편하게 시작하세요",
+      "expected": "safe",
+      "note": "정상: 프로그램 안내"
+    },
+    {
+      "id": "SP-S4",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "샤워실과 주차장 완비",
+      "sub": "직장인 새벽반 운영",
+      "expected": "safe",
+      "note": "정상: 편의시설 사실"
+    },
+    {
+      "id": "SP-S5",
+      "split": "holdout",
+      "category": "sports",
+      "headline": "경력 10년 전문 트레이너",
+      "sub": "차근차근 지도합니다",
+      "expected": "safe",
+      "note": "경계: 사실 기반 경력(허용 표현)"
+    },
+    {
+      "id": "SP-RT1",
+      "split": "redteam",
+      "category": "sports",
+      "headline": "환불은 좀 어렵습니다",
+      "sub": "한번 등록하면 되돌리기 힘들어요",
+      "expected": "block",
+      "note": "[레드팀] 환불 불가를 우회 표현"
+    },
+    {
+      "id": "AC-B1",
+      "split": "train",
+      "category": "academy",
+      "headline": "100% 합격 보장반",
+      "sub": "불합격 시 전액 환불",
+      "expected": "block",
+      "note": "표시광고법: 합격 보장·환불 단정"
+    },
+    {
+      "id": "AC-B2",
+      "split": "train",
+      "category": "academy",
+      "headline": "무조건 합격 커리큘럼",
+      "sub": "합격 책임집니다",
+      "expected": "block",
+      "note": "표시광고법: 합격 단정·책임 표현"
+    },
+    {
+      "id": "AC-W1",
+      "split": "train",
+      "category": "academy",
+      "headline": "합격률 1위 학원",
+      "sub": "명문대 합격자 다수 배출",
+      "expected": "warn",
+      "note": "표시광고법: 순위·실적 (공정위 제재)"
+    },
+    {
+      "id": "AC-W2",
+      "split": "train",
+      "category": "academy",
+      "headline": "SKY 다수 합격 실적",
+      "sub": "검증된 커리큘럼",
+      "expected": "warn",
+      "note": "표시광고법: 실적 과장"
+    },
+    {
+      "id": "AC-W3",
+      "split": "train",
+      "category": "academy",
+      "headline": "단기간 완성 영어 특강",
+      "sub": "한 달 만에 1등급",
+      "expected": "warn",
+      "note": "표시광고법: 단기 성과 단정"
+    },
+    {
+      "id": "AC-S1",
+      "split": "train",
+      "category": "academy",
+      "headline": "합격을 목표로 체계적 지도",
+      "sub": "학생별 맞춤 커리큘럼",
+      "expected": "safe",
+      "note": "정상: 과정 중심 표현"
+    },
+    {
+      "id": "AC-S2",
+      "split": "train",
+      "category": "academy",
+      "headline": "경력 15년 수학 전문 강사",
+      "sub": "개념부터 차근차근",
+      "expected": "safe",
+      "note": "정상: 사실 기반 경력"
+    },
+    {
+      "id": "AC-B3",
+      "split": "holdout",
+      "category": "academy",
+      "headline": "불합격 시 전액 환불 보장제",
+      "sub": "자신 있게 약속합니다",
+      "expected": "block",
+      "note": "표시광고법: 합격 보장제"
+    },
+    {
+      "id": "AC-W4",
+      "split": "holdout",
+      "category": "academy",
+      "headline": "취업 보장 코딩 부트캠프",
+      "sub": "수료 후 취업까지 지원",
+      "expected": "warn",
+      "note": "표시광고법: 취업 보장"
+    },
+    {
+      "id": "AC-W5",
+      "split": "holdout",
+      "category": "academy",
+      "headline": "합격자 수 1위 재수학원",
+      "sub": "매년 검증된 실적",
+      "expected": "warn",
+      "note": "표시광고법: 합격자 수 순위"
+    },
+    {
+      "id": "AC-S3",
+      "split": "holdout",
+      "category": "academy",
+      "headline": "온라인 라이브 강의 제공",
+      "sub": "질문 게시판 운영",
+      "expected": "safe",
+      "note": "정상: 서비스 안내"
+    },
+    {
+      "id": "AC-S4",
+      "split": "holdout",
+      "category": "academy",
+      "headline": "최근 3년 합격생 인터뷰 공개",
+      "sub": "실제 후기를 확인하세요",
+      "expected": "safe",
+      "note": "경계: 검증 가능 실적(허용 표현)"
+    },
+    {
+      "id": "AC-RT1",
+      "split": "redteam",
+      "category": "academy",
+      "headline": "여기 다니면 원하는 대학 갑니다",
+      "sub": "실패는 없습니다",
+      "expected": "block",
+      "note": "[레드팀] 합격 보장을 우회 표현"
     }
   ]
 }
