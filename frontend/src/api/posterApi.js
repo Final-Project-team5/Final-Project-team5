@@ -1,19 +1,37 @@
 /**
- * 포스터 이미지 생성 API — mock 버전.
- * 실서버(지우님 파트)가 준비되기 전까지 프론트 흐름 검증용으로 사용한다.
+ * 포스터 이미지 생성 API.
  * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/10 용도→비율 매핑 반영)
  *
  *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundType?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
  *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D, 로딩 B)
  *
- * 실패 시뮬레이션(?mockFail=drafts,refine / ?mockFailRate=0.3)은 mockUtils.js 참고
- * — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다.
+ * copyApi.js와 동일한 패턴: 아래는 크게 두 갈래로 나뉜다(컴포넌트는 둘 중 뭐가
+ * 쓰이는지 몰라도 됨).
+ *   - mockGenerateDrafts()/mockGenerateRefine() : 실서버 없이 프론트 흐름만
+ *     검증하던 기존 mock (그대로 보존)
+ *   - realGenerateDrafts()/realGenerateRefine() : 실제 백엔드(poster_model,
+ *     기본 http://localhost:8000) 호출 어댑터. 요청/응답 필드는
+ *     poster_model/api.py + poster_model/docs/api.md를 직접 읽고 맞췄다.
+ * 맨 아래 generateDrafts/generateRefine이 실제 진입점이며,
+ * VITE_USE_REAL_POSTER_API=true일 때만 real 쪽을, 아니면 mock 쪽을 그대로 쓴다.
+ *
+ * ⚠ 지우님 서버 접근 주소가 아직 확정 전이라 real 경로는 코드 준비 + 로컬
+ * 스모크 테스트까지만 하고, 실제 엔드투엔드 테스트는 나중에 진행한다.
+ *
+ * mock 실패 시뮬레이션(?mockFail=drafts,refine / ?mockFailRate=0.3)은 mockUtils.js
+ * 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다(mock 모드 전용).
  */
 
-import { maybeFail } from './mockUtils';
+import { MockApiError, maybeFail } from './mockUtils';
 
 const MOCK_DELAY_MS = 900;
 const SEEDS = [12345, 67890, 24680];
+
+// --- 실제 서버 연동 스위치 -----------------------------------------------
+// VITE_USE_REAL_POSTER_API=true면 아래 realXxx()가, 아니면 기존 mockXxx()가 쓰인다.
+// (.env / .env.local에서 설정. 기본값은 false — 실제 서버 주소가 아직 확정 전.)
+const USE_REAL_API = import.meta.env.VITE_USE_REAL_POSTER_API === 'true';
+const REAL_API_BASE = import.meta.env.VITE_POSTER_API_BASE || 'http://localhost:8000';
 
 // 챗봇 용도 질문(화면 A)에서 넘어온 비율 문자열 → 실제 캔버스 픽셀 크기.
 // AI 배경(diffusion) 쪽은 아직 비정사각 production 미지원이라 실제로는 3:1/3:4가
@@ -85,7 +103,7 @@ function mockBackground(seed, backgroundType) {
  * POST /generate/drafts 목 함수. 화면 A에서 저장한 mode/image/ratio를 그대로 넘겨받는다.
  * backgroundType: 'ai' | 'flat' — 화면 C에서 고른 배경 종류(3:4에서는 항상 'flat'로 강제됨).
  */
-export async function generateDrafts({
+export async function mockGenerateDrafts({
   mode = 'text2img',
   image = null,
   prompt = '',
@@ -141,7 +159,7 @@ export function toImageSrc(base64) {
  * text는 그대로 받아 meta.layout.text로 echo한다 — text.font_id(화면 D 서체
  * 드롭다운 선택값)도 별도 처리 없이 그 안에 실려 함께 내려간다.
  */
-export async function generateRefine({
+export async function mockGenerateRefine({
   draft_image,
   original_image,
   background,
@@ -163,4 +181,145 @@ export async function generateRefine({
       prompt,
     },
   };
+}
+
+// ============================================================================
+// --- 실제 백엔드(poster_model, 기본 http://localhost:8000) 연동 --------------
+// mock과 정확히 같은 요청/응답 형태로 컴포넌트(DraftSelect.jsx, PosterEditor.jsx)에
+// 맞춰주는 어댑터 계층. 컴포넌트는 이 파일 안쪽이 mock인지 real인지 몰라도 된다.
+// 필드는 poster_model/api.py(DraftRequest/RefineRequest/DraftItem 등)와
+// poster_model/docs/api.md를 직접 읽고 맞췄다.
+// ============================================================================
+
+/**
+ * 실제 서버 에러(네트워크 실패/4xx/5xx)를 사용자 친화적 메시지로 감싼다.
+ * copyApi.js의 RealApiError와 동일한 패턴 — MockApiError를 상속해서
+ * mockUtils.js의 toFriendlyMessage()가 그대로 인식한다(instanceof 체크 통과).
+ */
+class RealApiError extends MockApiError {
+  constructor(key, customMessage) {
+    super(key); // key(drafts|refine)에 대응하는 기본 친화 메시지를 우선 세팅
+    this.name = 'RealApiError';
+    if (customMessage) {
+      this.message = customMessage;
+      this.friendlyMessage = customMessage;
+    }
+  }
+}
+
+/** 실제 서버로 POST 요청을 보내고 실패를 RealApiError로 통일해서 던진다. */
+async function postJSON(path, body, key) {
+  let response;
+  try {
+    response = await fetch(`${REAL_API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // fetch 자체가 실패 — 서버가 꺼져있거나 네트워크 문제
+    throw new RealApiError(key, '서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.');
+  }
+
+  if (!response.ok) {
+    // 원인은 콘솔에만 남기고, 화면에는 항상 사용자 친화적 메시지만 노출한다.
+    // poster_model은 400 detail로 문자열뿐 아니라 구조화된 객체
+    // ({error, message, ...})도 내려주므로 그대로 로그만 남긴다.
+    let detail = '';
+    try {
+      detail = (await response.json())?.detail;
+    } catch {
+      // 응답이 JSON이 아닐 수도 있음 — 무시
+    }
+    console.error(`[posterApi] ${path} 실패 (${response.status})`, detail);
+    throw new RealApiError(key);
+  }
+
+  return response.json();
+}
+
+/**
+ * POST /generate/drafts 실제 호출.
+ * 프론트 필드명 → 서버 필드명 매핑:
+ *   ratio(문자열)          → aspect_ratio
+ *   backgroundType('ai'|'flat') → background_mode('ai'|'gradient')
+ *     ('flat'을 'gradient'로 매핑 — mock의 mockBackground()가 flat일 때
+ *      type:'gradient'로 흉내내던 것과 동일한 선택. bg_colors를 생략하면
+ *      서버가 category 기본 팔레트를 쓴다.)
+ * image는 data: prefix가 있어도 서버가 알아서 떼어내므로 그대로 보낸다.
+ *
+ * 응답 DraftItem({id, image, seed, background})은 mock의 drafts[] 항목과
+ * 필드명이 완전히 같아 별도 매핑 없이 그대로 반환한다.
+ *
+ * ⚠ 알려진 제약(UI는 아직 이 조합을 막지 않음, 실서버 연동 시 주의):
+ *   - background_mode가 'gradient'/'solid'면 서버가 image를 요구한다.
+ *     "사진 없이 진행"(mode=text2img) + 3:4(상세페이지, flat 강제)를 같이
+ *     고르면 400이 난다 — poster_model/docs/api.md 참고.
+ *   - AI 배경(background_mode='ai')은 1:1/3:1만 지원, 3:4는 400.
+ *     DraftSelect.jsx가 3:4일 때 backgroundType을 'flat'으로 강제하므로
+ *     현재 UI 흐름에서는 이 조합 자체가 발생하지 않는다.
+ */
+async function realGenerateDrafts({
+  mode = 'text2img',
+  image = null,
+  prompt = '',
+  ratio = '1:1',
+  backgroundType = 'ai',
+  num_images = 3,
+} = {}) {
+  const body = {
+    mode,
+    image: image || undefined,
+    prompt: prompt || undefined,
+    num_images,
+    background_mode: backgroundType === 'flat' ? 'gradient' : 'ai',
+    aspect_ratio: ratio,
+  };
+  const res = await postJSON('/generate/drafts', body, 'drafts');
+  return { drafts: res.drafts || [], meta: res.meta };
+}
+
+/**
+ * POST /generate/refine 실제 호출.
+ * draft_image/original_image/background/prompt/text 모두 mock 호출부
+ * (PosterEditor.jsx)가 넘기는 그대로 서버 필드명과 일치한다 — 별도 매핑 불필요:
+ *   - background: realGenerateDrafts()가 돌려준 DraftItem.background를 그대로
+ *     echo하면 이미 {mode, colors, direction} 형태라 서버 BackgroundSpec과 맞는다.
+ *   - text: {headline, sub, x, y, headline_size, sub_size, style, font_id, align}
+ *     전부 서버 TextSpec 필드와 이름이 같다.
+ *   - aspect_ratio는 보내지 않는다 — 서버가 draft_image 크기에서 항상 추론하므로
+ *     생략해도 기존 동작과 동일하다(poster_model/docs/api.md 참고).
+ *
+ * 응답 { image, meta }도 mock과 최상위 필드명이 완전히 같다.
+ */
+async function realGenerateRefine({
+  draft_image,
+  original_image,
+  background,
+  prompt = '',
+  text = {},
+} = {}) {
+  const body = {
+    draft_image,
+    original_image: original_image || undefined,
+    background: background || undefined,
+    prompt: prompt || undefined,
+    text,
+  };
+  const res = await postJSON('/generate/refine', body, 'refine');
+  return { image: res.image, meta: res.meta };
+}
+
+// --- 컴포넌트가 실제로 import하는 진입점 -----------------------------------
+// DraftSelect.jsx/PosterEditor.jsx는 이 두 함수만 알면 되고, mock/real 분기는
+// VITE_USE_REAL_POSTER_API 값에 따라 여기서만 결정된다.
+
+/** POST /generate/drafts — VITE_USE_REAL_POSTER_API=true면 실제 서버, 아니면 mock. */
+export async function generateDrafts(args) {
+  return USE_REAL_API ? realGenerateDrafts(args) : mockGenerateDrafts(args);
+}
+
+/** POST /generate/refine — VITE_USE_REAL_POSTER_API=true면 실제 서버, 아니면 mock. */
+export async function generateRefine(args) {
+  return USE_REAL_API ? realGenerateRefine(args) : mockGenerateRefine(args);
 }
