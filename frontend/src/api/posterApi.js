@@ -46,9 +46,19 @@ function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 챗봇 spec(화면 A)에서 포스터용 "배경 설명" 프롬프트를 만든다. 화면 C/D가 공유. */
+/**
+ * 챗봇 spec(화면 A)에서 포스터용 "배경 설명" 프롬프트를 만든다. 화면 C/D가 공유.
+ *
+ * 강조점 필드명이 mock/real에서 다르다 — mock copyApi.js(suggestOptions)는
+ * spec.highlights(콤마로 합친 문자열)를 쓰고, 실제 백엔드(chatbot.py)는
+ * spec.keywords(배열)를 내려준다. 여기서 둘 다 흡수해서 항상 문자열로 맞춘다
+ * (실제 백엔드 필드명은 keywords가 우선 — 8/13 확인된 불일치 수정).
+ */
 export function buildPrompt(spec = {}) {
-  return [spec.tone, spec.product, spec.highlights].filter(Boolean).join(', ') || '포스터 배경';
+  const highlights = Array.isArray(spec.keywords)
+    ? spec.keywords.join(', ')
+    : spec.keywords || spec.highlights;
+  return [spec.tone, spec.product, highlights].filter(Boolean).join(', ') || '포스터 배경';
 }
 
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.
