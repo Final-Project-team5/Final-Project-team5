@@ -210,7 +210,10 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
   // UI 대신 전체 화면 체크리스트로 전환한다(로딩 A와 시각적으로 구분, 8/10 요구사항).
   if (submitting) {
     return (
-      <div className="poster-editor poster-editor--loading">
+      // key를 다르게 줘서 편집 화면 <div>와 서로 다른 노드로 취급되게 한다 —
+      // 그래야 React가 기존 노드를 재사용(업데이트)하지 않고 새로 마운트해서
+      // .poster-editor에 걸린 page-fade-in 애니메이션이 전환마다 다시 재생된다.
+      <div key="submitting" className="poster-editor poster-editor--loading">
         <LoadingChecklist
           variant="refine"
           title="고품질 이미지로 다듬고 있어요"
@@ -223,7 +226,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
   }
 
   return (
-    <div className="poster-editor">
+    <div key="editing" className="poster-editor">
       <h1 className="poster-editor__title">문구 위치와 크기를 정해주세요</h1>
       <p className="poster-editor__description">
         문구를 드래그해서 원하는 위치로 옮기고, 크기를 골라보세요. 서버에는 완성하기를 눌렀을 때 한 번만 전송돼요.
