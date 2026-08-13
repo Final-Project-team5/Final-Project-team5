@@ -1,4 +1,4 @@
-# AD메이커 — Frontend
+# 애드지니 — Frontend
 
 광고 콘텐츠 생성 서비스의 프론트엔드(React + Vite)입니다.
 

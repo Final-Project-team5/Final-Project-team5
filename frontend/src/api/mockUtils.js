@@ -88,6 +88,25 @@ const failRate = parseRateParam('mockFailRate');
 const DEDUPE_MS = 250;
 const pendingConsume = new Map();
 
+/**
+ * 로딩 A/B(LoadingChecklist) 전용 — 실제 응답이 최소 표시 시간보다 빨리 와도
+ * 체크리스트 3단계가 순서대로 다 보일 시간을 확보할 때까지 화면 전환을 미룬다.
+ * 응답이 최소 시간보다 늦게 오면 원래대로 응답을 그대로 기다린다(단축 없음).
+ * 성공/실패 어느 쪽이든 똑같이 최소 시간을 채운 뒤에야 결과가 반영되므로,
+ * 체크리스트가 반짝 떴다가 바로 에러로 바뀌는 것도 함께 막아준다.
+ */
+export function withMinDuration(promise, ms) {
+  const settled = promise.then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error }),
+  );
+  const wait = new Promise((resolve) => setTimeout(resolve, ms));
+  return Promise.all([settled, wait]).then(([result]) => {
+    if (result.ok) return result.value;
+    throw result.error;
+  });
+}
+
 /** mock 함수 안에서 응답을 만들기 전에 호출 — 실패 조건에 해당하면 던진다. */
 export function maybeFail(key) {
   if (failOnceKeys.has(key)) {

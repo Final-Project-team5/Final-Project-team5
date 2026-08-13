@@ -1,10 +1,11 @@
 .chat-flow {
   display: flex;
   flex-direction: column;
-  max-width: 640px;
+  max-width: 900px;
   margin: 0 auto;
   min-height: 100vh;
-  padding: 32px 24px 40px;
+  padding: 32px 16px 40px;
+  animation: page-fade-in 0.35s ease;
 }
 
 .chat-flow__header {
@@ -36,11 +37,20 @@
   transition: width 0.3s ease;
 }
 
+/* 대화 영역 전체를 카드로 감싸 배경과 구분한다. 반투명 흰 배경 + 블러로
+   유리질감을 주고, 얇은 연보라 테두리와 은은한 그림자로 마무리한다. */
 .chat-flow__thread {
   display: flex;
   flex-direction: column;
   gap: 14px;
   flex: 1;
+  padding: 24px;
+  border-radius: 20px;
+  border: 1px solid var(--color-primary-border);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
 }
 
 .chat-bubble {
@@ -52,11 +62,33 @@
 }
 
 .chat-bubble--bot {
-  align-self: flex-start;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
   color: var(--color-text);
+}
+
+/* 봇 말풍선 옆 마스코트 아바타 — 말풍선 왼쪽에 붙이되, 테두리/배경 없이
+   투명 배경 이미지 그대로 노출한다. 말풍선 세로 높이보다 살짝 크게 키워서
+   가운데 정렬로 나란히 둔다. */
+.chat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-row--bot {
+  align-self: flex-start;
+  max-width: 88%;
+}
+
+.chat-row--bot .chat-bubble {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chat-row__avatar {
+  flex: none;
 }
 
 .chat-bubble--user {
@@ -134,11 +166,16 @@
   font-size: 13.5px;
   font-weight: 600;
   color: var(--color-text);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
 }
 
 .chat-question__chip:hover:not(:disabled) {
   border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.chat-question__chip:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .chat-question__chip:disabled {
@@ -149,7 +186,7 @@
 .chat-question__chip--active {
   background: var(--color-primary-light);
   border-color: var(--color-primary);
-  color: var(--color-badge-text);
+  color: var(--color-primary-text);
 }
 
 .chat-question__chip--other {
@@ -186,16 +223,31 @@
 .chat-question__submit {
   padding: 9px 16px;
   border-radius: 10px;
-  background: var(--color-primary);
+  background: var(--gradient-cta);
   color: #fff;
   font-size: 13.5px;
   font-weight: 700;
   white-space: nowrap;
+  box-shadow: var(--shadow-btn);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+}
+
+.chat-question__submit:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-btn-hover);
+  filter: brightness(1.04);
+}
+
+.chat-question__submit:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-btn);
+  filter: brightness(0.98);
 }
 
 .chat-question__submit:disabled {
   opacity: 0.5;
   cursor: default;
+  box-shadow: none;
 }
 
 .chat-question__submit--block {

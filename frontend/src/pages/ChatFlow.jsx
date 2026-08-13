@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { INITIAL_QUESTION, TOTAL_STEPS, generateCopy, suggestOptions } from '../api/copyApi';
 import { toFriendlyMessage } from '../api/mockUtils';
 import ErrorNotice from '../components/ErrorNotice';
+import Mascot from '../components/Mascot';
 import './ChatFlow.css';
+
+// 챗봇 말풍선 옆 아바타 크기 — 말풍선 세로 높이보다 살짝 크게
+const CHAT_AVATAR_SIZE = 92;
 
 /**
  * 화면 A — 챗봇 진행 화면
@@ -180,10 +184,13 @@ function ChatFlow({ onComplete }) {
           />
         ))}
         {busy && (
-          <div className="chat-bubble chat-bubble--bot chat-bubble--typing" aria-live="polite">
-            <span />
-            <span />
-            <span />
+          <div className="chat-row chat-row--bot">
+            <Mascot expression="idle" size={CHAT_AVATAR_SIZE} className="chat-row__avatar" />
+            <div className="chat-bubble chat-bubble--bot chat-bubble--typing" aria-live="polite">
+              <span />
+              <span />
+              <span />
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
@@ -207,19 +214,25 @@ function ChatMessage({ message, busy, onAnswer, onPhotoConfirm }) {
 
   if (message.kind === 'question') {
     return (
-      <div className="chat-bubble chat-bubble--bot">
-        <div className="chat-bubble__text">{message.question}</div>
-        {!message.answered && <QuestionCard question={message} busy={busy} onAnswer={onAnswer} />}
+      <div className="chat-row chat-row--bot">
+        <Mascot expression="idle" size={CHAT_AVATAR_SIZE} className="chat-row__avatar" />
+        <div className="chat-bubble chat-bubble--bot">
+          <div className="chat-bubble__text">{message.question}</div>
+          {!message.answered && <QuestionCard question={message} busy={busy} onAnswer={onAnswer} />}
+        </div>
       </div>
     );
   }
 
   if (message.kind === 'photo') {
     return (
-      <div className="chat-bubble chat-bubble--bot">
-        <div className="chat-bubble__text">제품 사진이 있으신가요?</div>
-        <p className="chat-flow__hint">있으면 사진을 살려서, 없으면 새로 만들어드려요.</p>
-        {!message.resolved && <PhotoStep busy={busy} onConfirm={onPhotoConfirm} />}
+      <div className="chat-row chat-row--bot">
+        <Mascot expression="idle" size={CHAT_AVATAR_SIZE} className="chat-row__avatar" />
+        <div className="chat-bubble chat-bubble--bot">
+          <div className="chat-bubble__text">제품 사진이 있으신가요?</div>
+          <p className="chat-flow__hint">있으면 사진을 살려서, 없으면 새로 만들어드려요.</p>
+          {!message.resolved && <PhotoStep busy={busy} onConfirm={onPhotoConfirm} />}
+        </div>
       </div>
     );
   }

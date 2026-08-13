@@ -1,0 +1,95 @@
+.faq-page {
+  max-width: 680px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 48px 24px 40px;
+  animation: page-fade-in 0.35s ease;
+}
+
+.faq-page__title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.faq-page__description {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin: 10px 0 28px;
+  line-height: 1.5;
+}
+
+.faq-page__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.faq-page__item {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-fast);
+}
+
+.faq-page__item:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.faq-page__question {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  text-align: left;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  transition: background var(--transition-fast);
+}
+
+.faq-page__question:hover {
+  background: var(--color-bg);
+}
+
+.faq-page__chevron {
+  flex: none;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.faq-page__chevron--open {
+  transform: rotate(180deg);
+  color: var(--color-primary);
+}
+
+.faq-page__answer-wrap {
+  padding: 0 18px 18px;
+}
+
+.faq-page__answer {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+/* 답변과 관련된 화면을 크롭해서 보여주는 스크린샷 — 전체 화면이 아니라
+   해당 UI 요소만 캡처된 이미지라 실제 크기 그대로 두고 카드 폭에만 맞춘다. */
+.faq-page__answer-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+}

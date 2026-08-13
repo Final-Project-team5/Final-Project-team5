@@ -1,16 +1,45 @@
 :root {
-  --color-bg: oklch(97% 0.005 150);
+  /* 중립 컬러 — 배경/카드/텍스트는 흰색·연회색 기본, 채도 낮게 (색이 몰리지 않도록) */
+  --color-bg: oklch(97.5% 0.002 290);
   --color-surface: #fff;
-  --color-border: oklch(91% 0.01 150);
-  --color-border-soft: oklch(93% 0.01 150);
-  --color-text: oklch(20% 0.02 150);
-  --color-text-secondary: oklch(50% 0.02 150);
-  --color-text-muted: oklch(65% 0.01 150);
-  --color-primary: oklch(58% 0.14 150);
-  --color-primary-light: oklch(97% 0.02 150);
-  --color-primary-border: oklch(92% 0.02 150);
+  --color-border: oklch(90% 0.01 290);
+  --color-border-soft: oklch(93.5% 0.008 290);
+  --color-text: oklch(20% 0.01 290);
+  --color-text-secondary: oklch(48% 0.015 290);
+  --color-text-muted: oklch(64% 0.01 290);
+
+  /* 브랜드 메인 — 보라. 버튼/로고/강조 텍스트에 사용 */
+  --color-primary: #7b5fea;
+  --color-primary-light: #f1edfd;
+  --color-primary-border: #dcd2f8;
+  --color-primary-text: #5a3fc4;
+
+  /* 브랜드 서브 — 파랑. 보라와 함께 메인 축을 이룸 */
+  --color-secondary: #4d7fff;
+  --color-secondary-light: #eaf1ff;
+  --color-secondary-border: #cbddff;
+
+  /* 브랜드 포인트 — 핑크. 배지 하나·장식 요소 하나처럼 아주 좁은 영역에만 사용 */
+  --color-accent: #ff6fa8;
+  --color-accent-light: #ffeaf3;
+  --color-accent-border: #ffd2e4;
+
+  /* 그라데이션은 버튼/CTA·로고 같은 포인트 요소 전용. 그 외에는 위 단색 토큰을 그대로 사용 */
+  --gradient-cta: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  --gradient-logo: linear-gradient(135deg, var(--color-primary), var(--color-secondary) 55%, var(--color-accent));
+
+  /* 규제 배지(block/warn/pass) 전용 신호등 색 — 브랜드 컬러와 분리, 의미 전달을 위해 변경하지 않음 */
   --color-badge-bg: oklch(93% 0.05 150);
   --color-badge-text: oklch(40% 0.13 150);
+
+  /* 카드/버튼 그림자 톤 통일 — 화면마다 진하기가 들쭉날쭉하지 않도록 한 곳에서만 정의.
+     카드는 무채색 저채도 그림자, 버튼(그라데이션 CTA)은 보라 톤이 살짝 도는 그림자. */
+  --shadow-sm: 0 1px 4px rgba(17, 15, 30, 0.05);
+  --shadow-md: 0 4px 16px rgba(17, 15, 30, 0.07);
+  --shadow-btn: 0 2px 10px rgba(123, 95, 234, 0.22);
+  --shadow-btn-hover: 0 6px 18px rgba(123, 95, 234, 0.3);
+
+  --transition-fast: 0.15s ease;
 
   --font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, sans-serif;
 }
@@ -23,6 +52,13 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* 세로 스크롤바가 나타났다 사라지며 폭이 바뀌는 걸 막는다 — 화면마다 콘텐츠
+   높이가 달라 스크롤바 유무가 오갈 때, 가운데 정렬된 본문(.home, .chat-flow
+   등)이 옆으로 밀리는 레이아웃 시프트를 방지한다. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -44,4 +80,32 @@ button {
 input,
 textarea {
   font-family: inherit;
+}
+
+/* 화면 전환 시 은은한 fade-in — 각 화면 최상위 클래스(.home, .chat-flow 등)에서
+   재사용한다. React가 view를 바꿀 때 그 화면 컴포넌트가 새로 마운트되면서
+   자동으로 재생된다.
+   opacity만 사용한다 — translateY를 섞으면, min-height:100vh인 이 요소들이
+   애니메이션 도중 잠깐 뷰포트 아래로 밀려나면서 세로 스크롤바가 순간적으로
+   나타났다 사라지고, 그 폭 변화 때문에 가운데 정렬된 본문이 옆으로 살짝
+   튀는 레이아웃 시프트가 있었다. */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 모든 트랜지션/애니메이션에 대한 접근성 안전장치 — 과한 모션을 원치 않는
+   사용자에게는 즉시 상태만 바뀌게 한다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

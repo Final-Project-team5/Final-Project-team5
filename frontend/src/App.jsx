@@ -6,6 +6,7 @@ import CopyResult from './pages/CopyResult';
 import DraftSelect from './pages/DraftSelect';
 import PosterEditor from './pages/PosterEditor';
 import FinalResult from './pages/FinalResult';
+import FaqPage from './pages/FaqPage';
 import { buildPrompt } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
@@ -13,9 +14,15 @@ import './App.css';
 const REG_TIP_INTERVAL_MS = 4800;
 const REG_TIP_FADE_MS = 350;
 
+// URL과 view 상태를 맞추는 최소한의 매핑. 라우팅 라이브러리 없이 History API만으로
+// /faq 하나만 실제 주소를 갖게 한다 — 나머지 흐름 화면은 지금처럼 URL 변경 없이
+// view 상태로만 전환된다(서버가 stateless라 새로고침 시 흐름 state 자체가 유지되지
+// 않으므로, 그 화면들까지 새로고침 가능한 URL로 만드는 건 의미가 없다).
+const pathToView = (pathname) => (pathname === '/faq' ? 'faq' : 'home');
+
 function App() {
-  // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'final'
-  const [view, setView] = useState('home');
+  // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'final' | 'faq'
+  const [view, setView] = useState(() => pathToView(window.location.pathname));
   const [chatOutcome, setChatOutcome] = useState(null); // { spec, mode, productImage, result }
   const [confirmedCopy, setConfirmedCopy] = useState(null); // { headline, sub } — 화면 B에서 확정
   // { id, image, seed, background } — 화면 C에서 선택. 서버가 stateless라 image(base64)와
@@ -24,6 +31,30 @@ function App() {
   const [refineResult, setRefineResult] = useState(null); // 화면 D에서 완성한 최종 결과(mock)
   const [regTipIndex, setRegTipIndex] = useState(0);
   const [regTipVisible, setRegTipVisible] = useState(true);
+  // 사이드바 진행 스텝은 /faq를 보는 중에도 직전 흐름 단계를 그대로 보여줘야 하므로,
+  // faq가 아닌 마지막 view를 별도로 기억해둔다.
+  const [lastFlowView, setLastFlowView] = useState('home');
+
+  useEffect(() => {
+    if (view !== 'faq') setLastFlowView(view);
+  }, [view]);
+
+  // 브라우저 뒤로/앞으로 가기로 /faq ↔ 그 외 주소를 오갈 때도 view를 맞춘다.
+  // /faq가 아닌 쪽으로 돌아올 땐 무조건 'home'이 아니라 lastFlowView로 복원해야
+  // 흐름 중간(예: poster)에 FAQ를 봤다가 뒤로가기를 눌러도 그 자리로 돌아온다.
+  // (lastFlowView를 deps에 넣어 매번 최신값을 읽는 클로저로 다시 등록한다.)
+  useEffect(() => {
+    const onPopState = () => {
+      setView(window.location.pathname === '/faq' ? 'faq' : lastFlowView);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [lastFlowView]);
+
+  // 이미 같은 경로면 중복 history 엔트리를 쌓지 않는다.
+  const syncUrl = (path) => {
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  };
 
   // 사이드바 "오늘의 상식" 카드 페이드 인/아웃 순환
   useEffect(() => {
@@ -38,6 +69,7 @@ function App() {
   }, []);
 
   const goHome = () => {
+    syncUrl('/');
     setView('home');
     setChatOutcome(null);
     setConfirmedCopy(null);
@@ -45,11 +77,17 @@ function App() {
     setRefineResult(null);
   };
   const newFlow = () => {
+    syncUrl('/');
     setChatOutcome(null);
     setConfirmedCopy(null);
     setSelectedDraft(null);
     setRefineResult(null);
     setView('chat');
+  };
+  // FAQ는 흐름 상태를 건드리지 않는다 — 어느 화면에서 보든 그대로 돌아올 수 있게.
+  const goFaq = () => {
+    syncUrl('/faq');
+    setView('faq');
   };
   const handleChatComplete = (outcome) => {
     setChatOutcome(outcome);
@@ -75,11 +113,14 @@ function App() {
       <Sidebar
         regTip={REG_TIPS[regTipIndex]}
         regTipVisible={regTipVisible}
+        currentView={view === 'faq' ? lastFlowView : view}
         onGoHome={goHome}
         onNewFlow={newFlow}
+        onGoFaq={goFaq}
       />
       <main className="app__main">
         {view === 'home' && <Home onNewFlow={newFlow} />}
+        {view === 'faq' && <FaqPage />}
         {view === 'chat' && <ChatFlow onComplete={handleChatComplete} />}
         {view === 'result' && chatOutcome && (
           <CopyResult
