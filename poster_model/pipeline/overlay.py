@@ -7,8 +7,94 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import config
 
+# 외곽선 불투명도. 렌더러 구현 세부값이라 config가 아니라 여기에 둔다.
+# spacing OFF의 stroke_fill과 spacing ON의 stroke 레이어가 **같은 값**을 써야
+# 두 경로의 외곽선 농도가 같아진다.
+STROKE_ALPHA = 190
 
-def _split_long_word(draw, word: str, font, max_width: float) -> list[str]:
+
+# --------------------------------------------------------------- letter_spacing
+# letter_spacing 계약
+#     None  → legacy whole-string 경로 (draw.text 한 번)
+#     0     → legacy whole-string 경로
+#     > 0   → 커닝을 유지한 per-glyph 경로
+#
+# 0과 아주 작은 양수 사이에서 렌더 경로가 갈리는 불연속은 **의도된 기능 경계**다
+# (0 = 자간 OFF, 양수 = 자간 ON). 판정은 _use_spacing() 한 곳에서만 한다.
+
+def _use_spacing(letter_spacing) -> bool:
+    """요청값 기준으로 판정한다.
+
+    font_px를 곱한 결과가 아무리 작아도(예: 0.001 × 12px) 요청이 양수면 자간
+    경로를 탄다. 요청과 렌더 경로가 1:1로 대응해야 계약을 설명할 수 있다.
+    """
+    return letter_spacing is not None and letter_spacing > 0
+
+
+def _spacing_px(font_px, letter_spacing) -> float:
+    """자간 단위는 **font size 대비 비율**이다. 반올림하지 않는다.
+
+    font_px=100, letter_spacing=0.02 → 글자 사이 2px. 정수로 반올림하면 작은
+    폰트에서 비율이 계단식으로 무너지고, per-glyph 오프셋이 어차피 float이라
+    정수화할 이유가 없다. headline과 sub는 **각자의 font_px**로 계산한다 —
+    같은 비율이 두 블록에서 같은 시각 밀도를 만드는 것이 ratio를 쓰는 이유다.
+    """
+    if not _use_spacing(letter_spacing):
+        return 0.0
+    return float(font_px) * float(letter_spacing)
+
+
+def _advances(draw, text: str, font) -> list[float]:
+    """글자별 **문맥 advance**. 뒤 글자와의 커닝이 포함된다.
+
+        adv[j]   = textlength(text[j:j+2]) - textlength(text[j+1])   (j < n-1)
+        adv[n-1] = textlength(text[n-1])
+
+    글자를 하나씩 재서 더하면(=단순 advance 합) 커닝이 통째로 사라진다.
+    prefix 폭(textlength(text[:i]))을 쓰는 방식도 (i-1, i) 쌍의 커닝을 담지
+    못해 글자마다 한 쌍씩 밀린다. 문맥 advance는 쌍 커닝을 그대로 담는다.
+
+    **spacing OFF 경로에서는 호출되지 않는다.**
+    """
+    n = len(text)
+    if n == 0:
+        return []
+    if n == 1:
+        return [draw.textlength(text, font=font)]
+    out = [draw.textlength(text[j:j + 2], font=font)
+           - draw.textlength(text[j + 1], font=font) for j in range(n - 1)]
+    out.append(draw.textlength(text[-1], font=font))
+    return out
+
+
+def _text_width(draw, text: str, font, sp: float = 0.0) -> float:
+    """폭 계산의 **단일 진입점**. 줄바꿈·정렬·bar 폭·fit 판정이 모두 이걸 쓴다.
+
+    sp <= 0이면 draw.textlength()를 그대로 돌려준다. 그래서 자간을 쓰지 않는
+    기존 경로는 **정의상** 이전과 같은 값이 나온다.
+    글자 사이는 n-1개이므로 마지막 글자 뒤에는 자간이 붙지 않는다.
+    """
+    if not text:
+        return 0.0
+    if sp <= 0:
+        return draw.textlength(text, font=font)
+    return draw.textlength(text, font=font) + sp * (len(text) - 1)
+
+
+def _glyph_offsets(draw, text: str, font, sp: float = 0.0) -> list[float]:
+    """글자 i의 x 오프셋. 문맥 advance 누적 + 누적 자간.
+
+    _text_width와 같은 advance를 공유하므로 예측 폭과 실제 배치가 어긋나지 않는다.
+    """
+    offs, cur = [], 0.0
+    for j, adv in enumerate(_advances(draw, text, font)):
+        offs.append(cur + sp * j)
+        cur += adv
+    return offs
+
+
+def _split_long_word(draw, word: str, font, max_width: float,
+                     sp: float = 0.0) -> list[str]:
     """공백 없이 max_width보다 긴 한 덩어리를 글자 단위로만 쪼갠다(최후 수단).
 
     마지막 조각이 1글자만 남으면, 폭이 허용하는 한 이전 조각에서 한 글자를
@@ -16,7 +102,7 @@ def _split_long_word(draw, word: str, font, max_width: float) -> list[str]:
     """
     lines, cur = [], ""
     for ch in word:
-        if draw.textlength(cur + ch, font=font) <= max_width:
+        if _text_width(draw, cur + ch, font, sp) <= max_width:
             cur += ch
         else:
             if cur:
@@ -27,13 +113,14 @@ def _split_long_word(draw, word: str, font, max_width: float) -> list[str]:
 
     if len(lines) >= 2 and len(lines[-1]) == 1 and len(lines[-2]) > 1:
         candidate = lines[-2][-1] + lines[-1]
-        if draw.textlength(candidate, font=font) <= max_width:
+        if _text_width(draw, candidate, font, sp) <= max_width:
             lines[-2] = lines[-2][:-1]
             lines[-1] = candidate
     return lines
 
 
-def _wrap(draw, text: str, font, max_width: float) -> list[str]:
+def _wrap(draw, text: str, font, max_width: float,
+          sp: float = 0.0) -> list[str]:
     """공백 기준 어절 단위로 우선 줄바꿈하고, 한 어절이 max_width보다 길 때만
     글자 단위로 쪼갠다. 순수 글자 단위 분리는 "매일을 위한 클린 케 / 어"처럼
     단어 중간을 끊어 가독성을 해치므로 최후의 수단으로만 쓴다.
@@ -48,7 +135,7 @@ def _wrap(draw, text: str, font, max_width: float) -> list[str]:
     if "\n" in text:
         lines = []
         for segment in text.split("\n"):
-            lines.extend(_wrap(draw, segment, font, max_width))
+            lines.extend(_wrap(draw, segment, font, max_width, sp))
         return lines
 
     words = text.split(" ")
@@ -58,7 +145,7 @@ def _wrap(draw, text: str, font, max_width: float) -> list[str]:
         if not word:
             continue
         candidate = f"{cur} {word}" if cur else word
-        if draw.textlength(candidate, font=font) <= max_width:
+        if _text_width(draw, candidate, font, sp) <= max_width:
             cur = candidate
             continue
 
@@ -66,11 +153,11 @@ def _wrap(draw, text: str, font, max_width: float) -> list[str]:
             lines.append(cur)
             cur = ""
 
-        if draw.textlength(word, font=font) <= max_width:
+        if _text_width(draw, word, font, sp) <= max_width:
             cur = word
         else:
             # 어절 하나가 통째로 한 줄보다 긴 경우(영문 긴 단어 등)에만 글자 단위 분리
-            split = _split_long_word(draw, word, font, max_width)
+            split = _split_long_word(draw, word, font, max_width, sp)
             if split:
                 lines.extend(split[:-1])
                 cur = split[-1]
@@ -97,6 +184,7 @@ def render_text(img: Image.Image,
                 font_id: str | None = None,
                 stroke_width: int | None = None,
                 fill_color: tuple | None = None,
+                letter_spacing: float | None = None,
                 return_meta: bool = False) -> Image.Image:
     """이미지에 문구를 합성한다.
 
@@ -141,6 +229,11 @@ def render_text(img: Image.Image,
         fill_color: 텍스트 채움 색(RGBA 튜플). None이면 기존처럼 흰색(255,255,255,255).
             minimal_product처럼 흰색+굵은 외곽선 대신 배경과 대비되는 단색 텍스트가
             필요할 때 어두운 색 등을 직접 넘기면 된다.
+        letter_spacing: 자간. **font size 대비 비율**이다(0.02 = font_px의 2%).
+            None 또는 0이면 기존 whole-string 경로를 그대로 타므로 결과가
+            픽셀 단위로 같다. 양수면 커닝을 유지한 채 글자 사이만 벌리는
+            per-glyph 경로로 그린다. 줄바꿈·정렬·bar 폭도 같은 자간을 반영한다.
+            음수(자간 축소)는 아직 지원하지 않는다 — 0과 같이 취급된다.
         x, y: 0~1 정규화 좌표. 둘 다 주어져야 좌표 모드로 동작한다.
             x는 align 기준점(left=좌변, center=중심, right=우변),
             **y는 텍스트 블록의 중심**이다. 프론트 미리보기가 텍스트 박스 중심을
@@ -192,14 +285,21 @@ def render_text(img: Image.Image,
         sub_path = config.resolve_font_path("body")
 
     def _measure(hsize: int, ssize: int):
-        """주어진 폰트 크기로 줄바꿈/블록 목록/전체 높이를 계산한다."""
+        """주어진 폰트 크기로 줄바꿈/블록 목록/전체 높이를 계산한다.
+
+        블록 튜플에 자간(px)을 함께 담는다. headline과 sub는 폰트 크기가 다르고
+        자간이 크기 비례이므로 값이 서로 다르다. auto_fit이 크기를 바꾸면 자간도
+        같이 바뀌어야 해서 여기서 매번 다시 계산한다.
+        """
         f_head = ImageFont.truetype(head_path, max(hsize, 4))
         f_sub = ImageFont.truetype(sub_path, max(ssize, 4)) if sub else None
-        head_lines = _wrap(draw, headline, f_head, max_w)
-        sub_lines = _wrap(draw, sub, f_sub, max_w) if sub else []
-        blocks = [(t, f_head, int(hsize * 1.35)) for t in head_lines]
-        blocks += [(t, f_sub, int(ssize * 1.35)) for t in sub_lines]
-        total_h = sum(h for _, _, h in blocks) + (gap if sub_lines else 0)
+        sp_head = _spacing_px(hsize, letter_spacing)
+        sp_sub = _spacing_px(ssize, letter_spacing)
+        head_lines = _wrap(draw, headline, f_head, max_w, sp_head)
+        sub_lines = _wrap(draw, sub, f_sub, max_w, sp_sub) if sub else []
+        blocks = [(t, f_head, int(hsize * 1.35), sp_head) for t in head_lines]
+        blocks += [(t, f_sub, int(ssize * 1.35), sp_sub) for t in sub_lines]
+        total_h = sum(h for _, _, h, _ in blocks) + (gap if sub_lines else 0)
         return blocks, head_lines, sub_lines, total_h
 
     # 1차: 요청 크기 그대로 측정. coord_mode가 아닌 프리셋(center/bottom)의 y0 계산에도 필요하다.
@@ -260,8 +360,8 @@ def render_text(img: Image.Image,
             elif position != "top":
                 y0 = H - total_h - margin
 
-    def x_of(text, font):
-        tw = draw.textlength(text, font=font)
+    def x_of(text, font, sp: float = 0.0):
+        tw = _text_width(draw, text, font, sp)
         if coord_mode:
             xc = x * W
             if align == "left":
@@ -276,27 +376,56 @@ def render_text(img: Image.Image,
         return W - tw - margin
 
     if style == "bar":
-        widest = max(blocks, key=lambda b: draw.textlength(b[0], font=b[1]))
-        bw = draw.textlength(widest[0], font=widest[1])
-        bx = x_of(widest[0], widest[1])
+        # bar 폭도 같은 폭 함수를 쓴다 — 자간이 켜지면 바도 같이 넓어져야 한다.
+        widest = max(blocks, key=lambda b: _text_width(draw, b[0], b[1], b[3]))
+        bw = _text_width(draw, widest[0], widest[1], widest[3])
+        bx = x_of(widest[0], widest[1], widest[3])
         pad = int(unit * 0.027)
         draw.rounded_rectangle(
             [bx - pad, y0 - pad, bx + bw + pad, y0 + total_h + pad],
             radius=config.BAR_RADIUS,
             fill=(0, 0, 0, config.BAR_ALPHA))
 
+    spacing_on = _use_spacing(letter_spacing)
+    # 자간 ON + 외곽선일 때만 stroke를 별도 레이어에 모은다.
+    # 글자마다 반투명 stroke를 그리면 겹치는 자리가 짙어져 이음매가 보인다.
+    # 불투명으로 다 그린 뒤 레이어 알파를 한 번만 낮추면 legacy와 같은 농도가 된다.
+    stroke_layer = None
+    if spacing_on and style == "plain" and stroke:
+        stroke_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        stroke_draw = ImageDraw.Draw(stroke_layer)
+
     cy = y0
-    for i, (text, font, line_h) in enumerate(blocks):
-        xc = x_of(text, font)
-        if style == "plain":
-            draw.text((xc, cy), text, font=font, fill=fill,
-                      stroke_width=stroke,
-                      stroke_fill=(0, 0, 0, 190))
+    for i, (text, font, line_h, sp) in enumerate(blocks):
+        xc = x_of(text, font, sp)
+        if not spacing_on:
+            # ---- 기존 경로. primitive와 인자를 그대로 둔다 ----
+            if style == "plain":
+                draw.text((xc, cy), text, font=font, fill=fill,
+                          stroke_width=stroke,
+                          stroke_fill=(0, 0, 0, STROKE_ALPHA))
+            else:
+                draw.text((xc, cy), text, font=font, fill=fill)
         else:
-            draw.text((xc, cy), text, font=font, fill=fill)
+            # ---- 자간 경로. 글자 위치는 _text_width와 같은 advance를 쓴다 ----
+            for ch, off in zip(text, _glyph_offsets(draw, text, font, sp)):
+                if ch == " ":
+                    continue          # 공백은 그릴 것이 없다(자간은 이미 반영됨)
+                pos = (xc + off, cy)
+                if stroke_layer is not None:
+                    stroke_draw.text(pos, ch, font=font, fill=(0, 0, 0, 0),
+                                     stroke_width=stroke,
+                                     stroke_fill=(0, 0, 0, 255))
+                draw.text(pos, ch, font=font, fill=fill)
         cy += line_h
         if sub_lines and i == len(head_lines) - 1:
             cy += gap
+
+    if stroke_layer is not None:
+        alpha = stroke_layer.getchannel("A").point(
+            lambda v: v * STROKE_ALPHA // 255)
+        stroke_layer.putalpha(alpha)
+        overlay = Image.alpha_composite(stroke_layer, overlay)
 
     result = Image.alpha_composite(img, overlay).convert("RGB")
     if return_meta:
@@ -312,6 +441,8 @@ def render_text(img: Image.Image,
             "headline_font_role": None if font_id else headline_font_role,
             "stroke_width": stroke,
             "fill_color": fill,
+            # 요청값을 그대로 echo한다. None/0은 legacy 경로를 탔다는 뜻이다.
+            "letter_spacing": letter_spacing,
             "max_w_px": max_w,
             "requested_headline_size": headline_size,
             "requested_sub_size": sub_size,
