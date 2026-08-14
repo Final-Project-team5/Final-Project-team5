@@ -157,6 +157,8 @@ recognition_status:
 
 visible_features에는 색상, 형태, 패키지 등 눈으로 직접 보이는 특징만 넣으세요.
 visible_text에는 사진에서 실제로 읽을 수 있는 문자만 넣으세요.
+IMPORTANT: visible_features must describe only the advertised product itself. Exclude hands, people, skin, nails, background, props, and surrounding objects.
+IMPORTANT: visible_text must come only from the product or its packaging.
 읽히지 않으면 빈 배열로 두세요.
 
 JSON 외의 문장은 출력하지 마세요.
