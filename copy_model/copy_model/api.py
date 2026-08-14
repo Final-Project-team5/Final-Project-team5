@@ -14,6 +14,12 @@ from .chatbot import SuggestRequest, SuggestResponse, suggest_options
 from .generator import generate_copy
 from .regulation import ValidateRequest, ValidateResponse, validate_copy
 from .schemas import CopyRequest, CopyResponse
+from .vision import (
+    ProductVisionRequest,
+    ProductVisionResponse,
+    analyze_product_image,
+)
+from .vision_flow import ProductVisionAdvanceRequest, ProductVisionAdvanceResponse, advance_product_image
 
 app = FastAPI(title="광고 문구 생성 API", version="0.2.0")
 
@@ -68,6 +74,56 @@ def post_suggest_options(req: SuggestRequest) -> SuggestResponse:
         return suggest_options(req)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"선택지 생성 실패: {e}") from e
+
+
+@app.post(
+    "/vision/product/advance",
+    response_model=ProductVisionAdvanceResponse,
+)
+def post_vision_product_advance(
+    req: ProductVisionAdvanceRequest,
+) -> ProductVisionAdvanceResponse:
+    """Analyze the required product photo and safely advance fixed step 3."""
+    if not config.MOCK_MODE and not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured.",
+        )
+
+    try:
+        return advance_product_image(req)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Product Vision flow failed: {e}",
+        ) from e
+
+
+@app.post("/vision/product", response_model=ProductVisionResponse)
+def post_vision_product(req: ProductVisionRequest) -> ProductVisionResponse:
+    """Analyze a product image and return ProductContext for copy generation.
+
+    The frontend may send the Data URL produced by FileReader.readAsDataURL().
+
+    Deterministic next_action policy:
+    - auto_fill: clear recognition and category match
+    - confirm: ambiguous recognition or category mismatch
+    - reupload: invalid/non-product image
+    """
+    if not config.MOCK_MODE and not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured. "
+                   "Set .env or run with COPY_MOCK=1.",
+        )
+
+    try:
+        return analyze_product_image(req)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Product vision analysis failed: {e}",
+        ) from e
 
 
 @app.post("/validate/copy", response_model=ValidateResponse)
