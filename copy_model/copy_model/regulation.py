@@ -12,7 +12,6 @@ regulation_flags 로 자동 첨부됨 (LLM 검증은 별도 /validate/copy 호�
 
 TODO(고도화): AI허브 법률 DB 임베딩 + RAG 근거 제시
 """
-import json
 import re
 import time
 from typing import Optional
@@ -39,16 +38,29 @@ class ValidateRequest(BaseModel):
     headline: str
     sub: str = ""
     use_llm: bool = Field(
-        default=False, description="LLM 맥락 검증 + 대체 문구 제안 (API 비용 발생)")
+        default=False,
+        description="하이브리드 LLM 맥락 검증 (경계 케이스만 LLM 호출, API 비용 최소화)")
+    policy: str = Field(
+        default="broad",
+        description="라우팅 정책: broad(전수, 기본 — 팀 확정) | lexicon(어휘, 비용 절감 옵션)")
 
 
 class ValidateResponse(BaseModel):
-    safe: bool = Field(description="block 위반이 없으면 True")
+    safe: bool = Field(description="최종 등급이 block이 아니면 True")
     flags: list[RegulationFlag]
+    severity: str = Field(
+        default="safe",
+        description="최종 등급 block|warn|safe (하이브리드 반영, 신규 필드)")
+    rule_severity: str = Field(
+        default="safe", description="룰 1차 등급 (LLM 교정 전, 신규 필드)")
+    escalated: bool = Field(
+        default=False, description="경계 케이스로 판단되어 LLM 2차 검증을 거쳤는지")
+    escalation_reason: Optional[str] = Field(
+        default=None, description="에스컬레이션 사유 (라우팅 판단 근거)")
     llm_opinion: Optional[str] = Field(
-        default=None, description="LLM 맥락 판단 (use_llm=true 시)")
+        default=None, description="LLM 맥락 판단 근거 (use_llm=true, 에스컬레이션 시)")
     suggestion: Optional[dict] = Field(
-        default=None, description="안전한 대체 문구 제안 {headline, sub}")
+        default=None, description="안전한 대체 문구 제안 {headline, sub} (차기: 프론트 협의 후)")
     meta: dict
 
 
@@ -76,6 +88,8 @@ def check_rules(text: str, category: str) -> list[RegulationFlag]:
     return flags
 
 
+# [구버전 - 미사용] 하이브리드 전환으로 대체됨. 대체문구 rewrite 기능을
+# 차기에 붙일 때 프롬프트 재료로 남겨둠 (프론트 협의 후 결정).
 _LLM_VALIDATE_PROMPT = """당신은 한국 광고 규제(표시광고법, 식품표시광고법, 화장품법) 전문 심의관입니다.
 아래 광고 문구가 규제 위반 소지가 있는지 판단하고, 위반 소지가 있다면
 의미를 최대한 유지하면서 안전한 대체 문구를 제안하세요.
@@ -94,42 +108,58 @@ _LLM_VALIDATE_PROMPT = """당신은 한국 광고 규제(표시광고법, 식품
 
 
 def validate_copy(req: ValidateRequest) -> ValidateResponse:
+    """룰 1차 + (use_llm=true 시) 하이브리드 LLM 2차 검증.
+
+    하이브리드 (팀 확정 정책, 실측 근거 docs/설계_LLM검증레이어.md):
+      - 라우팅: broad 기본(데모 정확도 우선). 경계 케이스만 LLM 호출.
+      - 신뢰: asymmetric — 등급 상향은 즉시 반영, 하향은 근거 있을 때만.
+      - 실측: HOLDOUT 90.6%→100%, 파손(2차 오판) 0건.
+    구버전 단발 LLM opinion 경로는 하이브리드로 대체됨. LLM 대체문구
+    rewrite는 프론트 협의 후 차기(suggestion 필드는 유지).
+    """
     t0 = time.time()
     full_text = f"{req.headline} {req.sub}"
     flags = check_rules(full_text, req.category)
-    safe = not any(f.severity == "block" for f in flags)
+    rule_sev = ("block" if any(f.severity == "block" for f in flags)
+                else ("warn" if flags else "safe"))
+    severity = rule_sev
 
+    escalated = False
+    esc_reason = None
     llm_opinion = None
     suggestion = None
 
     if req.use_llm:
-        if config.MOCK_MODE:
-            llm_opinion = "(mock) 룰 검사 외 추가 위반 소지 없음."
-            suggestion = {"headline": req.headline, "sub": req.sub}
-        else:
-            from openai import OpenAI
-            client = OpenAI(api_key=config.OPENAI_API_KEY)
-            prompt = _LLM_VALIDATE_PROMPT.format(
-                category=req.category, headline=req.headline, sub=req.sub,
-                rule_flags=", ".join(f.matched for f in flags) or "(없음)",
-                headline_max=config.HEADLINE_MAX, sub_max=config.SUB_MAX,
-            )
-            resp = client.chat.completions.create(
-                model=config.MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.3,
-            )
-            data = json.loads(resp.choices[0].message.content)
-            llm_opinion = str(data.get("opinion", ""))
-            suggestion = data.get("suggestion")
-            if data.get("risky"):
-                safe = False
+        # 순환 import 방지를 위해 함수 내부에서 import
+        from .regulation_llm import (
+            escalation_decision, build_llm_judge, apply_trust)
+        decision = escalation_decision(
+            flags, full_text, req.category, policy=req.policy)
+        escalated = decision.escalate
+        esc_reason = decision.reason
+        if decision.escalate:
+            if config.MOCK_MODE:
+                llm_opinion = "(mock) 맥락 확인 결과 룰 판정 유지."
+                suggestion = {"headline": req.headline, "sub": req.sub}
+            else:
+                from .chatbot import _client_chat
+                judge = build_llm_judge(
+                    lambda msgs: _client_chat(msgs, temperature=0))
+                verdict = judge(req.headline, req.sub, req.category,
+                                rule_sev, decision.direction)
+                severity = apply_trust(rule_sev, verdict, "asymmetric")
+                llm_opinion = verdict.reason
+
+    safe = severity != "block"
 
     return ValidateResponse(
         safe=safe, flags=flags,
+        severity=severity, rule_severity=rule_sev,
+        escalated=escalated, escalation_reason=esc_reason,
         llm_opinion=llm_opinion, suggestion=suggestion,
         meta={"elapsed": round(time.time() - t0, 3),
-              "model": "rules" if not req.use_llm else config.MODEL_NAME,
+              "model": "rules" if not (req.use_llm and escalated) else config.MODEL_NAME,
+              "policy": req.policy if req.use_llm else None,
+              "trust": "asymmetric" if req.use_llm else None,
               "mock": config.MOCK_MODE},
     )

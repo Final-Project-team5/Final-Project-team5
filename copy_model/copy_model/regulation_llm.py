@@ -112,6 +112,25 @@ class LLMVerdict:
     reason: str
 
 
+_SEV_RANK = {"safe": 0, "warn": 1, "block": 2}
+
+
+def apply_trust(rule_severity: str, verdict: "LLMVerdict",
+                trust: str = "asymmetric") -> str:
+    """신뢰 정책에 따라 최종 등급 결정 (실측에서 파손 0 확인된 정책).
+
+    - full: LLM 판정 그대로.
+    - asymmetric: 엄격해지는 방향(등급 상향)은 즉시 수용, 완화(하향)는
+      근거(reason)가 있을 때만 수용. 규제 도구는 미탐 비용이 커서 LLM
+      오판으로 규제가 뚫리는 경로를 정책으로 차단한다.
+    """
+    if trust == "full":
+        return verdict.severity
+    if _SEV_RANK[verdict.severity] >= _SEV_RANK[rule_severity]:
+        return verdict.severity
+    return verdict.severity if verdict.reason.strip() else rule_severity
+
+
 Judge = Callable[[str, str, str, str, Optional[str]], LLMVerdict]
 
 
