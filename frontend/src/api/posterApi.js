@@ -49,22 +49,14 @@ function delay(ms = MOCK_DELAY_MS) {
 /**
  * 챗봇 spec(화면 A)에서 포스터용 "배경 설명" 프롬프트를 만든다. 화면 C/D가 공유.
  *
- * 강조점 필드명이 mock/real에서 다르다 — mock copyApi.js(suggestOptions)는
- * spec.highlights(콤마로 합친 문자열)를 쓰고, 실제 백엔드(chatbot.py)는
- * spec.keywords(배열)를 내려준다. 여기서 둘 다 흡수해서 항상 문자열로 맞춘다
- * (실제 백엔드 필드명은 keywords가 우선 — 8/13 확인된 불일치 수정).
- *
- * spec.request(6단계 "추가 요청" 자유입력)도 이어붙인다 — 이전에는 buildPrompt()가
- * 아예 참조하지 않아서 6단계에 뭘 입력해도 포스터 prompt에 반영되지 않았다
- * (8/13 확인된 누락, 이번에 추가).
+ * spec.keywords(배열, 강조점)와 spec.request(자유입력 추가요청)를 함께 이어붙인다
+ * — mock copyApi.js도 8/14 챗봇 개편으로 실제 백엔드(chatbot.py)와 동일하게
+ * spec.keywords(배열)/spec.request(문자열) 필드명을 쓰도록 정리됐다(예전 mock 전용
+ * spec.highlights/spec.extra는 더 이상 만들어지지 않는다).
  */
 export function buildPrompt(spec = {}) {
-  const highlights = Array.isArray(spec.keywords)
-    ? spec.keywords.join(', ')
-    : spec.keywords || spec.highlights;
-  return (
-    [spec.tone, spec.product, highlights, spec.request].filter(Boolean).join(', ') || '포스터 배경'
-  );
+  const keywords = Array.isArray(spec.keywords) ? spec.keywords.join(', ') : spec.keywords;
+  return [spec.tone, spec.product, keywords, spec.request].filter(Boolean).join(', ') || '포스터 배경';
 }
 
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.

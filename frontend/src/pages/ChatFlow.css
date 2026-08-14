@@ -274,3 +274,39 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* 규제 배지의 block 톤(oklch(42% 0.16 25))과 같은 계열 — CopyResult.css 참고 */
+.chat-photo__reupload-note {
+  font-size: 13px;
+  font-weight: 600;
+  color: oklch(42% 0.16 25);
+  margin: 0;
+}
+
+.chat-photo__error-text {
+  font-size: 12.5px;
+  color: oklch(42% 0.16 25);
+  margin: 0;
+}
+
+/* Vision 인식 결과 확인/수정 UX (8/14 확정) — "제품을 이렇게 인식했어요!" +
+   [맞아요]/[수정할게요]. 결과가 확정되기 전에는 다음 단계로 넘어가지 않는다. */
+.chat-vision-result,
+.chat-vision-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-vision-result__label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.chat-vision-result__name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-primary-text);
+  margin: 0;
+}
