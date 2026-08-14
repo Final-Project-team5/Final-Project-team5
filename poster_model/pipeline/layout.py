@@ -143,6 +143,17 @@ def _component_stats(product_mask):
     width는 add_ground_shadow와 동일하게 x_max - x_min (+1 아님)을 쓴다.
     면적 필터는 여기서 적용하지 않는다. 필터 기준(캔버스 면적 대비)이 배율에
     따라 달라지므로 배율마다 다시 판정해야 한다.
+
+    ## 두 가지 폭 규약이 함께 있다 — 섞으면 안 된다
+
+    width  = x_max - x_min          그림자 타원 폭 계산용. **기존 규약 그대로**
+                                    add_ground_shadow와 1px까지 맞춰져 있다
+    box    = (x, y, x + w, y + h)   Layout Validator용 bbox.
+                                    right/bottom **exclusive**이며 cv2의
+                                    WIDTH/HEIGHT가 이미 exclusive 폭이라 +1이 없다
+
+    box는 **소스 좌표계**다. 캔버스 좌표로 옮긴 값은 validate_placement가
+    component_boxes로 돌려준다.
     """
     binary = (np.array(product_mask.convert("L")) > 128).astype(np.uint8)
     ys, xs = np.where(binary > 0)
@@ -159,7 +170,9 @@ def _component_stats(product_mask):
                             int(stats[i, cv2.CC_STAT_AREA]))
         comps.append({"area": area, "width": w - 1,
                       "rel_cx": (x + x + w - 1) / 2 - bx0,
-                      "rel_y_max": (y + h - 1) - by0})
+                      "rel_y_max": (y + h - 1) - by0,
+                      "box": (float(x), float(y),
+                              float(x + w), float(y + h))})
     return comps, (bx0, by0, bx1, by1)
 
 
@@ -312,7 +325,13 @@ def validate_placement(masks, canvas_wh, placement: Placement,
 
     Returns:
         {"ok", "product_box", "footprint", "canvas_clipped",
-         "region_overflow", "reasons"}
+         "region_overflow", "reasons", "component_boxes"}
+
+        component_boxes는 연결요소별 bbox를 **product_box와 같은 캔버스 좌표계**로
+        옮긴 값이다((left, top, right, bottom), right/bottom exclusive).
+        면적 필터를 적용하지 않으므로 작은 덩어리도 그대로 들어 있다 — 그림자를
+        그릴지 정하는 기준(SHADOW_MIN_AREA_RATIO)과는 목적이 다르기 때문이다.
+        합집합의 bbox는 product_box와 일치한다.
     """
     W, H = _as_wh(canvas_wh)
     comps, (bx0, by0, bx1, by1) = _component_stats(masks.product)
@@ -324,6 +343,12 @@ def validate_placement(masks, canvas_wh, placement: Placement,
     fx0, fy0, fx1, fy1 = _footprint_extent(comps, f, bw, bh, (W, H))
     fp = (dx + fx0, dy + fy0, dx + fx1, dy + fy1)
     pb = (dx, dy, dx + bw * f, dy + bh * f)
+
+    # 소스 좌표 → 캔버스 좌표. product_box와 **같은 변환**을 써야 기준이 맞는다
+    #   (px, py) -> (dx + (px - bx0) * f,  dy + (py - by0) * f)
+    cbs = [(dx + (c["box"][0] - bx0) * f, dy + (c["box"][1] - by0) * f,
+            dx + (c["box"][2] - bx0) * f, dy + (c["box"][3] - by0) * f)
+           for c in comps]
 
     reasons = []
     if pb[0] < 0 or pb[1] < 0 or pb[2] > W or pb[3] > H:
@@ -341,7 +366,7 @@ def validate_placement(masks, canvas_wh, placement: Placement,
 
     result = {"ok": not clipped, "product_box": pb, "footprint": fp,
               "canvas_clipped": clipped, "region_overflow": overflow,
-              "reasons": reasons}
+              "reasons": reasons, "component_boxes": cbs}
     if strict and clipped:
         raise LayoutRejection(
             "placement_unsafe",

@@ -319,9 +319,18 @@ for name in ["FONTS", "FONT_FALLBACK_ROLE", "resolve_font_path",
     check(f"{name} 무변경", name in bdefs and bdefs[name] == cdefs.get(name))
 check("기존 정의가 사라지지 않음", set(bdefs) <= set(cdefs),
       f"{sorted(set(bdefs) - set(cdefs))}")
-check("추가된 것은 font_id 관련뿐",
-      set(cdefs) - set(bdefs) == {"FONT_IDS", "FontRejection",
-                                  "available_font_ids", "resolve_font_id_path"},
+# 이 baseline은 font_id(A6) 직전 스냅샷이라, 이후 단계에서 config에 추가되는
+# 상수도 여기 잡힌다. 느슨하게 풀지 않고 **어느 단계가 무엇을 추가했는지**를
+# 명시해 정확 집합으로 유지한다.
+A6_FONT_ID = {"FONT_IDS", "FontRejection",
+              "available_font_ids", "resolve_font_id_path"}
+A2_ROTATION = {"ROTATION_MAX_ABS_DEG",              # 허용 회전 범위 ±20
+               "SHADOW_CONTACT_BAND_RATIO",         # 회전 시 접지 band 두께
+               "SHADOW_CONTACT_PCT",                # band 내 x 백분위수
+               "SHADOW_CONTACT_MIN_WIDTH_RATIO",    # 접지 폭 하한
+               "SHADOW_CONTACT_MAX_SHIFT_RATIO"}    # 접지 중심 이동 상한
+check("추가된 것은 font_id(A6) / rotation(A2) 관련뿐",
+      set(cdefs) - set(bdefs) == A6_FONT_ID | A2_ROTATION,
       f"{sorted(set(cdefs) - set(bdefs))}")
 
 

@@ -2,6 +2,7 @@
 
 import time
 
+import numpy as np
 import torch
 from PIL import Image
 
@@ -9,18 +10,102 @@ from . import config
 from . import layout
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
                       make_masks, place_product_on_canvas, prepare_image,
-                      render_flat_background, resolve_background)
+                      render_flat_background, resolve_background, rotate_product)
 
 _pipes = {}
 
 
+def _bbox_center_norm(product_mask, size_wh):
+    """제품 bbox 중심의 정규화 좌표. as_public()의 x/y와 같은 규약이다."""
+    W, H = size_wh
+    a = np.array(product_mask.convert("L")) > 128
+    ys, xs = np.where(a)
+    if len(xs) == 0:
+        raise ValueError("제품 마스크가 비어 있습니다.")
+    bw, bh = int(xs.max()) - int(xs.min()) + 1, int(ys.max()) - int(ys.min()) + 1
+    return (int(xs.min()) + bw / 2) / W, (int(ys.min()) + bh / 2) / H
+
+
+def _place_rotated(base, masks, canvas_wh, cx_n, cy_n):
+    """expand로 커진 프레임을 **원래 캔버스로 되돌린다.** 중심을 유지한다.
+
+    1:1 AI 경로에는 placement 단계가 없어서 base를 그대로 diffusion에 넣는다.
+    expand로 프레임이 커지면 출력 크기까지 달라지므로, 회전 경로에서만 여기서
+    캔버스를 원복한다.
+
+    배율은 **필요할 때만 줄인다.** 1.0으로 들어가면 그대로 쓰고, 회전으로 커진
+    bbox가 캔버스를 벗어날 때만 이분 탐색으로 낮춘다. 확대는 하지 않는다.
+    끝까지 들어가지 않으면 strict 검증이 거부한다(조용히 자르지 않는다).
+    """
+    def attempt(sf):
+        p = layout.compute_placement(masks, canvas_wh, None,
+                                     {"x": cx_n, "y": cy_n, "scale_factor": sf})
+        return p, layout.validate_placement(masks, canvas_wh, p,
+                                            strict=False)["ok"]
+
+    place, ok = attempt(1.0)
+    if not ok:
+        lo, hi = 0.05, 1.0
+        for _ in range(16):
+            mid = (lo + hi) / 2
+            cand, cand_ok = attempt(mid)
+            if cand_ok:
+                place, lo = cand, mid
+            else:
+                hi = mid
+    layout.validate_placement(masks, canvas_wh, place, strict=True)
+    return place_product_on_canvas(base, masks, canvas_wh, **place.as_kwargs())
+
+
+def _prepare(src, size, apply_blur_margin: bool = True,
+             rotation_deg: float = 0.0, fit_canvas=None):
+    """prepare_image + (필요할 때만) 제품 회전.
+
+    **rotation_deg == 0이면 prepare_image 결과를 그대로 돌려준다.** 회전 함수를
+    거치지 않으므로 기존 경로와 픽셀 단위로 같다.
+
+    회전이 있을 때만 fit="expand"를 **여기서 명시**한다. rotate_product 자체의
+    기본값(source)은 바꾸지 않는다 — 전역 기본 동작을 건드리지 않기 위해서다.
+    expand가 필요한 이유는 3:1/3:4가 blur margin을 끄기 때문에 제품이 소스
+    프레임을 꽉 채운 채 회전하게 되고, 최종 캔버스에는 자리가 있는데도 거부되기
+    때문이다.
+
+    Args:
+        fit_canvas: 지정하면 회전 후 그 캔버스로 되돌린다(중심 유지).
+            **뒤에 placement 단계가 없는 경로(1:1 AI)만 지정한다.**
+            3:1/3:4와 flat 경로는 이후 resolve_placement가 회전된 마스크를
+            다시 재서 배치하므로 지정하지 않는다 — 여기서 되돌리면 리샘플이
+            두 번 일어난다.
+    """
+    base, masks, mode = prepare_image(src, size,
+                                      apply_blur_margin=apply_blur_margin)
+    if rotation_deg:
+        # 회전 **전** 중심을 기록해 둔다. expand로 프레임이 커지면 같은 픽셀
+        # 좌표라도 정규화 값이 달라지기 때문이다.
+        cx_n, cy_n = _bbox_center_norm(masks.product, base.size)
+        base, masks = rotate_product(base, masks, rotation_deg, fit="expand")
+        if fit_canvas is not None:
+            base, masks = _place_rotated(base, masks, fit_canvas, cx_n, cy_n)
+    return base, masks, mode
+
+
 def _load(kind: str, task: str, tiling: bool = True):
-    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img'.
+    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img' | 'img2img'.
 
     tiling=False면 VAE tiling을 끈 **별도 인스턴스**를 따로 캐시한다.
     같은 객체의 tiling을 요청마다 켰다 껐다 하면 동시 요청이 서로 간섭하므로
     상태를 토글하지 않고 인스턴스를 나눈다. 기본값이 True라 기존 호출부는
     동작이 그대로다.
+
+    'img2img'는 refine(original=None) 경로가 쓰는 SDXL img2img다. 그 경로는
+    아래에서 `_pipes[f"{REFINE_MODEL}_img2img"]`를 직접 만들어 쓰는데, 여기서
+    만드는 키·객체가 그것과 **완전히 같도록** 맞춰 두었다. 그래야 warmup에서
+    미리 올려두면 요청 경로가 그대로 캐시를 타고, 요청 경로 코드는 손대지
+    않아도 된다.
+
+        키       f"{kind}_{task}"  →  "sdxl_img2img"      (기존과 동일)
+        repo     MODELS[kind]["text2img"]                 (img2img 항목이 없다)
+        offload  enable_model_cpu_offload + slicing + tiling  (기존과 동일)
     """
     key = f"{kind}_{task}" if tiling else f"{kind}_{task}_notile"
     if key in _pipes:
@@ -28,6 +113,7 @@ def _load(kind: str, task: str, tiling: bool = True):
 
     from diffusers import (StableDiffusionInpaintPipeline,
                            StableDiffusionPipeline,
+                           StableDiffusionXLImg2ImgPipeline,
                            StableDiffusionXLInpaintPipeline,
                            StableDiffusionXLPipeline)
 
@@ -37,6 +123,7 @@ def _load(kind: str, task: str, tiling: bool = True):
         ("sd15", "text2img"): StableDiffusionPipeline,
         ("sdxl", "inpaint"): StableDiffusionXLInpaintPipeline,
         ("sdxl", "text2img"): StableDiffusionXLPipeline,
+        ("sdxl", "img2img"): StableDiffusionXLImg2ImgPipeline,
     }[(kind, task)]
 
     kwargs = {"torch_dtype": torch.float16}
@@ -45,7 +132,10 @@ def _load(kind: str, task: str, tiling: bool = True):
     if kind == "sd15":
         kwargs["safety_checker"] = None
 
-    pipe = cls.from_pretrained(spec[task], **kwargs)
+    # MODELS에는 img2img 항목이 없다. img2img는 text2img 가중치를 그대로 쓴다
+    # (refine의 기존 인라인 로딩과 같은 repo).
+    repo = spec["text2img"] if task == "img2img" else spec[task]
+    pipe = cls.from_pretrained(repo, **kwargs)
 
     if config.USE_CPU_OFFLOAD:
         pipe.enable_model_cpu_offload()
@@ -60,11 +150,58 @@ def _load(kind: str, task: str, tiling: bool = True):
 
 
 def warmup():
-    """서버 시작 시 호출. 요청마다 로딩되는 것을 방지한다."""
+    """서버 시작 시 호출. 요청마다 로딩되는 것을 방지한다.
+
+    실제 요청이 타는 _load 조합을 전부 덮는다. 아래 두 개가 빠져 있어서
+    해당 경로의 **첫 요청**이 모델 로딩 시간을 그대로 물고 있었다.
+
+        sd15_inpaint_notile   3:1 draft            _load(DRAFT, "inpaint", tiling=False)
+        sdxl_img2img          refine(original=None) 서비스형 T2I 시안의 refine
+
+    캐시 키가 요청 경로와 같아야 의미가 있다. 요청 경로의 인자를 그대로 쓴다.
+
+        _ai_nonsquare_drafts   _load(config.DRAFT_MODEL, "inpaint", tiling=False)
+        refine(original=None)  _pipes[f"{config.REFINE_MODEL}_img2img"]
+                               → _load(config.REFINE_MODEL, "img2img") 와 같은 키
+
+    SDXL 계열은 KEEP_BOTH_LOADED 아래 둔다. img2img 도 별도 SDXL 전체를
+    올리므로(가중치를 공유하지 않는다) 같은 플래그로 묶는 것이 일관된다.
+
+    ## sdxl_img2img 만 실제 추론까지 한 번 돌린다
+
+    _load 는 파이프라인 객체를 만들 뿐이라, 그 뒤에도 **첫 추론**에 큰 비용이
+    남았다. GCP(L4) 실측:
+
+        첫 refine   73.48s  →  11.67s      기동 시 4 step 추론 1회를 넣었을 때
+
+    총 시간이 주는 것이 아니라 **사용자가 기다리는 자리에서 서버 기동으로
+    옮기는 것**이다. systemd 로 상시 실행하는 구조라 그쪽이 맞다.
+
+    다른 파이프라인에는 넣지 않는다. draft(SD1.5) 쪽 first-call 비용은 약
+    2.5초로 작아 기동 시간을 늘릴 만한 이득이 없었다.
+
+    step 수 · strength 는 실험에서 검증된 값을 그대로 쓴다(4 step / 0.35).
+    **요청 경로의 REFINE_STEPS / REFINE_STRENGTH 는 건드리지 않는다.**
+    여기서 만든 이미지는 버린다.
+
+    이 추론 한 번만 fail-open 이다. 성능 최적화지 기동 조건이 아니므로,
+    실패해도 서버는 뜨고 첫 요청만 느려진다. **_load 는 감싸지 않는다** —
+    모델을 못 올리는 것은 최적화 실패가 아니라 기동 실패이므로 그대로 올린다.
+    """
     _load(config.DRAFT_MODEL, "inpaint")
     _load(config.DRAFT_MODEL, "text2img")
+    _load(config.DRAFT_MODEL, "inpaint", tiling=False)
     if config.KEEP_BOTH_LOADED:
         _load(config.REFINE_MODEL, "inpaint")
+        pipe = _load(config.REFINE_MODEL, "img2img")
+        size = config.MODELS[config.REFINE_MODEL]["size"]
+        try:
+            pipe(prompt="warmup",
+                 image=Image.new("RGB", (size, size), (255, 255, 255)),
+                 strength=0.35, num_inference_steps=4)
+        except Exception as e:      # fail-open. 첫 요청이 느려질 뿐이다
+            print(f"[warmup] sdxl_img2img 추론 warmup 실패 — 무시하고 계속합니다: "
+                  f"{type(e).__name__}: {e}")
 
 
 def unload(kind: str = None):
@@ -88,7 +225,8 @@ def resolve_prompt(prompt: str = None, category: str = None) -> str:
 
 def _flat_background_drafts(image, category, num_images,
                             background_mode, bg_colors, gradient_direction,
-                            aspect_ratio=None, placement_override=None) -> dict:
+                            aspect_ratio=None, placement_override=None,
+                            rotation_deg: float = 0.0) -> dict:
     """background_mode가 solid/gradient일 때: diffusion을 완전히 생략하고
     PIL로만 배경을 채운 뒤 기존 그림자/원본 합성 로직을 그대로 재사용한다.
 
@@ -108,7 +246,8 @@ def _flat_background_drafts(image, category, num_images,
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     started = time.time()
 
-    base, masks, mode = prepare_image(image, size, apply_blur_margin=use_margin)
+    base, masks, mode = _prepare(image, size, apply_blur_margin=use_margin,
+                                 rotation_deg=rotation_deg)
     place, place_public = layout.resolve_placement(masks, canvas, aspect_ratio,
                                                    placement_override)
     base, masks = place_product_on_canvas(base, masks, canvas, **place.as_kwargs())
@@ -118,7 +257,8 @@ def _flat_background_drafts(image, category, num_images,
     images = []
     for spec in bg_specs:
         flat = render_flat_background(canvas, spec["colors"], spec.get("direction"))
-        shadowed = add_ground_shadow(flat, masks.product)
+        shadowed = add_ground_shadow(flat, masks.product,
+                                     rotation_deg=rotation_deg)
         images.append(composite_product(base, shadowed, masks.product))
 
     return {
@@ -161,7 +301,7 @@ def _place_both(base, masks, canvas_wh, gen_wh, ratio):
 
 
 def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                         aspect_ratio) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
     """비정사각 AI draft (현재 3:1만).
 
     기존 1:1 경로는 건드리지 않고 별도 함수로 둔다. AI는 GPU가 필요해 픽셀 단위
@@ -183,7 +323,8 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     gens = [torch.Generator("cuda").manual_seed(s) for s in seeds]
     started = time.time()
 
-    base, masks, mode = prepare_image(image, size, apply_blur_margin=use_margin)
+    base, masks, mode = _prepare(image, size, apply_blur_margin=use_margin,
+                                 rotation_deg=rotation_deg)
     (base_cv, masks_cv), (base_gen, masks_gen), public = _place_both(
         base, masks, canvas, gen, aspect_ratio)
 
@@ -203,7 +344,8 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     if tuple(gen) != tuple(canvas):
         outs = [o.resize(canvas, Image.LANCZOS) for o in outs]
     # 그림자·합성은 항상 최종 캔버스 해상도에서 (1:1 경로와 같은 순서)
-    shadowed = [add_ground_shadow(o, masks_cv.product) for o in outs]
+    shadowed = [add_ground_shadow(o, masks_cv.product,
+                                  rotation_deg=rotation_deg) for o in outs]
     images = [composite_product(base_cv, o, masks_cv.product) for o in shadowed]
 
     return {
@@ -225,7 +367,7 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
 
 
 def _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                         aspect_ratio) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
     """비정사각 AI refine (현재 3:1만).
 
     입력은 **사용자가 고른 실제 draft**다. draft를 못 찾았을 때의 대체 배경 같은
@@ -243,8 +385,9 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
     strength = config.REFINE_STRENGTH if strength is None else strength
     started = time.time()
 
-    base, masks, _mode = prepare_image(original, size,
-                                       apply_blur_margin=use_margin)
+    base, masks, _mode = _prepare(original, size,
+                                  apply_blur_margin=use_margin,
+                                  rotation_deg=rotation_deg)
     (base_cv, masks_cv), (base_gen, masks_gen), public = _place_both(
         base, masks, canvas, gen, aspect_ratio)
 
@@ -259,7 +402,7 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
                strength=strength).images[0]
     if tuple(gen) != tuple(canvas):
         out = out.resize(canvas, Image.LANCZOS)
-    out = add_ground_shadow(out, masks_cv.product)
+    out = add_ground_shadow(out, masks_cv.product, rotation_deg=rotation_deg)
     pre_product = out
     out = composite_product(base_cv, out, masks_cv.product)
 
@@ -290,7 +433,8 @@ def generate_drafts(image=None,
                     bg_colors: list[str] = None,
                     gradient_direction: str = None,
                     aspect_ratio: str = None,
-                    placement_override: dict = None) -> dict:
+                    placement_override: dict = None,
+                    rotation_deg: float = 0.0) -> dict:
     """1단계: 시안 여러 장 생성.
 
     image가 있으면 inpaint(제품 보존), 없으면 text2img.
@@ -306,11 +450,12 @@ def generate_drafts(image=None,
     if background_mode != "ai":
         return _flat_background_drafts(image, category, num_images,
                                        background_mode, bg_colors, gradient_direction,
-                                       aspect_ratio, placement_override)
+                                       aspect_ratio, placement_override,
+                                       rotation_deg=rotation_deg)
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                                    aspect_ratio)
+                                    aspect_ratio, rotation_deg=rotation_deg)
 
     prompt = resolve_prompt(prompt, category)
     size = config.MODELS[config.DRAFT_MODEL]["size"]
@@ -322,7 +467,10 @@ def generate_drafts(image=None,
     started = time.time()
 
     if image is not None:
-        base, masks, mode = prepare_image(image, size)
+        # 1:1 AI 경로는 뒤에 placement 단계가 없다. 회전 시 프레임이
+        # 커지지 않도록 여기서 원래 캔버스로 되돌린다(중심 유지).
+        base, masks, mode = _prepare(image, size, rotation_deg=rotation_deg,
+                                     fit_canvas=(size, size))
         pipe = _load(config.DRAFT_MODEL, "inpaint")
         outs = pipe(prompt=prompt,
                     negative_prompt=config.NEGATIVE_PROMPT,
@@ -334,7 +482,8 @@ def generate_drafts(image=None,
                     generator=gens).images
         # 접지 그림자 후처리는 원본 제품을 덮어씌우기(composite_product) 전에 적용해야
         # 제품 바로 아래로 삐져나온 그림자가 최종 결과에 남는다.
-        shadowed = [add_ground_shadow(o, masks.product) for o in outs]
+        shadowed = [add_ground_shadow(o, masks.product,
+                                     rotation_deg=rotation_deg) for o in outs]
         images = [composite_product(base, o, masks.product) for o in shadowed]
         meta_extra = {"mode": mode, "area_ratio": round(masks.area_ratio, 3),
                      "layout": describe_product_bbox(masks.product)}
@@ -362,7 +511,8 @@ def generate_drafts(image=None,
 
 
 def _flat_background_refine(original, background: dict,
-                            aspect_ratio=None, placement_override=None) -> dict:
+                            aspect_ratio=None, placement_override=None,
+                            rotation_deg: float = 0.0) -> dict:
     """background_mode가 solid/gradient일 때의 2단계.
 
     draft(768 시안)를 단순 확대하지 않고, 원본 이미지+마스크로 1024에서
@@ -378,12 +528,14 @@ def _flat_background_refine(original, background: dict,
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     started = time.time()
 
-    base, masks, mode = prepare_image(original, size, apply_blur_margin=use_margin)
+    base, masks, mode = _prepare(original, size, apply_blur_margin=use_margin,
+                                 rotation_deg=rotation_deg)
     place, place_public = layout.resolve_placement(masks, canvas, aspect_ratio,
                                                    placement_override)
     base, masks = place_product_on_canvas(base, masks, canvas, **place.as_kwargs())
     flat = render_flat_background(canvas, background["colors"], background.get("direction"))
-    shadowed = add_ground_shadow(flat, masks.product)
+    shadowed = add_ground_shadow(flat, masks.product,
+                                     rotation_deg=rotation_deg)
     out = composite_product(base, shadowed, masks.product)
 
     return {
@@ -417,7 +569,8 @@ def refine(draft: Image.Image,
            strength: float = None,
            background: dict = None,
            aspect_ratio: str = None,
-           placement_override: dict = None) -> dict:
+           placement_override: dict = None,
+           rotation_deg: float = 0.0) -> dict:
     """2단계: 선택한 시안을 고품질로 다시 렌더링.
 
     original(사용자 원본 사진)이 주어지면 제품 영역을 다시 보존한다.
@@ -432,11 +585,12 @@ def refine(draft: Image.Image,
     """
     if background and background.get("mode") in ("solid", "gradient"):
         return _flat_background_refine(original, background,
-                                       aspect_ratio, placement_override)
+                                       aspect_ratio, placement_override,
+                                       rotation_deg=rotation_deg)
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                                    aspect_ratio)
+                                    aspect_ratio, rotation_deg=rotation_deg)
 
     prompt = resolve_prompt(prompt, category)
     strength = config.REFINE_STRENGTH if strength is None else strength
@@ -446,7 +600,8 @@ def refine(draft: Image.Image,
     started = time.time()
 
     if original is not None:
-        base, masks, _ = prepare_image(original, size)
+        base, masks, _ = _prepare(original, size, rotation_deg=rotation_deg,
+                                  fit_canvas=(size, size))
         pipe = _load(config.REFINE_MODEL, "inpaint")
         out = pipe(prompt=prompt,
                    negative_prompt=config.NEGATIVE_PROMPT,
@@ -455,7 +610,7 @@ def refine(draft: Image.Image,
                    height=size, width=size,
                    num_inference_steps=config.REFINE_STEPS,
                    strength=strength).images[0]
-        out = add_ground_shadow(out, masks.product)
+        out = add_ground_shadow(out, masks.product, rotation_deg=rotation_deg)
         pre_product = out           # 제품 합성 직전 상태 (z_order="behind"용, 아래 반환 참고)
         product_mask = masks.product
         out = composite_product(base, out, masks.product)

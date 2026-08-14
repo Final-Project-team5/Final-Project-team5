@@ -1,0 +1,16 @@
+﻿# 비밀값 — 절대 커밋 금지 (팀 API 키)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / 에디터
+.DS_Store
+.idea/
+.vscode/

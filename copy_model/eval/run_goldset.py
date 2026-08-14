@@ -126,21 +126,32 @@ def main():
     cases = gold["cases"]
     train = [c for c in cases if c.get("split", "train") == "train"]
     holdout = [c for c in cases if c.get("split") == "holdout"]
+    redteam = [c for c in cases if c.get("split") == "redteam"]
 
-    res_all = evaluate(cases)
+    # 대표 지표는 train+holdout(일반 분포)만. redteam은 적대적 진단으로 분리.
+    repr_cases = train + holdout
+    res_all = evaluate(repr_cases)
     res_train = evaluate(train)
     res_holdout = evaluate(holdout) if holdout else None
+    res_redteam = evaluate(redteam) if redteam else None
 
     print("=" * 60)
     print("규제 룰 골드셋 회귀 테스트  (1차 지표 = 라벨 정확일치율)")
     _report("TRAIN (튜닝 대상)", res_train)
     if res_holdout:
         _report("HOLDOUT (미노출 — 과적합 판단 기준)", res_holdout)
-    _report("전체", res_all)
+    _report("전체(대표 = TRAIN+HOLDOUT)", res_all)
     print("=" * 60)
+    if res_redteam:
+        print("[적대적 진단 — 대표 지표에 미포함]")
+        print("의미회피 위반을 일부러 넣어 룰 맹점을 노출하는 스트레스셋.")
+        print("여기서의 미탐은 '한계 확인'이지 회귀 실패가 아니다.")
+        _report("REDTEAM (의미회피 스트레스)", res_redteam)
+        print("=" * 60)
 
     if args.json:
-        out = {"train": res_train, "holdout": res_holdout, "all": res_all}
+        out = {"train": res_train, "holdout": res_holdout,
+               "all": res_all, "redteam": res_redteam}
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
         print(f"결과 저장: {args.json}")
