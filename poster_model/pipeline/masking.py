@@ -172,6 +172,199 @@ def _bleed(rgb: np.ndarray, mask: np.ndarray, px: int) -> np.ndarray:
     return cv2.inpaint(rgb, hole, 3, cv2.INPAINT_TELEA)
 
 
+
+
+class RotationRejection(ValueError):
+    """회전을 적용할 수 없을 때. layout.LayoutRejection과 같은 구조다.
+
+    payload를 그대로 400 응답 본문에 쓸 수 있게 맞춰 두었다. 다만 외부 API에
+    rotation_deg를 노출하는 것은 E 단계이며, 현재(A2)는 파이프라인 내부에서만
+    쓰인다. api.py는 이 예외를 아직 잡지 않는다.
+    """
+
+    def __init__(self, error: str, message: str, **detail):
+        super().__init__(message)
+        self.payload = {"error": error, "message": message, **detail}
+
+
+def _bbox_of(mask_arr):
+    ys, xs = np.where(mask_arr > 0)
+    if len(xs) == 0:
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+
+def rotate_product(base: Image.Image,
+                   masks: MaskResult,
+                   deg: float,
+                   mask_resample: str = "bicubic",
+                   bleed_px: int = 8,
+                   max_abs_deg: float = None,
+                   fit: str = "source") -> tuple[Image.Image, MaskResult]:
+    """제품을 회전하고, **제품 bbox 중심이 그대로 유지되도록** 재배치한다.
+
+    **부호 규약 — 외부 계약은 양수 = 시계 방향(clockwise)이다.**
+    PIL의 Image.rotate()는 양수를 반시계로 해석하므로 내부에서 -deg를 넘긴다.
+    이 변환은 이 함수 안 한 곳에서만 일어난다. 호출자와 테스트는 항상
+    "양수 = 시계 방향"만 알면 된다.
+
+    ## 왜 회전 후 재배치가 필요한가
+
+    회전축을 bbox 중심으로 잡는 것만으로는 "중심 유지"가 성립하지 않는다.
+    **axis-aligned bbox의 중심은 회전 불변이 아니기 때문이다.** 좌우/상하로
+    대칭인 형태는 우연히 유지되지만, 목이 달린 화장품 병이나 손잡이가 한쪽에만
+    있는 컵처럼 비대칭인 실루엣은 회전 후 bbox 중심이 수 px 이동한다
+    (합성 케이스 실측: 세로로 긴 형태 15°에서 9.9px, 얇은 손잡이 15°에서 9.1px).
+
+    그래서 회전 자체는 손실 없이(expand=True) 수행한 뒤, **실제 회전 결과의
+    bbox 중심을 다시 재서** 원래 중심과 일치하도록 정수 픽셀만큼 평행이동한다.
+    정수 이동이라 추가 보간이 발생하지 않는다.
+
+    ## 왜 여기(소스 좌표계, prepare_image 직후)인가
+
+    layout의 _component_stats / _footprint_extent / _solve_scale /
+    validate_placement 와 add_ground_shadow 가 모두 **마스크만 보고 bbox와
+    연결요소를 다시 측정**한다. 회전된 마스크를 넘겨주면 그 함수들은 수정 없이
+    회전을 반영한다. 회전각을 수식으로 근사할 필요가 없다.
+
+    deg == 0이면 리샘플을 전혀 거치지 않고 **복사본**을 돌려준다.
+    place_product_on_canvas의 항등 경로와 같은 규약이다 — 픽셀은 같고 객체는
+    분리한다(호출자가 in-place로 고쳐도 입력이 안 바뀌게).
+
+    Args:
+        deg: 회전각(도). 양수 = 시계 방향. 허용 범위 밖이면 거부한다.
+        mask_resample: "bicubic"(보간 후 재이진화) 또는 "nearest".
+            production 기본값은 실험에서 검증한 bicubic + threshold 재이진화다.
+            nearest는 비교·검증용 선택지로 유지한다.
+        fit: "source" | "expand".
+            "source"  회전 결과가 소스 프레임을 벗어나면 거부한다(v1 동작).
+            "expand"  소스 프레임을 필요한 만큼 **대칭으로 넓혀서** 담는다.
+                거부하지 않는다. 최종 캔버스 이탈 판정은 downstream의
+                validate_placement가 최종 캔버스 기준으로 한다.
+
+                이 옵션이 필요한 이유: "source"에서는 회전 가능 여부가 원본
+                사진의 **제품 주변 여백**에 좌우된다. 3:1/3:4는 plan_canvas가
+                blur margin을 끄기 때문에(캔버스 배치가 제품 크기를 단독
+                책임) 제품이 소스 프레임을 꽉 채운 채 회전을 시도하게 되고,
+                최종 캔버스에는 충분한 자리가 있는데도 거부된다.
+                넓힌 프레임에서는 제품의 정규화 중심이 달라지므로, 1:1처럼
+                소스 위치를 그대로 쓰는 경로는 호출자가 회전 **전**에 잰
+                정규화 중심을 placement override(x, y)로 넘겨야 한다.
+        bleed_px: 회전 **전에** 마스크 바깥으로 번지게 할 픽셀 수. 회전하면
+            마스크 경계가 이동하므로 번짐을 회전 후에 하면 새 경계 바깥이
+            비어 테두리가 어두워진다.
+
+    Returns:
+        (회전된 base RGB, 회전된 MaskResult).
+        fit="source"면 크기는 입력과 같다. fit="expand"면 필요 시 커진다.
+
+    Raises:
+        RotationRejection:
+            rotation_out_of_range — 허용 각도 범위를 벗어남
+            rotation_empty_mask   — 제품 마스크가 비어 있음
+            rotation_clipped      — fit="source"에서 중심을 유지한 채로는 소스
+                프레임에 들어가지 않음. 소스에서 잘린 픽셀은 이후 어느 단계에서도
+                복구할 수 없으므로 조용히 자르지 않고 거부한다.
+    """
+    limit = (config.ROTATION_MAX_ABS_DEG if max_abs_deg is None else max_abs_deg)
+    d = float(deg or 0.0)
+    if abs(d) > limit + 1e-9:
+        raise RotationRejection(
+            "rotation_out_of_range",
+            f"rotation_deg는 -{limit}~{limit} 범위여야 합니다: {d}",
+            requested=d, max_abs_deg=limit)
+
+    if d == 0.0:
+        # 리샘플 없음 = 기존 결과와 픽셀 동일. 0°를 회귀 기준으로 쓴다.
+        return base.copy(), MaskResult(masks.product.copy(),
+                                       masks.inpaint.copy(),
+                                       masks.area_ratio)
+
+    if mask_resample not in ("bicubic", "nearest"):
+        raise ValueError(f"mask_resample은 bicubic|nearest 중 하나: {mask_resample}")
+    if fit not in ("source", "expand"):
+        raise ValueError(f"fit은 source|expand 중 하나: {fit}")
+
+    W, H = base.size
+    tight = (np.array(masks.product.convert("L")) > 128).astype(np.uint8)
+    bb = _bbox_of(tight)
+    if bb is None:
+        raise RotationRejection("rotation_empty_mask",
+                                "제품 마스크가 비어 있어 회전할 수 없습니다.")
+    bx0, by0, bx1, by1 = bb
+    cx, cy = (bx0 + bx1) / 2.0, (by0 + by1) / 2.0
+
+    # bleed는 회전 전에. 회전 후엔 마스크 경계가 이동해 새 경계 바깥이 빈다.
+    rgb = _bleed(np.array(base.convert("RGB"), dtype=np.uint8), tight, bleed_px)
+
+    # 외부 양수(시계) → PIL 양수(반시계). expand=True라 회전 자체에서는 손실이 없다.
+    pil_deg = -d
+    rot_rgb = Image.fromarray(rgb).rotate(
+        pil_deg, resample=Image.BICUBIC, expand=True)
+    rs = Image.NEAREST if mask_resample == "nearest" else Image.BICUBIC
+    rot_m = masks.product.convert("L").rotate(pil_deg, resample=rs, expand=True)
+
+    rot_arr = (np.array(rot_m) > 128).astype(np.uint8)   # 파이프라인 규약: 이진
+    rbb = _bbox_of(rot_arr)
+    if rbb is None:
+        raise RotationRejection("rotation_empty_mask",
+                                "회전 후 제품 마스크가 비었습니다.")
+    rx0, ry0, rx1, ry1 = rbb
+    rw, rh = rx1 - rx0 + 1, ry1 - ry0 + 1
+
+    # 회전 결과의 bbox 중심이 원래 중심(cx, cy)에 오도록 정수 픽셀 이동.
+    # 붙일 위치(소스 좌표계)의 bbox 좌상단:
+    tx = int(round(cx - (rw - 1) / 2.0))
+    ty = int(round(cy - (rh - 1) / 2.0))
+
+    pad_x = pad_y = 0
+    if tx < 0 or ty < 0 or tx + rw > W or ty + rh > H:
+        if fit == "source":
+            raise RotationRejection(
+                "rotation_clipped",
+                f"회전 결과가 소스 프레임을 벗어납니다 "
+                f"(회전 후 {rw}x{rh} @({tx},{ty}), 프레임 {W}x{H}). "
+                f"각도를 줄이거나 제품 여백을 확보해야 합니다.",
+                rotation_deg=d,
+                source_size={"width": W, "height": H},
+                bbox_before=[bx0, by0, bx1, by1],
+                bbox_after_size=[rw, rh],
+                target_topleft=[tx, ty])
+        # fit="expand" — 필요한 만큼 대칭으로 넓힌다. 원본 프레임 내용은
+        # 그대로 보존되므로 bleed·경계 처리에 영향이 없다.
+        # +1은 안전 여유. 딱 맞게 넓히면 제품이 프레임 경계에 정확히 닿아,
+        # 이후 bleed·블러가 경계에서 잘린다.
+        pad_x = max(0, -tx, tx + rw - W) + 1
+        pad_y = max(0, -ty, ty + rh - H) + 1
+        tx, ty = tx + pad_x, ty + pad_y
+
+    out_w, out_h = W + 2 * pad_x, H + 2 * pad_y
+
+    # 정수 이동이므로 추가 보간이 없다. 회전된 RGB/마스크를 같은 오프셋으로 붙인다.
+    off = (tx - rx0, ty - ry0)
+    base_out = Image.new("RGB", (out_w, out_h), (0, 0, 0))
+    base_out.paste(rot_rgb, off)
+
+    m_out = Image.new("L", (out_w, out_h), 0)
+    m_out.paste(Image.fromarray(rot_arr * 255), off)
+    tight_arr = (np.array(m_out) > 128).astype(np.uint8) * 255
+    product_cv = Image.fromarray(tight_arr)
+
+    # inpaint 마스크는 반전 마스크를 회전하면 프레임 밖 값이 틀어지므로
+    # 회전 결과에서 make_masks와 같은 방식으로 다시 만든다
+    # (place_product_on_canvas가 같은 이유로 이미 재생성하고 있다).
+    if config.DILATE > 0:
+        kernel = np.ones((config.DILATE, config.DILATE), np.uint8)
+        dilated = cv2.dilate(tight_arr, kernel, iterations=1)
+    else:
+        dilated = tight_arr
+    inpaint_cv = Image.fromarray(255 - dilated).filter(
+        ImageFilter.GaussianBlur(config.MASK_BLUR))
+
+    return base_out, MaskResult(product_cv, inpaint_cv,
+                                float((tight_arr > 0).mean()))
+
+
 def place_product_on_canvas(base: Image.Image,
                             masks: MaskResult,
                             canvas_wh,
@@ -274,13 +467,45 @@ def place_product_on_canvas(base: Image.Image,
     return base_cv, MaskResult(tight_cv, inpaint_cv, float((tight_arr > 0).mean()))
 
 
+def _contact_center_width(comp_mask, y_min, y_max, x_min, x_max):
+    """기울어진 성분의 **접지 중심/폭**을 하단 band에서 구한다.
+
+    bbox 중심은 제품이 기울면 실제 접지점과 어긋난다. 하단 band의 x 분포를 쓰면
+    실제로 바닥에 닿는 부분을 따라간다.
+
+    돌기 방어를 두 겹 둔다.
+      1) band 안 x좌표의 **백분위수**를 쓴다. min/max는 이상점 1픽셀에 끌려간다.
+      2) 접지 폭에 하한, 중심 이동에 상한을 둔다. 유리잔 굽처럼 접지가 비정상적으로
+         좁게 잡히면 그림자가 실루엣 대비 지나치게 작아진다.
+
+    **rotation_deg == 0에서는 호출되지 않는다.** 0°에서도 이 방식을 쓰면 둥근
+    모서리가 백분위수로 잘려 기존 결과가 바뀐다(실측: snack 0°에서 ew 481 → 424).
+    """
+    h = y_max - y_min + 1
+    band = max(3, int(round(h * config.SHADOW_CONTACT_BAND_RATIO)))
+    ys, xs = np.where(comp_mask[y_max - band + 1:y_max + 1] > 0)
+    bbox_cx = (x_min + x_max) / 2.0
+    bbox_w = x_max - x_min
+    if len(xs) == 0:
+        return bbox_cx, bbox_w
+
+    lo, hi = np.percentile(xs, config.SHADOW_CONTACT_PCT)
+    raw_cx, raw_w = (lo + hi) / 2.0, hi - lo
+    w = max(raw_w, bbox_w * config.SHADOW_CONTACT_MIN_WIDTH_RATIO)
+    shift = np.clip(raw_cx - bbox_cx,
+                    -bbox_w * config.SHADOW_CONTACT_MAX_SHIFT_RATIO,
+                    bbox_w * config.SHADOW_CONTACT_MAX_SHIFT_RATIO)
+    return bbox_cx + shift, w
+
+
 def add_ground_shadow(img: Image.Image,
                       product_mask: Image.Image,
                       opacity: int = None,
                       blur: int = None,
                       squash: float = None,
                       y_offset_ratio: float = None,
-                      min_area_ratio: float = None) -> Image.Image:
+                      min_area_ratio: float = None,
+                      rotation_deg: float = 0.0) -> Image.Image:
     """제품 마스크 하단 기준으로 접지 그림자를 합성한다.
 
     배경을 교체하면 원본 그림자가 마스크 밖(배경 영역)에 있어 사라지고
@@ -301,6 +526,12 @@ def add_ground_shadow(img: Image.Image,
     Args:
         img: 그림자를 그릴 대상(주로 diffusion이 생성한 배경 이미지)
         product_mask: MaskResult.product (제품=흰색)
+        rotation_deg: 제품 회전각. **0이면 기존 경로 그대로다(하위 호환).**
+            0이 아니면 성분별 접지 중심/폭을 하단 band에서 다시 잡는다
+            (_contact_center_width 참고). 기울어진 제품은 bbox 중심 아래에
+            그림자가 남고 폭도 회전으로 커진 bbox를 따라 과대해지기 때문이다.
+            타원 비율·불투명도·블러 등 나머지 상수는 그대로 쓴다 —
+            바뀌는 것은 cx와 width의 **출처**뿐이다.
     """
     opacity = config.SHADOW_OPACITY if opacity is None else opacity
     blur = config.SHADOW_BLUR if blur is None else blur
@@ -330,8 +561,14 @@ def add_ground_shadow(img: Image.Image,
         ys, xs = np.where(labels == label)
         x_min, x_max = int(xs.min()), int(xs.max())
         y_max = int(ys.max())
-        cx = (x_min + x_max) / 2
-        width = x_max - x_min
+        if rotation_deg:
+            # 회전 경로에서만 접지 band를 쓴다. 성분 마스크는 여기서만 만든다.
+            cx, width = _contact_center_width(
+                (labels == label).astype(np.uint8),
+                int(ys.min()), y_max, x_min, x_max)
+        else:
+            cx = (x_min + x_max) / 2
+            width = x_max - x_min
 
         ew = width * 0.95
         eh = max(width * squash, 6)
