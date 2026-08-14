@@ -1,20 +1,31 @@
 /**
- * 문구 생성/규제 검증 API — mock 버전.
- * 실서버(도혁님 파트)가 준비되기 전까지 프론트 흐름 검증용으로 사용한다.
+ * 문구 생성/규제 검증 API.
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
  *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
  *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  *
- * 실패 시뮬레이션(?mockFail=options,copy,validate / ?mockFailRate=0.3)은
- * mockUtils.js 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다.
+ * 이 파일 아래쪽은 크게 두 갈래로 나뉜다 (컴포넌트는 둘 중 뭐가 쓰이는지 몰라도 됨):
+ *   - mockXxx()  : 실서버 없이 프론트 흐름만 검증하던 기존 mock (그대로 보존)
+ *   - realXxx()  : 실제 백엔드(copy_model, 기본 http://localhost:8001) 호출 어댑터
+ * 맨 아래 suggestOptions/generateCopy/validateCopy가 실제 진입점이며,
+ * VITE_USE_REAL_COPY_API=true일 때만 real 쪽을, 아니면 mock 쪽을 그대로 쓴다.
+ *
+ * mock 실패 시뮬레이션(?mockFail=options,copy,validate / ?mockFailRate=0.3)은
+ * mockUtils.js 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다(mock 모드 전용).
  */
 
-import { maybeFail } from './mockUtils';
+import { MockApiError, maybeFail } from './mockUtils';
 
 const MOCK_DELAY_MS = 400;
 export const TOTAL_STEPS = 6;
+
+// --- 실제 서버 연동 스위치 -----------------------------------------------
+// VITE_USE_REAL_COPY_API=true면 아래 realXxx()가, 아니면 기존 mockXxx()가 쓰인다.
+// (.env / .env.local에서 설정 — README나 .env.example 참고)
+const USE_REAL_API = import.meta.env.VITE_USE_REAL_COPY_API === 'true';
+const REAL_API_BASE = import.meta.env.VITE_COPY_API_BASE || 'http://localhost:8001';
 
 function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -131,7 +142,7 @@ function buildConfirmMessage(step, spec) {
  * step: 직전 응답의 next_step 값 (첫 요청은 생략 → 1로 처리)
  * spec: 누적 상태
  */
-export async function suggestOptions({ message, step = 1, spec = {} } = {}) {
+export async function mockSuggestOptions({ message, step = 1, spec = {} } = {}) {
   await delay();
   maybeFail('options');
 
@@ -388,7 +399,7 @@ function buildCopyCandidates(spec) {
  * 응답은 `copies` 배열(3개) — 각 항목이 headline/sub와 함께 자기 자신의
  * regulation_flags/safe/status를 따로 갖는다(문구마다 규제 상태가 다를 수 있음).
  */
-export async function generateCopy(spec = {}) {
+export async function mockGenerateCopy(spec = {}) {
   await delay(600);
   maybeFail('copy');
 
@@ -413,9 +424,166 @@ export async function generateCopy(spec = {}) {
 }
 
 /** POST /validate/copy 목 함수. 사용자가 문구를 직접 수정했을 때 재검증한다. */
-export async function validateCopy({ headline = '', sub = '' } = {}, spec = {}) {
+export async function mockValidateCopy({ headline = '', sub = '' } = {}, spec = {}) {
   await delay(300);
   maybeFail('validate');
   const { status, flags, safe } = scanRegulation(`${headline} ${sub}`, spec);
   return { status, flags, safe };
+}
+
+// ============================================================================
+// --- 실제 백엔드(copy_model, 기본 http://localhost:8001) 연동 -----------------
+// mock과 정확히 같은 요청/응답 형태로 컴포넌트(ChatFlow.jsx, CopyResult.jsx)에
+// 맞춰주는 어댑터 계층. 컴포넌트는 이 파일 안쪽이 mock인지 real인지 몰라도 된다.
+// ============================================================================
+
+/**
+ * 실제 서버 에러(네트워크 실패/4xx/5xx)를 사용자 친화적 메시지로 감싼다.
+ * MockApiError를 상속해서 mockUtils.js의 toFriendlyMessage()가 그대로 인식한다
+ * (instanceof MockApiError 체크를 그대로 통과) — 별도 처리 분기를 컴포넌트 쪽에
+ * 추가할 필요가 없다.
+ */
+class RealApiError extends MockApiError {
+  constructor(key, customMessage) {
+    super(key); // key에 대응하는 기본 친화 메시지를 우선 세팅
+    this.name = 'RealApiError';
+    if (customMessage) {
+      this.message = customMessage;
+      this.friendlyMessage = customMessage;
+    }
+  }
+}
+
+/** 실제 서버로 POST 요청을 보내고 실패를 RealApiError로 통일해서 던진다. */
+async function postJSON(path, body, key) {
+  let response;
+  try {
+    response = await fetch(`${REAL_API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // fetch 자체가 실패 — 서버가 꺼져있거나 네트워크 문제
+    throw new RealApiError(key, '서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.');
+  }
+
+  if (!response.ok) {
+    // 원인은 콘솔에만 남기고, 화면에는 항상 사용자 친화적 메시지만 노출한다
+    // (mockUtils.js MockApiError와 동일한 정책 — 8/11 스펙 3장).
+    let detail = '';
+    try {
+      detail = (await response.json())?.detail || '';
+    } catch {
+      // 응답이 JSON이 아닐 수도 있음 — 무시
+    }
+    console.error(`[copyApi] ${path} 실패 (${response.status})`, detail);
+    throw new RealApiError(key);
+  }
+
+  return response.json();
+}
+
+/** 규제 flag severity로 status(pass/warn/block)를 판정한다 — mock scanRegulation과 동일 규칙. */
+function deriveStatus(flags) {
+  if (flags.some((f) => f.severity === 'block')) return 'block';
+  if (flags.some((f) => f.severity === 'warn')) return 'warn';
+  return 'pass';
+}
+
+/**
+ * 서버 RegulationFlag({matched, severity, reason, suggestion}) →
+ * mock 형태({pattern, severity, note, suggestion})로 필드명을 맞춘다.
+ * CopyResult.jsx가 flag.pattern/flag.note를 그대로 참조하므로 이 매핑이 꼭 필요하다.
+ */
+function mapRegulationFlags(flags = []) {
+  return flags.map((f) => ({
+    pattern: f.matched,
+    severity: f.severity,
+    note: f.reason,
+    suggestion: f.suggestion || '',
+  }));
+}
+
+/**
+ * POST /suggest/options 실제 호출.
+ * { message, step, spec, mode: "fixed" } 전송 → SuggestResponse를 mock과
+ * 동일한 { step, next_step, total_steps, question, options, multiSelect,
+ * freeform, spec, confirm_message, done } 형태로 매핑한다.
+ *
+ * 주의: 서버는 allow_multiple만 내려주고 freeform(자유 입력) 플래그는 없다.
+ * 고정 6단계 흐름에서 마지막 질문(6번, "추가 요청")만 자유 입력이므로,
+ * "다음 질문이 마지막 단계인지"로 freeform 여부를 판단한다.
+ */
+async function realSuggestOptions({ message, step = 1, spec = {} } = {}) {
+  const res = await postJSON('/suggest/options', { message, step, spec, mode: 'fixed' }, 'options');
+  const done = Boolean(res.done);
+  return {
+    step: res.step,
+    next_step: res.next_step ?? null,
+    total_steps: res.total_steps,
+    question: res.question,
+    options: res.options || [],
+    multiSelect: Boolean(res.allow_multiple),
+    freeform: !done && res.next_step === res.total_steps,
+    spec: res.spec || {},
+    confirm_message: res.confirm_message || '',
+    done,
+  };
+}
+
+/**
+ * POST /generate/copy 실제 호출.
+ * spec 전체(+ num_candidates: 3)를 그대로 보낸다 — aspect_ratio/purpose 등
+ * CopyRequest가 모르는 필드는 서버가 무시한다. 응답 candidates[]를 mock의
+ * copies[]와 같은 형태({id, headline, sub, status, regulation_flags, safe})로 맞춘다.
+ */
+async function realGenerateCopy(spec = {}) {
+  const res = await postJSON('/generate/copy', { ...spec, num_candidates: 3 }, 'copy');
+  const copies = (res.candidates || []).map((c) => {
+    const flags = mapRegulationFlags(c.regulation_flags);
+    return {
+      id: c.id,
+      headline: c.headline,
+      sub: c.sub,
+      status: deriveStatus(flags),
+      regulation_flags: flags,
+      safe: c.safe,
+    };
+  });
+  return { copies };
+}
+
+/**
+ * POST /validate/copy 실제 호출.
+ * { category, headline, sub, use_llm: false } 전송(룰 기반 검증만 — 비용 없음).
+ * 응답 { safe, flags }를 mock validateCopy와 동일한 { status, flags, safe }로 맞춘다.
+ */
+async function realValidateCopy({ headline = '', sub = '' } = {}, spec = {}) {
+  const res = await postJSON(
+    '/validate/copy',
+    { category: spec.category, headline, sub, use_llm: false },
+    'validate',
+  );
+  const flags = mapRegulationFlags(res.flags);
+  return { status: deriveStatus(flags), flags, safe: res.safe };
+}
+
+// --- 컴포넌트가 실제로 import하는 진입점 -----------------------------------
+// ChatFlow.jsx/CopyResult.jsx는 이 세 함수만 알면 되고, mock/real 분기는
+// VITE_USE_REAL_COPY_API 값에 따라 여기서만 결정된다.
+
+/** POST /suggest/options — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+export async function suggestOptions(args) {
+  return USE_REAL_API ? realSuggestOptions(args) : mockSuggestOptions(args);
+}
+
+/** POST /generate/copy — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+export async function generateCopy(spec) {
+  return USE_REAL_API ? realGenerateCopy(spec) : mockGenerateCopy(spec);
+}
+
+/** POST /validate/copy — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+export async function validateCopy(payload, spec) {
+  return USE_REAL_API ? realValidateCopy(payload, spec) : mockValidateCopy(payload, spec);
 }
