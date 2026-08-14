@@ -90,12 +90,22 @@ def _prepare(src, size, apply_blur_margin: bool = True,
 
 
 def _load(kind: str, task: str, tiling: bool = True):
-    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img'.
+    """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img' | 'img2img'.
 
     tiling=False면 VAE tiling을 끈 **별도 인스턴스**를 따로 캐시한다.
     같은 객체의 tiling을 요청마다 켰다 껐다 하면 동시 요청이 서로 간섭하므로
     상태를 토글하지 않고 인스턴스를 나눈다. 기본값이 True라 기존 호출부는
     동작이 그대로다.
+
+    'img2img'는 refine(original=None) 경로가 쓰는 SDXL img2img다. 그 경로는
+    아래에서 `_pipes[f"{REFINE_MODEL}_img2img"]`를 직접 만들어 쓰는데, 여기서
+    만드는 키·객체가 그것과 **완전히 같도록** 맞춰 두었다. 그래야 warmup에서
+    미리 올려두면 요청 경로가 그대로 캐시를 타고, 요청 경로 코드는 손대지
+    않아도 된다.
+
+        키       f"{kind}_{task}"  →  "sdxl_img2img"      (기존과 동일)
+        repo     MODELS[kind]["text2img"]                 (img2img 항목이 없다)
+        offload  enable_model_cpu_offload + slicing + tiling  (기존과 동일)
     """
     key = f"{kind}_{task}" if tiling else f"{kind}_{task}_notile"
     if key in _pipes:
@@ -103,6 +113,7 @@ def _load(kind: str, task: str, tiling: bool = True):
 
     from diffusers import (StableDiffusionInpaintPipeline,
                            StableDiffusionPipeline,
+                           StableDiffusionXLImg2ImgPipeline,
                            StableDiffusionXLInpaintPipeline,
                            StableDiffusionXLPipeline)
 
@@ -112,6 +123,7 @@ def _load(kind: str, task: str, tiling: bool = True):
         ("sd15", "text2img"): StableDiffusionPipeline,
         ("sdxl", "inpaint"): StableDiffusionXLInpaintPipeline,
         ("sdxl", "text2img"): StableDiffusionXLPipeline,
+        ("sdxl", "img2img"): StableDiffusionXLImg2ImgPipeline,
     }[(kind, task)]
 
     kwargs = {"torch_dtype": torch.float16}
@@ -120,7 +132,10 @@ def _load(kind: str, task: str, tiling: bool = True):
     if kind == "sd15":
         kwargs["safety_checker"] = None
 
-    pipe = cls.from_pretrained(spec[task], **kwargs)
+    # MODELS에는 img2img 항목이 없다. img2img는 text2img 가중치를 그대로 쓴다
+    # (refine의 기존 인라인 로딩과 같은 repo).
+    repo = spec["text2img"] if task == "img2img" else spec[task]
+    pipe = cls.from_pretrained(repo, **kwargs)
 
     if config.USE_CPU_OFFLOAD:
         pipe.enable_model_cpu_offload()
@@ -135,11 +150,29 @@ def _load(kind: str, task: str, tiling: bool = True):
 
 
 def warmup():
-    """서버 시작 시 호출. 요청마다 로딩되는 것을 방지한다."""
+    """서버 시작 시 호출. 요청마다 로딩되는 것을 방지한다.
+
+    실제 요청이 타는 _load 조합을 전부 덮는다. 아래 두 개가 빠져 있어서
+    해당 경로의 **첫 요청**이 모델 로딩 시간을 그대로 물고 있었다.
+
+        sd15_inpaint_notile   3:1 draft            _load(DRAFT, "inpaint", tiling=False)
+        sdxl_img2img          refine(original=None) 서비스형 T2I 시안의 refine
+
+    캐시 키가 요청 경로와 같아야 의미가 있다. 요청 경로의 인자를 그대로 쓴다.
+
+        _ai_nonsquare_drafts   _load(config.DRAFT_MODEL, "inpaint", tiling=False)
+        refine(original=None)  _pipes[f"{config.REFINE_MODEL}_img2img"]
+                               → _load(config.REFINE_MODEL, "img2img") 와 같은 키
+
+    SDXL 계열은 KEEP_BOTH_LOADED 아래 둔다. img2img 도 별도 SDXL 전체를
+    올리므로(가중치를 공유하지 않는다) 같은 플래그로 묶는 것이 일관된다.
+    """
     _load(config.DRAFT_MODEL, "inpaint")
     _load(config.DRAFT_MODEL, "text2img")
+    _load(config.DRAFT_MODEL, "inpaint", tiling=False)
     if config.KEEP_BOTH_LOADED:
         _load(config.REFINE_MODEL, "inpaint")
+        _load(config.REFINE_MODEL, "img2img")
 
 
 def unload(kind: str = None):
