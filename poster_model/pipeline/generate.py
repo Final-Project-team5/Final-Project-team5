@@ -166,13 +166,42 @@ def warmup():
 
     SDXL 계열은 KEEP_BOTH_LOADED 아래 둔다. img2img 도 별도 SDXL 전체를
     올리므로(가중치를 공유하지 않는다) 같은 플래그로 묶는 것이 일관된다.
+
+    ## sdxl_img2img 만 실제 추론까지 한 번 돌린다
+
+    _load 는 파이프라인 객체를 만들 뿐이라, 그 뒤에도 **첫 추론**에 큰 비용이
+    남았다. GCP(L4) 실측:
+
+        첫 refine   73.48s  →  11.67s      기동 시 4 step 추론 1회를 넣었을 때
+
+    총 시간이 주는 것이 아니라 **사용자가 기다리는 자리에서 서버 기동으로
+    옮기는 것**이다. systemd 로 상시 실행하는 구조라 그쪽이 맞다.
+
+    다른 파이프라인에는 넣지 않는다. draft(SD1.5) 쪽 first-call 비용은 약
+    2.5초로 작아 기동 시간을 늘릴 만한 이득이 없었다.
+
+    step 수 · strength 는 실험에서 검증된 값을 그대로 쓴다(4 step / 0.35).
+    **요청 경로의 REFINE_STEPS / REFINE_STRENGTH 는 건드리지 않는다.**
+    여기서 만든 이미지는 버린다.
+
+    이 추론 한 번만 fail-open 이다. 성능 최적화지 기동 조건이 아니므로,
+    실패해도 서버는 뜨고 첫 요청만 느려진다. **_load 는 감싸지 않는다** —
+    모델을 못 올리는 것은 최적화 실패가 아니라 기동 실패이므로 그대로 올린다.
     """
     _load(config.DRAFT_MODEL, "inpaint")
     _load(config.DRAFT_MODEL, "text2img")
     _load(config.DRAFT_MODEL, "inpaint", tiling=False)
     if config.KEEP_BOTH_LOADED:
         _load(config.REFINE_MODEL, "inpaint")
-        _load(config.REFINE_MODEL, "img2img")
+        pipe = _load(config.REFINE_MODEL, "img2img")
+        size = config.MODELS[config.REFINE_MODEL]["size"]
+        try:
+            pipe(prompt="warmup",
+                 image=Image.new("RGB", (size, size), (255, 255, 255)),
+                 strength=0.35, num_inference_steps=4)
+        except Exception as e:      # fail-open. 첫 요청이 느려질 뿐이다
+            print(f"[warmup] sdxl_img2img 추론 warmup 실패 — 무시하고 계속합니다: "
+                  f"{type(e).__name__}: {e}")
 
 
 def unload(kind: str = None):
