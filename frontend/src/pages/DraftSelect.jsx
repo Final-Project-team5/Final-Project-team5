@@ -47,6 +47,13 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
 
   useEffect(() => {
     let cancelled = false;
+    // StrictMode(개발 모드)는 이 effect를 마운트마다 두 번(마운트→cleanup→재마운트)
+    // 실행한다. cancelled 플래그는 "먼저 나간 요청의 결과를 화면에 반영하지 않는
+    // 것"만 보장할 뿐 실제 fetch 자체는 막지 못해서, real API에서는 매번 진짜 서버
+    // 요청이 2번 나가는 문제가 있었다(8/13 확인). AbortController로 cleanup 시점에
+    // 실제 요청을 취소해서 진짜로 1번만 나가게 한다 — mock 쪽은 fetch를 안 쓰므로
+    // signal을 받아도 조용히 무시한다(동작 영향 없음).
+    const controller = new AbortController();
     setDrafts(null);
     setLoadError(null);
     withMinDuration(
@@ -57,6 +64,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
         ratio,
         backgroundType,
         num_images: 3,
+        signal: controller.signal,
       }),
       DRAFT_LOADING_MIN_MS,
     )
@@ -71,6 +79,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // mode/productImage/spec은 화면 A에서 이미 확정되어 이 화면 안에서는 바뀌지
     // 않는다 — backgroundType이 바뀌거나 재시도 버튼을 누를 때만 다시 요청한다.
@@ -78,6 +87,11 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   }, [backgroundType, retryToken]);
 
   const handleRetryDrafts = () => setRetryToken((t) => t + 1);
+
+  // /generate/drafts 응답을 기다리는 중인지 — LoadingChecklist를 보여주는 조건과 동일.
+  // 로딩 중에 배경 스타일 칩을 다시 누르면(특히 real API에서는 진짜 GPU 요청이라
+  // 비용이 든다) 중복 요청이 나갈 수 있어 그동안 칩을 비활성화해 막는다.
+  const isLoadingDrafts = !drafts && !loadError;
 
   const selectedDraft = drafts?.find((d) => d.id === selectedId) || null;
   const aspectRatio = ratio.replace(':', ' / ');
@@ -93,7 +107,8 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
         <div className="draft-select__bg-type-label">배경 스타일</div>
         <div className="draft-select__bg-type-options">
           {BACKGROUND_TYPE_OPTIONS.map((opt) => {
-            const disabled = opt.id === 'ai' && aiDisabled;
+            const permanentlyDisabled = opt.id === 'ai' && aiDisabled;
+            const disabled = permanentlyDisabled || isLoadingDrafts;
             return (
               <button
                 key={opt.id}
@@ -104,10 +119,14 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
                   (backgroundType === opt.id ? ' draft-select__bg-type-chip--active' : '') +
                   (disabled ? ' draft-select__bg-type-chip--disabled' : '')
                 }
-                onClick={() => setBackgroundType(opt.id)}
+                onClick={() => {
+                  // disabled 버튼은 브라우저가 클릭 자체를 무시하지만, 방어적으로 한 번 더 막는다.
+                  if (isLoadingDrafts) return;
+                  setBackgroundType(opt.id);
+                }}
               >
                 {opt.label}
-                {disabled && <span className="draft-select__bg-type-soon">준비 중</span>}
+                {permanentlyDisabled && <span className="draft-select__bg-type-soon">준비 중</span>}
               </button>
             );
           })}

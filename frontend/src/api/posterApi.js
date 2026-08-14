@@ -223,16 +223,26 @@ class RealApiError extends MockApiError {
   }
 }
 
-/** 실제 서버로 POST 요청을 보내고 실패를 RealApiError로 통일해서 던진다. */
-async function postJSON(path, body, key) {
+/**
+ * 실제 서버로 POST 요청을 보내고 실패를 RealApiError로 통일해서 던진다.
+ * signal(AbortSignal)을 넘기면 호출부가 fetch를 실제로 취소할 수 있다 — StrictMode
+ * 이중 마운트 등으로 먼저 나간 요청을 화면에서 무시만 하는 게 아니라 네트워크
+ * 레벨에서 진짜로 중단시키기 위함(8/13 확인된 중복 호출 대응).
+ */
+async function postJSON(path, body, key, signal) {
   let response;
   try {
     response = await fetch(`${REAL_API_BASE}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (err) {
+    // 의도적으로 abort()된 요청은 네트워크 실패가 아니다 — 그대로 전파한다.
+    // (호출부가 이미 cancelled 플래그로 화면 반영을 막고 있어 사용자에게는
+    // 어차피 안 보이지만, "서버에 연결할 수 없어요"로 잘못 라벨링하지 않기 위함.)
+    if (err?.name === 'AbortError') throw err;
     // fetch 자체가 실패 — 서버가 꺼져있거나 네트워크 문제
     throw new RealApiError(key, '서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.');
   }
@@ -256,6 +266,8 @@ async function postJSON(path, body, key) {
 
 /**
  * POST /generate/drafts 실제 호출.
+ * signal(AbortSignal, 선택): DraftSelect.jsx의 useEffect cleanup에서 넘겨준다 —
+ * StrictMode 이중 마운트로 먼저 나간 요청을 실제로 abort시켜 중복 호출을 막는다.
  * 프론트 필드명 → 서버 필드명 매핑:
  *   ratio(문자열)          → aspect_ratio
  *   backgroundType('ai'|'flat') → background_mode('ai'|'gradient')
@@ -282,6 +294,7 @@ async function realGenerateDrafts({
   ratio = '1:1',
   backgroundType = 'ai',
   num_images = 3,
+  signal,
 } = {}) {
   const body = {
     mode,
@@ -291,7 +304,7 @@ async function realGenerateDrafts({
     background_mode: backgroundType === 'flat' ? 'gradient' : 'ai',
     aspect_ratio: ratio,
   };
-  const res = await postJSON('/generate/drafts', body, 'drafts');
+  const res = await postJSON('/generate/drafts', body, 'drafts', signal);
   return { drafts: res.drafts || [], meta: res.meta };
 }
 
