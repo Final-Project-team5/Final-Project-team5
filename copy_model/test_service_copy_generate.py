@@ -38,6 +38,35 @@ def test_unknown_category_still_rejected():
     raise AssertionError("unknown category must still 422")
 
 
+def test_service_product_optional_uses_default():
+    # 소원님 리뷰: service는 product 없이도 422 안 나고 업종 기반 기본값 사용.
+    assert CopyRequest(category="academy").product == "우리 학원"
+    assert CopyRequest(category="sports").product == "우리 체육관"
+    # 빈 문자열/공백도 기본값으로 처리.
+    assert CopyRequest(category="academy", product="   ").product == "우리 학원"
+
+
+def test_service_product_explicit_value_kept():
+    r = CopyRequest(category="academy", product="합격의문 수학학원")
+    assert r.product == "합격의문 수학학원"
+
+
+def test_product_category_requires_product():
+    for cat in PRODUCT_CATEGORIES:
+        try:
+            CopyRequest(category=cat)  # product 없음 → 필수 오류
+        except ValidationError:
+            continue
+        raise AssertionError(f"{cat} must require product")
+
+
+def test_service_generate_without_product_succeeds():
+    # service 5단계 spec을 이름 없이 그대로 generate에 보내도 성공해야 한다.
+    for cat in SERVICE_CATEGORIES:
+        res = generate_copy(CopyRequest(category=cat, num_candidates=3))
+        assert len(res.candidates) == 3
+
+
 def test_service_generate_succeeds():
     for cat in SERVICE_CATEGORIES:
         res = generate_copy(
