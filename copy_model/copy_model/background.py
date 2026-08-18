@@ -73,18 +73,26 @@ texture: 질감 특징 (예: "매트한 종이", "우드 그레인").
 mood: 전체 분위기 한 마디 (예: "차분하고 고급스러운").
 composition: 구도 특징 한 마디 (예: "중앙 여백이 넓은 미니멀 구성").
 usable: 배경 참고로 쓸 만하면 true, 분석 불가/부적합하면 false.
+        반드시 JSON boolean(true/false)로 반환하세요. "true"/"false" 같은 문자열 금지.
 
+palette/texture는 문자열 배열, lighting/mood/composition은 문자열 또는 null.
 관찰되지 않는 항목은 비우세요(빈 배열 또는 null).
 JSON 외의 문장은 출력하지 마세요.
 """
 
 
 def _clean_list(value, limit: int = 4) -> list[str]:
+    """문자열 항목만 인정한다. 리스트가 아니거나 비-문자열 항목은 버린다.
+
+    (숫자/객체 등 잘못된 타입이 str()로 변환돼 색감·질감에 섞이는 것을 막는다.)
+    """
     if not isinstance(value, list):
         return []
     out: list[str] = []
     for item in value:
-        text = str(item).strip()
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
         if text and text not in out:
             out.append(text)
         if len(out) >= limit:
@@ -93,22 +101,30 @@ def _clean_list(value, limit: int = 4) -> list[str]:
 
 
 def _clean_str(value) -> Optional[str]:
-    if value is None:
+    """실제 문자열일 때만 인정한다. 그 외 타입은 None."""
+    if not isinstance(value, str):
         return None
-    text = str(value).strip()
+    text = value.strip()
     return text or None
 
 
 def _finalize_background(raw: dict) -> BackgroundContext:
-    """LLM 출력을 서버 규칙으로 정규화한다."""
+    """LLM 출력을 서버 규칙으로 정규화한다. 신뢰하지 않고 타입까지 방어한다."""
+    if not isinstance(raw, dict):
+        raw = {}
+
     palette = _clean_list(raw.get("palette"), limit=4)
     texture = _clean_list(raw.get("texture"), limit=4)
     lighting = _clean_str(raw.get("lighting"))
     mood = _clean_str(raw.get("mood"))
     composition = _clean_str(raw.get("composition"))
 
-    usable = bool(raw.get("usable", True))
-    # 아무 시각 근거도 없으면 사용 불가로 본다.
+    # usable은 실제 JSON boolean(True)일 때만 인정한다(소원님 리뷰).
+    # "false" 같은 문자열/누락/잘못된 타입은 모두 False로 안전 처리 —
+    # bool("false")==True 함정으로 사용 불가 배경이 기록되는 것을 막는다.
+    usable = raw.get("usable") is True
+
+    # 아무 시각 근거도 없으면(전부 빈 값) 사용 불가로 본다.
     if not any([palette, texture, lighting, mood, composition]):
         usable = False
 
