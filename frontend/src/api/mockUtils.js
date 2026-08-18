@@ -16,9 +16,8 @@
  *
  * 엔드포인트 키:
  *   options        → POST /suggest/options (화면 A, product 느낌/강조점/추가요청)
- *   vision         → POST /vision/product  (화면 A, product 사진 업로드 — PR #70)
- *   productConfirm → Vision 맞아요/수정할게요 확정 (공식 API 계약 대기 — copyApi.js
- *                    confirmProductLocally 참고. real 모드에서는 항상 이 키로 실패한다)
+ *   vision         → POST /vision/product  (화면 A, product 사진 인식)
+ *   productConfirm → POST /vision/product/confirm (Vision 맞아요/수정할게요 확정)
  *   copy           → POST /generate/copy   (화면 A→B 전환)
  *   validate       → POST /validate/copy   (화면 B)
  *   drafts         → POST /generate/drafts (화면 C, 로딩 A)
@@ -30,7 +29,7 @@
 const FRIENDLY_MESSAGES = {
   options: '다음 질문을 불러오는 중 문제가 생겼어요. 다시 시도해주세요.',
   vision: '사진을 분석하는 중 문제가 생겼어요. 다시 시도해주세요.',
-  productConfirm: '제품명 확정 기능은 아직 서버 쪽 계약이 정해지지 않아 준비 중이에요.',
+  productConfirm: '제품명을 확정하는 중 문제가 생겼어요. 다시 시도해주세요.',
   copy: '문구를 만드는 중 문제가 생겼어요. 다시 시도해주세요.',
   validate: '문구를 확인하는 중 문제가 생겼어요. 다시 시도해주세요.',
   drafts: '시안 이미지를 만드는 중 문제가 생겼어요. 다시 시도해주세요.',

@@ -3,7 +3,9 @@
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
  *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A, product 느낌/강조점/추가요청)
- *   POST /vision/product   { image_data_url, spec } → ChatFlow.jsx (화면 A, product 사진 단계 — PR #70, 리뷰 중)
+ *   POST /vision/product   { image_data_url, spec } → ChatFlow.jsx (화면 A, product 사진 인식)
+ *   POST /vision/product/confirm { spec, confirmed_product, confirmation_source }
+ *                                                → 사용자 확인 후 product 확정 + tone 질문
  *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  *
@@ -23,27 +25,12 @@
  * 0단계(business_type)·업종·용도는 이제 전부 프론트 하드코딩이라 서버 호출이
  * 없다. product는 업종/용도 확정 후 곧바로 사진 업로드 → Vision 인식으로
  * 넘어가며(제품명 직접 입력 질문 없음), Vision이 spec.product를 확정지어야만
- * 느낌(tone)부터 실제 /suggest/options 호출이 시작된다(백엔드 FLOW_STEPS
- * 기준 3=product/4=tone/5=keywords/6=request — 프론트는 4번부터 호출).
+ * 사용자 확인을 /vision/product/confirm으로 보낸 뒤 느낌(tone)부터 실제
+ * /suggest/options 호출이 시작된다(백엔드 기준 4=tone/5=keywords/6=request).
  *
- * service는 학원(academy)/체육관·도장(sports) 2업종만 지원하고 사진/제품명
- * 단계가 아예 없다. 문제는 PR #70 기준 서버 FLOW_STEPS에는 여전히 3번
- * "product" 슬롯이 남아있어(서비스형 오버라이드 질문 "어떤 서비스나 가게를
- * 홍보하시나요?"), 그 답을 하지 않고는 서버가 4번(tone) 질문을 내려줄 방법이
- * 없다는 점이다. 프론트에서 그 슬롯에 임의 값을 채워 우회하지 말라는 지시에
- * 따라, service의 느낌/강조점/추가요청은 서버 호출 없이 프론트 고정 선택지로
- * 진행한다(serviceAdvance) — mock/real 토글과 무관하게 항상 이 경로를 탄다.
- *
- * ⚠ Vision "맞아요/수정할게요" 확정 방식은 아직 공식 계약이 없다 — /suggest/options의
- * 3번(product) 슬롯을 프론트가 임의로 "확정 API"처럼 재사용하지 않기로 했다
- * (8/14 팀 합의). auto_fill은 /vision/product 응답에 이미 실려오는 suggestion을
- * 그대로 쓰지만(이건 PR #70이 실제로 구현한 동작), confirm/수정 경로는
- * confirmProductLocally()에 TODO 경계로 분리해뒀다 — real 모드에서는 아직
- * 아무 것도 호출하지 않고 "준비 중" 에러로 명확히 실패시킨다(mock 모드는 로컬
- * 데이터로만 진행 — 실제 서버에는 어떤 요청도 보내지 않는다). PR #70 리뷰
- * 답변으로 공식 계약이 정해지면 그 함수 안쪽만 실제 API 호출로 교체하면 된다.
- * 이 부분과 /generate/copy의 academy/sports 지원 여부는 모두 백엔드 리뷰
- * 답변 대기 상태다(하단 각주 참고).
+ * service는 사진/제품명 단계 없이 프론트 고정 흐름(serviceAdvance)으로 진행한다.
+ * category=academy|sports를 그대로 /generate/copy에 보내며 product를 임의로
+ * 채우지 않는다(비어 있으면 서버가 업종별 기본값을 적용한다).
  */
 
 import { MockApiError, maybeFail } from './mockUtils';
@@ -60,10 +47,8 @@ function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// UI 진행률(n/총단계) — business_type별 표시 분모를 프론트가 직접 관리한다.
-// PR #70 서버 total_steps는 product/service 모두 6을 내려주지만(FLOW_STEPS
-// 길이가 같음), 최신 UI 기준 표시 분모는 product 7 / service 6로 다르다
-// (docs/UIUX_스펙정리.md 3-4장 — 답변 대기, 서버값을 그대로 쓰지 않는다).
+// 백엔드 total_steps(product 6 / service 5)에 프론트 전용 business_type 단계를
+// 하나 더한 사용자 표시 분모다. API 응답의 total_steps를 화면에 그대로 쓰지 않는다.
 export const TOTAL_STEPS_BY_TYPE = { product: 7, service: 6 };
 
 // --- 0단계 — business_type (프론트 하드코딩, 8/14 확정) --------------------
@@ -239,28 +224,30 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
   };
 }
 
-/**
- * Vision "맞아요"(confirm 분기, auto_fill의 캐시된 suggestion이 없는 경우)와
- * "수정할게요"(사용자가 이름을 직접 고친 경우) 전용 — 확정/보정한 이름을
- * spec.product에 반영하고 다음(느낌) 질문을 만든다.
- *
- * ⚠ TODO(PR #70 리뷰 답변 대기): 이 확정을 서버에 공식적으로 알리는 계약이
- * 아직 없다. 예전에는 여기서 `/suggest/options`의 3번(product) 슬롯을
- * 재사용해 서버를 호출했으나, 백엔드와 합의되지 않은 임의 계약이라 제거했다.
- * 지금은:
- *   - real 모드: 아무 것도 호출하지 않고 "아직 준비되지 않았다"는 에러를
- *     명시적으로 던진다 — 조용히 잘못된 값을 만들어내지 않기 위함.
- *   - mock 모드: 테스트/데모용으로 로컬 mock 데이터만으로 느낌 질문까지
- *     진행한다(실제 서버에는 어떤 요청도 보내지 않는다).
- * 공식 계약이 정해지면 real 분기 안쪽만 실제 API 호출로 채우면 된다.
- */
-export async function confirmProductLocally({ name, spec = {} } = {}) {
-  if (USE_REAL_API) {
+/** mock POST /vision/product/confirm — 사용자 확정 후 product와 tone 질문을 반환. */
+async function mockConfirmProduct({ confirmedProduct, confirmationSource, spec = {} } = {}) {
+  await delay(150);
+  const context = spec.product_context;
+  const allowedSources = ['vision_confirmed', 'user_corrected'];
+  if (
+    !confirmedProduct?.trim() ||
+    !context ||
+    context.next_action === 'reupload' ||
+    !allowedSources.includes(confirmationSource) ||
+    (confirmationSource === 'vision_confirmed' && confirmedProduct !== context.product)
+  ) {
     throw new MockApiError('productConfirm');
   }
-
-  await delay(150);
-  const nextSpec = { ...spec, product: name };
+  const nextSpec = {
+    ...spec,
+    product: confirmedProduct,
+    product_context: {
+      ...context,
+      vision_product: context.product,
+      confirmed_product: confirmedProduct,
+      confirmation_source: confirmationSource,
+    },
+  };
   const { question, options, multiSelect, freeform } = buildQuestion(4);
   return {
     step: 3,
@@ -351,8 +338,8 @@ function buildMockVisionContext(category, forced) {
 /**
  * POST /vision/product 목 함수. 실제 이미지 인식은 하지 않고(비용 0), 사진 대신
  * category와 ?mockVision 쿼리로 결과를 결정한다 — UI 흐름(맞아요/수정할게요/
- * 재업로드) 검증용. auto_fill이면 PR #70과 동일하게 내부적으로 step 3을 한 번
- * 더 태워 tone 질문(suggestion)까지 함께 반환한다.
+ * 재업로드) 검증용. 인식 결과가 명확해도 사용자 확인 전에는 product를 확정하거나
+ * tone 단계로 자동 진행하지 않는다.
  */
 export async function mockVisionProduct({ spec = {} } = {}) {
   await delay(700);
@@ -372,28 +359,24 @@ export async function mockVisionProduct({ spec = {} } = {}) {
   };
   const baseSpec = { ...spec, product_context: productContext };
 
-  if (context.next_action !== 'auto_fill') {
-    delete baseSpec.product;
-    return { context, spec: baseSpec, suggestion: null, meta: { model: 'mock', mock: true, advanced: false } };
-  }
-
-  baseSpec.product = context.product;
-  const suggestion = await mockSuggestOptions({ message: context.product, step: 3, spec: baseSpec });
+  delete baseSpec.product;
   return {
     context,
-    spec: suggestion.spec,
-    suggestion,
-    meta: { model: 'mock', mock: true, advanced: true },
+    spec: baseSpec,
+    suggestion: null,
+    meta: {
+      model: 'mock',
+      mock: true,
+      advanced: false,
+      confirmation_required: context.next_action !== 'reupload',
+    },
   };
 }
 
-// --- service 전용 — 서버 호출 없는 고정 진행(tone/keywords/request) --------
-// 이유: 백엔드 FLOW_STEPS 3번(product) 슬롯이 service에도 남아있어(질문:
-// "어떤 서비스나 가게를 홍보하시나요?"), 그 답 없이는 서버가 4번(tone) 질문을
-// 내려줄 방법이 없다. 그 슬롯에 임의 값을 채워 우회하지 않기로 했으므로
-// (docs/UIUX_스펙정리.md 3-4장 리뷰 답변 대기), service는 mock/real 여부와
-// 관계없이 항상 이 고정 진행을 탄다. 응답 모양은 suggestOptions와 동일하게
-// 맞춰서 ChatFlow가 business_type에 상관없이 같은 렌더링 경로를 쓸 수 있게 한다.
+// --- service 전용 고정 진행(tone/keywords/request) -------------------------
+// 서비스는 category → purpose 뒤 product 단계 없이 이 흐름으로 이어진다.
+// 응답 모양은 suggestOptions와 동일하게 맞춰 ChatFlow의 공통 렌더링 경로를 쓰되,
+// 최종 spec에는 product를 추가하지 않고 academy/sports category를 보존한다.
 export const SERVICE_FLOW = [
   { slot: 'tone', question: '원하시는 포스터 느낌은 어떤가요?', options: SERVICE_TONE_OPTIONS, multiSelect: false, freeform: false },
   {
@@ -662,9 +645,8 @@ function buildCopyCandidates(spec) {
  * 응답은 `copies` 배열(3개) — 각 항목이 headline/sub와 함께 자기 자신의
  * regulation_flags/safe/status를 따로 갖는다(문구마다 규제 상태가 다를 수 있음).
  *
- * ⚠ service(academy/sports)는 실제 /generate/copy가 category enum(food/beauty/goods)
- * 만 허용해 real 모드에서는 422가 날 수 있다(백엔드 지원 대기, docs 3-4장) — mock은
- * category 제약이 없어 데모용으로는 그대로 동작한다.
+ * service도 category=academy|sports를 그대로 사용하며 product는 채우지 않는다.
+ * 비어 있는 service product의 업종별 기본값은 백엔드가 생성 시 적용한다.
  */
 export async function mockGenerateCopy(spec = {}) {
   await delay(600);
@@ -788,8 +770,8 @@ function mapSuggestRaw(res) {
 }
 
 /**
- * POST /suggest/options 실제 호출 (product step 3~6 전용 — 3은 Vision 브리지가,
- * 4~6은 ChatFlow가 호출한다. 1/2는 프론트 하드코딩이라 호출하지 않는다).
+ * POST /suggest/options 실제 호출 (product step 4~6 전용).
+ * 1/2는 프론트 하드코딩이고 product 확정(step 3)은 confirm endpoint가 처리한다.
  * { message, step, spec, mode: "fixed" } 전송 → SuggestResponse를 mock과
  * 동일한 형태로 매핑한다.
  */
@@ -799,10 +781,8 @@ async function realSuggestOptions({ message, step = 3, spec = {} } = {}) {
 }
 
 /**
- * POST /vision/product 실제 호출 (PR #70, 리뷰 중 — 현재 연결된 서버에 아직
- * 배포되지 않았다면 404/RealApiError로 실패한다). 요청 바디는
- * { image_data_url, spec }이며 spec.category가 food/beauty/goods 중 하나여야
- * 서버 유효성 검사를 통과한다.
+ * POST /vision/product 실제 호출. 인식만 수행하고 product 확정은 별도
+ * /vision/product/confirm 요청에서 한다. 요청 바디는 { image_data_url, spec }이다.
  */
 async function realVisionProduct({ imageDataUrl, spec = {} } = {}) {
   const res = await postJSON('/vision/product', { image_data_url: imageDataUrl, spec }, 'vision');
@@ -812,6 +792,21 @@ async function realVisionProduct({ imageDataUrl, spec = {} } = {}) {
     suggestion: res.suggestion ? mapSuggestRaw(res.suggestion) : null,
     meta: res.meta || {},
   };
+}
+
+/** POST /vision/product/confirm 실제 호출 — 확정값은 /suggest/options step 3을 거치지 않는다. */
+async function realConfirmProduct({ confirmedProduct, confirmationSource, spec = {} } = {}) {
+  const res = await postJSON(
+    '/vision/product/confirm',
+    {
+      spec,
+      confirmed_product: confirmedProduct,
+      confirmation_source: confirmationSource,
+    },
+    'productConfirm',
+  );
+  const suggestion = mapSuggestRaw(res.suggestion);
+  return { ...suggestion, spec: res.spec || suggestion.spec };
 }
 
 /**
@@ -865,6 +860,11 @@ export async function suggestOptions(args) {
 /** POST /vision/product — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
 export async function visionProduct(args) {
   return USE_REAL_API ? realVisionProduct(args) : mockVisionProduct(args);
+}
+
+/** POST /vision/product/confirm — mock/real 공통 사용자 확정 진입점. */
+export async function confirmProduct(args) {
+  return USE_REAL_API ? realConfirmProduct(args) : mockConfirmProduct(args);
 }
 
 /** POST /generate/copy — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */

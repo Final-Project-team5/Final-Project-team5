@@ -14,7 +14,7 @@ import {
   TOTAL_STEPS_BY_TYPE,
   USAGE_OPTIONS_BY_TYPE,
   USAGE_QUESTION_TEXT,
-  confirmProductLocally,
+  confirmProduct,
   generateCopy,
   serviceAdvance,
   suggestOptions,
@@ -54,8 +54,8 @@ const UI_STEP_BY_TYPE = {
  * 없다. service는 학원(academy)/체육관·도장(sports) 2업종만 지원하고 사진/제품명
  * 단계 자체가 없다(SNS 1:1 고정).
  *
- * 진행률 분모는 business_type별로 다르다(product 7 / service 6 — PR #70 서버
- * total_steps는 아직 이 구분을 반영하지 않아 프론트가 직접 관리한다).
+ * 진행률 분모는 백엔드 total_steps(product 6 / service 5)에 프론트 전용
+ * business_type 단계를 더해 product 7 / service 6으로 직접 표시한다.
  *
  * product 사진 단계(3단계)는 제품 사진(필수)과 배경 참고 이미지(선택)를 같은
  * 질문 화면 안에서 받되, 역할을 처음부터 분리해서 관리한다(8/18 신규 —
@@ -620,13 +620,9 @@ function FreeformQuestion({ question, busy, onAnswer }) {
  *     반영되지 않은 값이 넘어갈 수 있어, 읽는 동안은 backgroundFileReading으로
  *     [맞아요]/[이 이름으로 확정할게요]를 잠근다(8/18 race condition 수정).
  *
- * Vision이 auto_fill로 확정하면 서버가 이미 다음(느낌) 질문까지 함께 내려주므로
- * [맞아요]를 누르면 추가 호출 없이 그 결과를 그대로 쓴다. 그 외(=confirm에서
- * 그대로 수락하거나 이름을 수정한 경우)는 공식 확정 API 계약이 아직 없어
- * copyApi.js의 confirmProductLocally()로 처리한다 — spec.product는 프론트
- * 상태로 확정하지만 서버에 알리는 실제 호출은 TODO로 남겨져 있고, real
- * 모드에서는 이 경로가 "준비 중" 에러로 명확히 실패한다(docs/UIUX_스펙정리.md
- * 3-4장, PR #70 리뷰 답변 대기).
+ * Vision은 인식만 수행하며 auto_fill도 자동 진행하지 않는다. [맞아요]는
+ * vision_confirmed, 사용자가 이름을 고친 경우는 user_corrected로
+ * /vision/product/confirm을 호출한 뒤 서버가 반환한 tone 질문으로 진행한다.
  */
 function ProductPhotoQuestion({ spec, onResolved }) {
   const fileInputRef = useRef(null);
@@ -636,7 +632,6 @@ function ProductPhotoQuestion({ spec, onResolved }) {
   const [reuploadNote, setReuploadNote] = useState('');
   const [visionError, setVisionError] = useState('');
   const [context, setContext] = useState(null);
-  const [suggestion, setSuggestion] = useState(null);
   // --- 배경 참고 이미지(선택, 8/18 신규) ---------------------------------
   // 제품 사진과 독립된 state — Vision analyze()에는 절대 전달하지 않는다.
   // phase(upload/analyzing/result/edit)와 무관하게 항상 업로드/해제 가능하다.
@@ -736,7 +731,6 @@ function ProductPhotoQuestion({ spec, onResolved }) {
         return;
       }
       setContext(res.context);
-      setSuggestion(res.suggestion || null);
       // auto_fill/confirm/reupload 어느 경로든 최종 spec 모양이 같아야 하므로
       // (product_context 포함) 여기서 항상 보존해둔다 — confirm/edit 확정 시
       // 이 spec을 기반으로 쓴다(원래 spec prop에는 product_context가 없음).
@@ -754,21 +748,19 @@ function ProductPhotoQuestion({ spec, onResolved }) {
     }
   };
 
-  // 사용자가 [맞아요]/[수정할게요]로 확정한 이름을 spec.product 상태로 반영한다.
-  // 서버에 이 확정을 공식적으로 알리는 계약은 아직 없어(PR #70 리뷰 답변 대기),
-  // 실제 호출은 copyApi.js의 confirmProductLocally() 안에 TODO 경계로 분리해뒀다
-  // — real 모드에서는 이 함수가 "아직 준비되지 않았다"는 에러를 명시적으로
-  // 던지고, 이 컴포넌트는 그 에러를 그대로 카드로 보여줄 뿐 다른 계약을
-  // 임의로 만들지 않는다. base로는 항상 visionSpec(product_context 포함)을
-  // 쓴다 — auto_fill의 suggestion.spec과 최종 모양이 달라지지 않게 하기 위함.
-  const submitProductName = async (name) => {
+  // 사용자 확정값을 공식 confirm endpoint로 보내고 서버가 반환한 tone 질문으로 진행한다.
+  const submitProductName = async (name, confirmationSource = 'user_corrected') => {
     const trimmed = (name || '').trim();
     if (!trimmed || actionLockRef.current || backgroundFileReading) return;
     actionLockRef.current = true;
     setBridgeBusy(true);
     setVisionError('');
     try {
-      const res = await confirmProductLocally({ name: trimmed, spec: visionSpec || spec });
+      const res = await confirmProduct({
+        confirmedProduct: trimmed,
+        confirmationSource,
+        spec: visionSpec || spec,
+      });
       setBridgeBusy(false);
       onResolved({ image: preview, backgroundReference: backgroundPreview, spec: res.spec, suggestion: res });
     } catch (err) {
@@ -780,13 +772,7 @@ function ProductPhotoQuestion({ spec, onResolved }) {
 
   const confirmRecognized = () => {
     if (actionLockRef.current || backgroundFileReading) return;
-    if (suggestion) {
-      // auto_fill 경로 — Vision 호출이 이미 다음(느낌) 질문까지 받아왔다.
-      actionLockRef.current = true;
-      onResolved({ image: preview, backgroundReference: backgroundPreview, spec: suggestion.spec, suggestion });
-      return;
-    }
-    submitProductName(context?.product);
+    submitProductName(context?.product, 'vision_confirmed');
   };
 
   const openEdit = () => {
