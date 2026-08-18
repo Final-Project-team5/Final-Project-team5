@@ -348,6 +348,25 @@ def _effective_flow(target_slots: Optional[list[str]],
     return picked or base
 
 
+def _merge_fixed_slot(
+    base_spec: dict,
+    llm_spec: dict,
+    slot: str,
+) -> dict:
+    """Merge only the slot that the current fixed step is allowed to write.
+
+    The LLM is never allowed to mutate category/product/tone/etc. from a
+    different step. Server-owned provenance such as product_context is
+    preserved from base_spec.
+    """
+    merged = dict(base_spec or {})
+    incoming = llm_spec or {}
+
+    if slot in incoming and incoming[slot] is not None:
+        merged[slot] = incoming[slot]
+
+    return merged
+
 def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
     business_type = _business_type(req.spec)
     flow = _effective_flow(req.target_slots, business_type)
@@ -423,8 +442,11 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
                     {"role": "user", "content": req.message}]
         data = _client_chat(messages)
 
-        spec = dict(req.spec or {})
-        spec.update({k: v for k, v in (data.get("spec") or {}).items() if v is not None})
+        spec = _merge_fixed_slot(
+            req.spec or {},
+            data.get("spec") or {},
+            cfg["slot"],
+        )
         _apply_aspect_ratio(spec)
 
         return SuggestResponse(
