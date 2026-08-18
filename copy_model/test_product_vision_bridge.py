@@ -9,7 +9,7 @@ from copy_model.vision import (  # noqa: E402
 )
 
 
-def test_auto_fill_writes_product_and_provenance():
+def test_auto_fill_prefills_but_never_writes_product():
     ctx = _finalize_context(
         {
             "product": "립 틴트",
@@ -24,11 +24,14 @@ def test_auto_fill_writes_product_and_provenance():
         {
             "business_type": "product",
             "category": "beauty",
+            "product": "stale product",
         },
         ctx,
     )
 
-    assert spec["product"] == "립 틴트"
+    # 8/14 확정: Vision 인식만으로는 spec.product를 확정하지 않는다.
+    # 인식값은 product_context provenance로만 보존된다.
+    assert "product" not in spec
     assert spec["product_context"]["product"] == "립 틴트"
     assert spec["product_context"]["visible_features"] == ["핑크 패키지"]
     assert spec["product_context"]["next_action"] == "auto_fill"

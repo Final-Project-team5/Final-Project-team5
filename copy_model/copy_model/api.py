@@ -17,7 +17,10 @@ from .schemas import CopyRequest, CopyResponse
 from .vision_flow import (
     ProductVisionAdvanceRequest,
     ProductVisionAdvanceResponse,
+    ProductVisionConfirmRequest,
+    ProductVisionConfirmResponse,
     advance_product_image,
+    confirm_product,
 )
 
 app = FastAPI(title="광고 문구 생성 API", version="0.2.0")
@@ -82,7 +85,10 @@ def post_suggest_options(req: SuggestRequest) -> SuggestResponse:
 def post_vision_product(
     req: ProductVisionAdvanceRequest,
 ) -> ProductVisionAdvanceResponse:
-    """Analyze the required product photo and safely advance fixed step 3."""
+    """제품 사진 인식만 수행한다 — 자동 진행 없음(confirmation pending).
+
+    최종 spec.product 확정은 사용자 확인 후 /vision/product/confirm에서.
+    """
     if not config.MOCK_MODE and not config.OPENAI_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -95,6 +101,29 @@ def post_vision_product(
         raise HTTPException(
             status_code=502,
             detail=f"Product Vision flow failed: {e}",
+        ) from e
+
+
+@app.post(
+    "/vision/product/confirm",
+    response_model=ProductVisionConfirmResponse,
+)
+def post_vision_product_confirm(
+    req: ProductVisionConfirmRequest,
+) -> ProductVisionConfirmResponse:
+    """사용자 확인([맞아요]/[수정할게요])으로 spec.product 확정 + tone 단계 진행."""
+    if not config.MOCK_MODE and not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured.",
+        )
+
+    try:
+        return confirm_product(req)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Product Vision confirm failed: {e}",
         ) from e
 
 

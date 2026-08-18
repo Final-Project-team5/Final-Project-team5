@@ -324,11 +324,12 @@ def apply_product_context(
     spec: dict,
     context: ProductContext,
 ) -> dict:
-    """Apply trusted Vision output to chatbot spec.
+    """Store trusted Vision provenance without finalizing spec.product.
 
-    Only auto_fill may write spec.product.
-    Ambiguous, mismatched, or invalid recognition never contaminates
-    the product slot.
+    8/14 회의 확정: Vision 인식만으로 spec.product를 확정하지 않는다.
+    next_action=auto_fill은 "확인 UI에 인식값을 prefill해도 된다"는
+    신호일 뿐이며, 최종 spec.product는 사용자 확인
+    ([맞아요]/[수정할게요]) 이후 confirm 단계에서만 기록된다.
 
     A compact product_context is retained as provenance for future
     Evidence Registry / Claim-Locked Copy expansion.
@@ -345,12 +346,9 @@ def apply_product_context(
         "next_action": context.next_action,
     }
 
-    if context.next_action == "auto_fill" and context.product:
-        next_spec["product"] = context.product
-    else:
-        # Never keep a stale/previous product when current evidence
-        # requires confirmation or re-upload.
-        next_spec.pop("product", None)
+    # Vision evidence never finalizes the product slot, and a
+    # stale/previous product must not survive a new analysis either.
+    next_spec.pop("product", None)
 
     return next_spec
 

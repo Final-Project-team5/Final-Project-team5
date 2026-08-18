@@ -3,8 +3,15 @@ import os
 
 os.environ["COPY_MOCK"] = "1"
 
-from copy_model.api import app, post_vision_product  # noqa: E402
-from copy_model.vision_flow import ProductVisionAdvanceRequest  # noqa: E402
+from copy_model.api import (  # noqa: E402
+    app,
+    post_vision_product,
+    post_vision_product_confirm,
+)
+from copy_model.vision_flow import (  # noqa: E402
+    ProductVisionAdvanceRequest,
+    ProductVisionConfirmRequest,
+)
 
 
 TINY_PNG = (
@@ -26,33 +33,56 @@ def _request():
     )
 
 
-def test_single_public_vision_route():
-    routes = [
-        r for r in app.routes
+def test_public_vision_routes():
+    routes = {
+        r.path: r
+        for r in app.routes
         if getattr(r, "path", "").startswith("/vision/")
-    ]
-    assert len(routes) == 1
-    assert routes[0].path == "/vision/product"
-    assert "POST" in routes[0].methods
+    }
+    assert set(routes) == {"/vision/product", "/vision/product/confirm"}
+    for route in routes.values():
+        assert "POST" in route.methods
 
 
-def test_vision_route_response_model():
-    route = next(
-        r for r in app.routes
-        if getattr(r, "path", None) == "/vision/product"
-    )
-    assert route.response_model.__name__ == "ProductVisionAdvanceResponse"
+def test_vision_route_response_models():
+    models = {
+        r.path: r.response_model.__name__
+        for r in app.routes
+        if getattr(r, "path", "").startswith("/vision/")
+    }
+    assert models["/vision/product"] == "ProductVisionAdvanceResponse"
+    assert models["/vision/product/confirm"] == "ProductVisionConfirmResponse"
 
 
-def test_endpoint_auto_fills_and_advances():
+def test_endpoint_returns_confirmation_pending():
     res = post_vision_product(_request())
 
     assert res.context.product
     assert res.context.next_action == "auto_fill"
-    assert res.suggestion is not None
+
+    # 인식만으로는 확정/진행하지 않는다.
+    assert res.suggestion is None
+    assert "product" not in res.spec
+    assert res.meta["advanced"] is False
+    assert res.meta["confirmation_required"] is True
+
+
+def test_confirm_endpoint_finalizes_and_advances():
+    pending = post_vision_product(_request())
+
+    res = post_vision_product_confirm(
+        ProductVisionConfirmRequest(
+            spec=pending.spec,
+            confirmed_product=pending.context.product,
+            confirmation_source="vision_confirmed",
+        )
+    )
+
+    assert res.spec["product"] == pending.context.product
     assert res.suggestion.next_step == 4
-    assert res.spec["product"] == res.context.product
-    assert res.meta["advanced"] is True
+    assert res.spec["product_context"]["confirmation_source"] == (
+        "vision_confirmed"
+    )
 
 
 def test_endpoint_preserves_product_provenance():
