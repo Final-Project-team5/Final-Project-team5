@@ -99,6 +99,92 @@ def test_confirm_corrected_uses_user_value():
     assert ctx["confirmation_source"] == "user_corrected"
 
 
+def test_confirm_response_contract_fields():
+    # 소원님 리뷰: 프론트 연동 위해 confirm 응답의 단계/질문 계약을 검증.
+    pending = _analyzed_spec()
+    res = confirm_product(
+        ProductVisionConfirmRequest(
+            spec=pending.spec,
+            confirmed_product="립 틴트",
+            confirmation_source="vision_confirmed",
+        )
+    )
+    s = res.suggestion
+    assert s.done is False
+    assert s.step == 3            # 방금 처리한 단계(product)
+    assert s.next_step == 4       # 다음 단계(tone)
+    assert s.total_steps == 6     # 제품형 6단계
+    assert s.allow_multiple is False
+    assert "느낌" in s.question   # tone 질문
+    assert len(s.options) >= 1    # tone 선택지 제공
+    # 결정적 경로임을 표시(step3 LLM 재처리 아님).
+    assert s.meta.get("deterministic_confirm") is True
+
+
+def test_confirm_is_deterministic_without_llm(monkeypatch=None):
+    # confirm은 product를 LLM으로 재처리하지 않는다.
+    # _client_chat이 호출되면 실패해야 한다(mock 경로라 원래 호출 안 함).
+    import copy_model.vision_flow as vf
+
+    called = {"n": 0}
+
+    def _boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("confirm must not call the LLM in mock mode")
+
+    original = vf._client_chat
+    vf._client_chat = _boom
+    try:
+        pending = _analyzed_spec()
+        res = confirm_product(
+            ProductVisionConfirmRequest(
+                spec=pending.spec,
+                confirmed_product="립 틴트",
+                confirmation_source="vision_confirmed",
+            )
+        )
+        assert res.spec["product"] == "립 틴트"
+        assert called["n"] == 0
+    finally:
+        vf._client_chat = original
+
+
+def test_confirm_rejects_empty_product_context():
+    # pending Vision context 검증: next_action 없는 빈 context는 confirm 불가.
+    try:
+        ProductVisionConfirmRequest(
+            spec={
+                "business_type": "product",
+                "category": "beauty",
+                "product_context": {},
+            },
+            confirmed_product="립 틴트",
+            confirmation_source="user_corrected",
+        )
+    except ValidationError:
+        return
+    raise AssertionError("empty product_context must be rejected")
+
+
+def test_confirm_rejects_invalid_recognition_status():
+    try:
+        ProductVisionConfirmRequest(
+            spec={
+                "business_type": "product",
+                "category": "beauty",
+                "product_context": {
+                    "next_action": "confirm",
+                    "recognition_status": "invalid",
+                },
+            },
+            confirmed_product="립 틴트",
+            confirmation_source="user_corrected",
+        )
+    except ValidationError:
+        return
+    raise AssertionError("invalid recognition_status must be rejected")
+
+
 def test_confirm_requires_vision_context():
     try:
         ProductVisionConfirmRequest(

@@ -12,15 +12,20 @@
 - 인식만으로 자동 확정/자동 다음 단계 진행은 하지 않는다.
 - 다운스트림 LLM/mock은 Vision/사용자가 확정한 product를 덮어쓸 수 없다.
 """
+import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from . import config
 from .chatbot import (
     PRODUCT_CATEGORIES,
-    SuggestRequest,
     SuggestResponse,
-    suggest_options,
+    _apply_aspect_ratio,
+    _business_type,
+    _client_chat,
+    _effective_flow,
+    _mock_slots_for,
 )
 from .vision import (
     ProductContext,
@@ -97,7 +102,17 @@ class ProductVisionConfirmRequest(BaseModel):
                 "call POST /vision/product first."
             )
 
-        if context.get("next_action") == "reupload":
+        # pending Vision context 검증(소원님 리뷰):
+        # dict 존재만으로 통과시키지 않고, /vision/product가 남긴
+        # 결정적 상태(next_action/recognition_status)가 유효한지 확인한다.
+        # 빈 context나 변조된 상태는 confirm 불가.
+        if context.get("next_action") not in ("auto_fill", "confirm"):
+            raise ValueError(
+                "confirm requires a pending Vision context "
+                "(next_action must be auto_fill or confirm)."
+            )
+
+        if context.get("recognition_status") == "invalid":
             raise ValueError(
                 "invalid recognition cannot be confirmed — "
                 "upload a new product photo."
@@ -169,11 +184,83 @@ def advance_product_image(
     )
 
 
+_PRODUCT_STEP = 3  # 고정 흐름에서 product 슬롯 단계(1-indexed).
+
+
+def _gen_next_options(spec: dict, next_cfg: dict) -> list[str]:
+    """실환경에서 다음 단계 질문에 쓸 선택지 4개만 생성한다.
+
+    product 슬롯을 재처리하지 않는다 — 어떤 슬롯 값도 바꾸지 않고
+    '다음 질문의 선택지'만 만든다.
+    """
+    system = (
+        "당신은 소상공인 광고 도우미 챗봇입니다. "
+        "아래 질문에 사용자가 고를 선택지 4개를 생성하세요. "
+        "지금까지 파악된 맥락(업종/제품)에 맞게 구체적으로 만드세요. "
+        'JSON으로만 응답: {"options": ["...", "...", "...", "..."]}'
+    )
+    user = (
+        f"질문: {next_cfg['question']}\n"
+        f"참고: {next_cfg.get('hint', '')}\n"
+        f"현재 정보: {json.dumps(spec, ensure_ascii=False)}"
+    )
+    data = _client_chat(
+        [{"role": "system", "content": system},
+         {"role": "user", "content": user}]
+    )
+    options = [
+        str(o).strip() for o in (data.get("options") or []) if str(o).strip()
+    ]
+    return options[:4]
+
+
+def _render_next_step(spec: dict, processed_step: int) -> SuggestResponse:
+    """processed_step까지 확정된 spec으로 다음 단계 질문/선택지를 결정적으로 만든다.
+
+    현재 슬롯(product)을 LLM으로 재처리하지 않는다. 값 확정은 호출부가 이미 끝냈고,
+    여기서는 다음 단계(tone)의 질문/선택지만 생성한다.
+    """
+    business_type = _business_type(spec)
+    flow = _effective_flow(None, business_type)
+    total = len(flow)
+    step = min(processed_step, total)
+    _apply_aspect_ratio(spec)
+
+    done = step >= total
+    if done:
+        return SuggestResponse(
+            spec=spec, done=True, step=step, next_step=None,
+            total_steps=total,
+            question="제공해주신 정보를 바탕으로 문구를 만들어드릴게요!",
+            options=[], allow_multiple=False, confirm_message="",
+            meta={"deterministic_confirm": True},
+        )
+
+    next_cfg = flow[step]  # step은 1-indexed → flow[step]이 다음 단계
+    if config.MOCK_MODE:
+        options = list(
+            _mock_slots_for(business_type)[next_cfg["slot"]]["options"]
+        )
+    else:
+        options = _gen_next_options(spec, next_cfg)
+
+    return SuggestResponse(
+        spec=spec, done=False, step=step, next_step=step + 1,
+        total_steps=total,
+        question=next_cfg["question"], options=options,
+        allow_multiple=next_cfg["multi"], confirm_message="",
+        meta={"deterministic_confirm": True},
+    )
+
+
 def confirm_product(
     req: ProductVisionConfirmRequest,
 ) -> ProductVisionConfirmResponse:
-    """사용자 확정값으로 spec.product를 기록하고 tone 단계로 진행한다."""
+    """사용자 확정값으로 spec.product를 결정적으로 기록하고 tone 단계로 진행한다.
 
+    확정값은 LLM을 거치지 않는다(소원님 리뷰 반영). product는 그대로 확정하고,
+    tone 단계 질문/선택지만 _render_next_step으로 별도 생성한다.
+    """
     confirmed = req.confirmed_product
 
     provenance = dict(req.spec.get("product_context") or {})
@@ -181,36 +268,18 @@ def confirm_product(
     provenance["confirmed_product"] = confirmed
     provenance["confirmation_source"] = req.confirmation_source
 
-    base_spec = dict(req.spec)
-    base_spec["product_context"] = provenance
-    base_spec["product"] = confirmed
+    spec = dict(req.spec)
+    spec["product_context"] = provenance
+    spec["product"] = confirmed
 
-    # Reuse the already tested fixed-flow step 3 to obtain the
-    # tone-step question/options.
-    suggestion = suggest_options(
-        SuggestRequest(
-            message=confirmed,
-            mode="fixed",
-            step=3,
-            spec=base_spec,
-        )
-    )
-
-    # Trust boundary:
-    # downstream LLM/mock may not mutate the user-confirmed product
-    # or its provenance.
-    locked_spec = dict(suggestion.spec or {})
-    locked_spec["product"] = confirmed
-    locked_spec["product_context"] = dict(provenance)
-    suggestion = suggestion.model_copy(
-        update={"spec": locked_spec},
-    )
+    suggestion = _render_next_step(spec, processed_step=_PRODUCT_STEP)
 
     return ProductVisionConfirmResponse(
-        spec=locked_spec,
+        spec=suggestion.spec,
         suggestion=suggestion,
         meta={
             "confirmed_product": confirmed,
             "confirmation_source": req.confirmation_source,
+            "deterministic": True,
         },
     )
