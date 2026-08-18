@@ -104,6 +104,24 @@ def test_service_purpose_sns_no_lock():
     assert "purpose_locked" not in spec
 
 
+def test_service_auto_mode_unsupported():
+    # 소원님 리뷰: service는 fixed만 지원. service+auto는 명시적 미지원.
+    try:
+        suggest_options(SuggestRequest(
+            message="아무거나", mode="auto",
+            spec={"business_type": "service"}))
+    except ValueError:
+        return
+    raise AssertionError("service+auto must be explicitly rejected")
+
+
+def test_product_auto_mode_still_ok():
+    # 제품형 auto는 그대로 동작(하위호환).
+    r = suggest_options(SuggestRequest(
+        message="분식집 홍보", mode="auto", spec={"business_type": "product"}))
+    assert r is not None
+
+
 # ── 프롬프트 조각 분기 ────────────────────────────────
 def test_prompt_bits_service_vs_product():
     p = _prompt_bits("product")

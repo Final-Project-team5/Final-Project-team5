@@ -110,7 +110,9 @@ TOTAL_STEPS = len(FLOW_STEPS)
 # business_type=service일 때 덮어쓸 단계별 질문/힌트 (방식 B).
 # 공통 단계(purpose 비율·tone·request)는 그대로 두고, 업종·강조점만 교체.
 # 참고: service는 제품/가게 이름(product) 단계를 챗봇에서 묻지 않는다.
-#       이름이 필요하면 프론트가 spec.product로 직접 전달한다(_SERVICE_EXCLUDED_SLOTS).
+#       product는 선택값이며, 비면 /generate/copy(CopyRequest)가 업종 기반
+#       기본값(우리 학원/우리 체육관)을 채운다. 프론트가 이름을 갖고 있으면
+#       spec.product로 실어 보낼 수 있다(_SERVICE_EXCLUDED_SLOTS).
 _SERVICE_STEP_OVERRIDES = {
     "category": {
         "question": "어떤 서비스 업종이신가요?",
@@ -128,7 +130,7 @@ _SERVICE_STEP_OVERRIDES = {
 }
 
 # service 흐름에서 제외하는 슬롯.
-# product(가게/서비스 이름)는 챗봇 단계로 묻지 않고 프론트가 spec.product로 전달.
+# product(가게/서비스 이름)는 챗봇 단계로 묻지 않는다(선택값, 기본값은 CopyRequest).
 # 8/18 확정: service 진행은 category/purpose/tone/keywords/request 5단계.
 _SERVICE_EXCLUDED_SLOTS = ("product",)
 
@@ -425,6 +427,14 @@ def _client_chat(messages: list[dict], temperature: float = 0.5) -> dict:
 
 def suggest_options(req: SuggestRequest) -> SuggestResponse:
     t0 = time.time()
+
+    # service는 fixed 모드만 지원한다(8/18 확정). auto는 product 슬롯 처리가
+    # fixed와 달라 계약이 어긋나므로 service+auto를 명시적으로 미지원 처리한다.
+    if req.mode == "auto" and _business_type(req.spec) == "service":
+        raise ValueError(
+            "service(business_type=service)는 fixed 모드만 지원합니다. "
+            "auto 모드는 제품형에서만 사용하세요."
+        )
 
     if config.MOCK_MODE:
         if req.mode == "fixed":
