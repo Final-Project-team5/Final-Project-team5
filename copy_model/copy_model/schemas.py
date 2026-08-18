@@ -5,16 +5,29 @@ text 필드(headline, sub)로 전달되는 것을 전제로 함.
 (position/align/style은 프론트에서 사용자가 선택 — 문구 모델 범위 아님)
 """
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from . import config
+
+
+# 서비스형(무형)은 챗봇에서 가게/서비스 이름을 묻지 않는다(8/18 확정).
+# product가 비어 오면 서버가 업종 기반 기본 주어를 명시적으로 채운다.
+_SERVICE_PRODUCT_CATEGORIES = ("academy", "sports")
+_SERVICE_DEFAULT_PRODUCT = {
+    "academy": "우리 학원",
+    "sports": "우리 체육관",
+}
 
 
 class CopyRequest(BaseModel):
     category: Literal["food", "beauty", "goods", "academy", "sports"] = Field(
         description="업종 카테고리. 제품형(food/beauty/goods) + "
                     "서비스형(academy=학원, sports=체육관/도장)")
-    product: str = Field(min_length=1, description="제품/가게 이름")
+    product: Optional[str] = Field(
+        default=None,
+        description="제품/가게 이름. 제품형(food/beauty/goods)은 필수, "
+                    "서비스형(academy/sports)은 선택 — 비우면 서버가 업종 "
+                    "기반 기본값(우리 학원/우리 체육관)을 채운다.")
     keywords: Optional[list[str]] = Field(
         default=None, description="강조하고 싶은 키워드 목록")
     tone: Literal["warm", "energetic", "luxury", "simple"] = Field(
@@ -27,6 +40,22 @@ class CopyRequest(BaseModel):
     include_en: bool = Field(
         default=False,
         description="영어 현지화 문구 병행 생성 (글로벌 타깃 고도화 옵션)")
+
+    @model_validator(mode="after")
+    def _resolve_product(self):
+        product = (self.product or "").strip()
+        if product:
+            self.product = product
+            return self
+
+        # 비어 있는 경우: 서비스형은 기본값, 제품형은 필수 오류(422).
+        if self.category in _SERVICE_PRODUCT_CATEGORIES:
+            self.product = _SERVICE_DEFAULT_PRODUCT[self.category]
+            return self
+
+        raise ValueError(
+            "product는 제품형(food/beauty/goods)에서 필수입니다."
+        )
 
 
 class CopyCandidate(BaseModel):
