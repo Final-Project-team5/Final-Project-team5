@@ -14,6 +14,11 @@ from .chatbot import SuggestRequest, SuggestResponse, suggest_options
 from .generator import generate_copy
 from .regulation import ValidateRequest, ValidateResponse, validate_copy
 from .schemas import CopyRequest, CopyResponse
+from .background import (
+    BackgroundAdvanceRequest,
+    BackgroundVisionResponse,
+    advance_background_image,
+)
 from .vision_flow import (
     ProductVisionAdvanceRequest,
     ProductVisionAdvanceResponse,
@@ -124,6 +129,33 @@ def post_vision_product_confirm(
         raise HTTPException(
             status_code=502,
             detail=f"Product Vision confirm failed: {e}",
+        ) from e
+
+
+@app.post(
+    "/vision/background",
+    response_model=BackgroundVisionResponse,
+)
+def post_vision_background(
+    req: BackgroundAdvanceRequest,
+) -> BackgroundVisionResponse:
+    """배경 레퍼런스(선택)를 분석해 spec.background_context에 반영한다.
+
+    재확인 단계 없음. 결과는 meta.spec에 갱신된 spec으로 함께 반환.
+    product/product_context는 건드리지 않는다.
+    """
+    if not config.MOCK_MODE and not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured.",
+        )
+
+    try:
+        return advance_background_image(req)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Background Vision flow failed: {e}",
         ) from e
 
 

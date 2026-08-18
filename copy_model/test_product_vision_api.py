@@ -39,7 +39,11 @@ def test_public_vision_routes():
         for r in app.routes
         if getattr(r, "path", "").startswith("/vision/")
     }
-    assert set(routes) == {"/vision/product", "/vision/product/confirm"}
+    assert set(routes) == {
+        "/vision/product",
+        "/vision/product/confirm",
+        "/vision/background",
+    }
     for route in routes.values():
         assert "POST" in route.methods
 

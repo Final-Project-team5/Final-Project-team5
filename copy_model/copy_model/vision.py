@@ -47,6 +47,46 @@ _IMAGE_MAGIC = {
 }
 
 
+def validate_image_data_url(value: str) -> str:
+    """PNG/JPEG/WebP Data URL 공통 검증 (제품 사진 / 배경 레퍼런스 공용).
+
+    strict base64, 8 MiB 상한, MIME/binary signature 일치까지 확인한다.
+    """
+    match = _DATA_URL_RE.match(value)
+    if not match:
+        raise ValueError(
+            "image_data_url must be a png/jpeg/webp base64 Data URL."
+        )
+
+    encoded = value[match.end():]
+
+    # Reject oversized payloads before decoding.
+    max_encoded = ((MAX_IMAGE_BYTES + 2) // 3) * 4 + 8
+    if len(encoded) > max_encoded:
+        raise ValueError("image payload exceeds the 8 MiB limit.")
+
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(
+            "image payload is not valid base64."
+        ) from exc
+
+    if not raw:
+        raise ValueError("image payload is empty.")
+
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ValueError("image payload exceeds the 8 MiB limit.")
+
+    image_type = match.group(1).lower()
+    if not _IMAGE_MAGIC[image_type](raw):
+        raise ValueError(
+            "declared image MIME does not match the binary signature."
+        )
+
+    return value
+
+
 class ProductVisionRequest(BaseModel):
     """프론트가 FileReader.readAsDataURL()로 만든 제품 사진을 받는다."""
 
@@ -55,40 +95,8 @@ class ProductVisionRequest(BaseModel):
 
     @field_validator("image_data_url")
     @classmethod
-    def validate_image_data_url(cls, value: str) -> str:
-        match = _DATA_URL_RE.match(value)
-        if not match:
-            raise ValueError(
-                "image_data_url must be a png/jpeg/webp base64 Data URL."
-            )
-
-        encoded = value[match.end():]
-
-        # Reject oversized payloads before decoding.
-        max_encoded = ((MAX_IMAGE_BYTES + 2) // 3) * 4 + 8
-        if len(encoded) > max_encoded:
-            raise ValueError("image payload exceeds the 8 MiB limit.")
-
-        try:
-            raw = base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValueError(
-                "image payload is not valid base64."
-            ) from exc
-
-        if not raw:
-            raise ValueError("image payload is empty.")
-
-        if len(raw) > MAX_IMAGE_BYTES:
-            raise ValueError("image payload exceeds the 8 MiB limit.")
-
-        image_type = match.group(1).lower()
-        if not _IMAGE_MAGIC[image_type](raw):
-            raise ValueError(
-                "declared image MIME does not match the binary signature."
-            )
-
-        return value
+    def _validate_image_data_url(cls, value: str) -> str:
+        return validate_image_data_url(value)
 
 
 class ProductContext(BaseModel):
