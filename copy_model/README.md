@@ -1,10 +1,15 @@
 # 문구 모델 (광고 카피 생성 API)
 
-담당: 김도혁 — 문구 모델 (서빙 보조)
+담당: 김도혁 — 문구 모델 / 규제 검증 / 챗봇 로직
 
 GPT-5.4 Mini/Nano API 기반 광고 문구(headline/sub) 생성 모듈.
 생성된 `headline`/`sub`는 프론트를 거쳐 포스터 모델 `/generate/refine`의
 `text` 필드로 그대로 전달됨.
+
+업종은 제품형(food/beauty/goods)과 서비스형(academy/sports)으로 나뉘며
+(`business_type`), 챗봇 슬롯필링·제품 사진 Vision 인식·배경 레퍼런스 추출·
+규제 하이브리드 검증을 제공한다. 상태는 서버가 저장하지 않고 프론트가
+`spec`으로 들고 다니는 stateless 구조다(포스터 모델과 동일 방식).
 
 ## 실행
 
@@ -72,7 +77,10 @@ const data = await res.json();
 }
 ```
 
-- `category`: `food` | `beauty` | `goods`
+- `category`: 제품형 `food` | `beauty` | `goods`, 서비스형 `academy`(학원) | `sports`(체육관/도장)
+- `product`: 제품/가게 이름. **제품형은 필수**, **서비스형(academy/sports)은 선택** —
+  비우면 서버가 업종 기반 기본값(`우리 학원` / `우리 체육관`)을 채운다.
+  (서비스형은 챗봇에서 이름을 묻지 않으므로 spec에 product가 없을 수 있음)
 - `tone`: `warm`(감성) | `energetic`(발랄) | `luxury`(고급) | `simple`(간결)
 
 응답:
@@ -108,13 +116,34 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 
 **고정 플로우 (mode: "fixed", 기본값)** — PM진우님 제안안 반영
 
+`spec.business_type`으로 흐름이 갈린다. 없으면 제품형(하위호환).
+0단계(제품형/서비스형 선택)는 프론트가 하드코딩하고 그 값만 `spec.business_type`에 실어 보낸다.
+
+제품형(`product`) — 6단계, `total_steps=6`:
+
 | 단계 | 질문 | 슬롯 | 복수선택 |
 |---|---|---|---|
-| 1 | 현재 운영하시는 업종은 어떤 것인가요? | category | - |
-| 2 | 어떤 제품이나 가게를 홍보하시나요? | product | - |
+| 1 | 현재 운영하시는 업종은 어떤 것인가요? | category (food/beauty/goods) | - |
+| 2 | 만드신 이미지를 주로 어디에 쓰실 건가요? | purpose (sns/banner/detail) | - |
+| 3 | 어떤 제품이나 가게를 홍보하시나요? | product | - |
+| 4 | 원하시는 포스터의 느낌은 어떤 것인가요? | tone | - |
+| 5 | 강조하고 싶은 점을 골라주세요 | keywords | ✅ |
+| 6 | 추가로 반영했으면 하는 내용이 있으신가요? | request | - |
+
+서비스형(`service`) — 5단계, `total_steps=5` (8/18 확정. **product 단계 없음**):
+
+| 단계 | 질문 | 슬롯 | 복수선택 |
+|---|---|---|---|
+| 1 | 어떤 서비스 업종이신가요? | category (academy/sports) | - |
+| 2 | (용도 — 서비스형은 1:1 고정) | purpose (sns 고정) | - |
 | 3 | 원하시는 포스터의 느낌은 어떤 것인가요? | tone | - |
 | 4 | 강조하고 싶은 점을 골라주세요 | keywords | ✅ |
 | 5 | 추가로 반영했으면 하는 내용이 있으신가요? | request | - |
+
+- `purpose` → `aspect_ratio` 매핑은 서버가 결정적으로 처리(sns=1:1 / banner=3:1 / detail=3:4).
+  서비스형은 정사각(1:1)만 지원하므로 비정사각이 들어와도 sns로 보정한다.
+- 서비스형에는 제품/가게 이름 단계가 없으므로, 이름이 필요하면 프론트가 `spec.product`로 직접 전달하거나 비워 두면 `/generate/copy`가 기본값을 채운다.
+- `mode: "auto"`는 서비스형에서 미지원(제품형만). service+auto 요청은 거부된다.
 
 **최소 요청 — 실제로 필수인 필드는 `message` 하나입니다.**
 
@@ -154,9 +183,9 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
   "done": false,
   "step": 1,
   "next_step": 2,
-  "total_steps": 5,
-  "question": "어떤 제품이나 가게를 홍보하시나요?",
-  "options": ["떡볶이", "김밥", "분식 세트", "음료"],
+  "total_steps": 6,
+  "question": "만드신 이미지를 주로 어디에 쓰실 건가요?",
+  "options": ["SNS 카드뉴스 (정사각 1:1)", "배너 (가로로 긴 3:1)", "상세페이지 (세로로 긴 3:4)"],
   "allow_multiple": false,
   "confirm_message": "'푸드' 업종으로 설정했어요. 왼쪽 화면에서 확인해보세요!",
   "meta": { "elapsed": 1.1, "model": "gpt-5.4-mini" }
@@ -166,7 +195,7 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 프론트 연동 가이드:
 
 - `spec`은 프론트가 상태로 들고 있다가 다음 요청에 그대로 전달 (stateless — 포스터 모델과 동일 방식)
-- `step` / `total_steps`로 진행률(1/5) 표시
+- `step` / `total_steps`로 진행률 표시 (제품형 x/6, 서비스형 x/5 — 응답의 total_steps를 그대로 사용)
 - `options` 아래에 항상 **"기타(직접 입력)"** 칸을 노출 (자유 입력도 그대로 `message`로 보내면 됨)
 - `allow_multiple: true`면 복수 선택 UI로 전환
 - `spec.keywords` → 메인 화면 키워드 칩에 그대로 매핑
@@ -199,13 +228,73 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 }
 ```
 
-- `target_slots` 생략 → 전체 5단계 (메인 흐름)
+- `target_slots` 생략 → 전체 흐름 (제품형 6단계 / 서비스형 5단계)
 - `target_slots: ["tone"]` → 톤만 (서브 패널 도우미)
 - `target_slots: ["tone", "keywords"]` → 2단계 흐름 (원래 순서 유지)
 - 이미 채워진 값은 `spec`으로 함께 보내면 선택지 생성에 맥락으로 반영됨
 
 **자유 진행 (mode: "auto")** — LLM이 미수집 슬롯 중 다음 질문을 판단.
 자유 대화 위주 흐름으로 갈 경우 사용. `history`에 대화 이력 전달.
+(서비스형은 auto 미지원 — fixed만 사용)
+
+### 제품 사진 Vision (`POST /vision/product`, `POST /vision/product/confirm`)
+
+제품형 3단계에서 사용자가 제품명을 직접 입력하지 않고, 업로드한 제품 사진을
+Vision LLM이 분석해 `spec.product`의 근거를 만든다. **인식만으로 자동 확정하지
+않고** 사용자 확인([맞아요]/[수정할게요]) 단계를 거친다.
+
+`POST /vision/product` — 인식만 수행. 자동 진행하지 않는다.
+
+```json
+// 요청: { image_data_url(제품 사진 Data URL), spec }
+// 응답
+{
+  "context": { "product": "립 틴트", "detected_category": "beauty",
+               "category_match": true, "recognition_status": "clear",
+               "next_action": "auto_fill" },
+  "spec": { "...": "product_context에 인식값 보존, spec.product는 미확정" },
+  "suggestion": null,
+  "meta": { "confirmation_required": true, "advanced": false }
+}
+```
+
+- 판정(`next_action`): `auto_fill`(clear + category 일치) / `confirm`(애매·불일치) / `reupload`(인식 불가)
+- 어떤 경우도 `spec.product`를 자동 확정하지 않는다. 인식값은 `spec.product_context`에만 보존(확인 UI 프리필용).
+- 이미지 검증: PNG/JPEG/WebP Data URL, strict base64, 8 MiB 상한, MIME/시그니처 일치.
+
+`POST /vision/product/confirm` — 사용자 확인 결과로 `spec.product`를 결정적으로 확정 + tone 단계 반환.
+
+```json
+// 요청
+{ "spec": { "...": "앞 응답의 spec" },
+  "confirmed_product": "립 틴트",
+  "confirmation_source": "vision_confirmed" }   // 맞아요 / user_corrected: 수정할게요
+// 응답: spec.product 확정 + suggestion(next_step=4, tone 질문/선택지)
+```
+
+- 확정값은 **LLM을 거치지 않고** 그대로 `spec.product`에 기록(재해석 방지).
+- provenance 분리: `product_context.vision_product`(인식값) / `confirmed_product`(확정값) / `confirmation_source`.
+- `next_action`이 `auto_fill|confirm`이고 `recognition_status`가 `invalid`가 아닐 때만 confirm 가능.
+
+### 배경 레퍼런스 (`POST /vision/background`)
+
+배경 참고 이미지(선택 입력)에서 시각 언어만 추출해 `spec.background_context`로 분리 저장한다.
+
+```json
+// 요청: { image_data_url(배경 사진 Data URL), spec }
+// 응답
+{
+  "context": { "palette": ["웜 베이지"], "lighting": "부드러운 자연광",
+               "texture": ["매트한 종이"], "mood": "차분한", "composition": "미니멀",
+               "usable": true },
+  "meta": { "spec": { "background_context": { "...": "위 값 저장" } } }
+}
+```
+
+- 배경 특징은 절대 `spec.product`로 넘기지 않는다(규제 검증/문구 근거 오염 방지).
+- 사용자 재확인 단계 없음. `usable=false`면 `background_context`를 남기지 않는다.
+- 이미지 검증은 제품 사진과 동일(공용 `validate_image_data_url`).
+- poster 전달 필드/AI Design Planner 연동은 poster API 계약 확정 후 후속.
 
 ## 시안 다양성 보장
 
@@ -266,8 +355,11 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 1. **생성 프롬프트 내 금지 규칙** — 최상급·확정 표현, 의학적 효능 단정 등을 생성 단계에서 차단
 2. **룰 기반 자동 검사** (비용 0) — 생성 결과마다 `regulation_flags` 자동 첨부.
    표시광고법 공통 + 식품표시광고법(푸드) + 화장품법(뷰티) 대표 금지/주의 표현 사전
-3. **`POST /validate/copy`** — 사용자 수정 문구 재검증용. `use_llm: true`면
-   LLM이 맥락상 위반까지 판단하고 안전한 대체 문구 제안
+3. **`POST /validate/copy`** — 사용자 수정 문구 재검증용. 룰 1차 + (`use_llm: true`면)
+   경계 케이스만 LLM 2차 검증하는 하이브리드. 신뢰 정책은 **단조(monotonic)** —
+   최종 등급은 룰 1차 등급보다 낮아지지 않는다(LLM은 상향/동일만 반영, 하향 무시,
+   block은 완화 불가). 응답에 `severity`/`rule_severity`/`escalated`/`escalation_reason`
+   평평한 필드가 붙어 프론트가 바로 매핑할 수 있다. (`/generate/copy`는 룰 단독)
 
 ```json
 // POST /validate/copy 요청
@@ -290,17 +382,24 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 
 ### 룰 사전 현황 (`regulation_rules.py`)
 
-| 카테고리 | 전체 | block | warn | 주요 근거 |
+각 카테고리 = 공통(COMMON) + 카테고리 전용. 제품형은 효능 과장이 위반 축이고,
+서비스형은 성과·자격·배타성·계약 불공정이 축이라 별도 룰을 둔다.
+
+| 카테고리 | 전용 룰 | block | warn | 주요 근거 |
 |---|---|---|---|---|
 | food | 19 | 6 | 13 | 표시광고법, 식품표시광고법 §8, 건강기능식품법 §18, 식약처 고시 |
 | beauty | 17 | 5 | 12 | 표시광고법, 화장품법 §13 |
 | goods | 13 | 0 | 13 | 표시광고법, 상표법, 환경성 표시·광고 고시 |
+| sports | 4 | 1 | 3 | 방문판매법(중도해지·환불), 표시광고법(배타성·최상급), 국민체육진흥법(지도자 자격) |
+| academy | 3 | 1 | 2 | 표시광고법(합격·점수·순위 보장), 공정위 학원 제재 사례 |
 
 주요 검출 사례:
 
 - **푸드** — 질병 치료·예방("치료", "항암"), 체중 감량("다이어트 효과"), 기능성 표방("면역력 강화", "피로 회복"), 인증 없는 천연·유기농, 숙취해소
 - **뷰티** — 의약품 오인("치료", "병원급"), 질환명("아토피", "여드름 없애기"), 기능성 초과("주름 제거", "보톡스 효과"), 안전성 단정("부작용 전혀 없음"), 의료인 추천
 - **굿즈** — 타 브랜드 연상("명품급"), 그린워싱("친환경"), 라이선스("공식 굿즈"), 한정판·평생보증
+- **체육관/도장(sports)** — 환불·중도해지 불가(block), 배타성·최상급("지역 1위"), 지도자 자격·경력 과장, 단기·수치 성과 단정("한 달 만에 10kg")
+- **학원(academy)** — 합격·점수 보장(block), 순위·실적·취업 보장("합격률 1위"), 단기·무조건 성과("단기간 합격")
 
 > 본 룰은 데모용 1차 사전이며 법률 자문이 아닙니다. 실제 서비스 시 최신 고시·심의 기준 확인이 필요합니다.
 
@@ -343,11 +442,34 @@ COPY_MOCK=1 python -m eval.run_regulation_ab --n 3
 
 이 실험 설계는 프롬프트에 규제 지침을 넣을지 여부(`include_regulation`)만 다르게 두어,
 같은 조건에서 규칙의 효과만 분리 측정하도록 했습니다.
+(위반 유도 입력으로 규칙 효과를 더 뚜렷이 보는 `run_regulation_ab_v2.py`도 있음)
+
+### 규제 골드셋 회귀 (`eval/run_goldset.py`)
+
+라벨링한 대표셋으로 룰 수정 시 정확도(3-클래스 라벨 일치율)를 측정. 비용 0.
+
+```bash
+COPY_MOCK=1 python -m eval.run_goldset
+```
+
+### 매력 문구 A/B 실험 (`eval/run_hook_ab.py`)
+
+안전(규제 통과율)을 유지하면서 후킹(매력도)을 올리는 프롬프트 변형을 찾는다.
+변형(baseline / hook / persona / cta)별로 (1) 규제 통과율을 결정적으로 재고,
+(2) 변형 vs baseline을 LLM 심사위원이 자리 바꿔 pairwise 판정해 승률을 낸다.
+baseline보다 위반율을 안 올리면서 승률 0.5를 넘는 변형만 채택 후보로 표시.
+
+```bash
+# 실측 (API 키 필요) — 변형별 규제율 + 매력 승률 + 채택 후보
+COPY_MOCK=0 python -m eval.run_hook_ab --dump hook_ab.json
+# 플러밍 점검 (mock — 매력 비교는 안 되고 구조만)
+COPY_MOCK=1 python -m eval.run_hook_ab
+```
 
 ## TODO
 
-- [ ] API 키 수령 후 A/B 실험 실측 → 위반율 비교 데이터 확보
-- [ ] 적합도·창의성 등 LLM 판단 지표 추가 (LLM-as-Judge)
-- [ ] 규제 룰 사전 확충 + AI허브 법률 DB RAG 근거 제시 (고도화)
-- [ ] 키워드 추출/추천 (챗봇 방향 팀 확정 후)
+- [ ] VM 실측: 규제 A/B 위반율 비교, 매력 A/B 승률 → 채택 변형 확정
+- [ ] 배경 `background_context` → poster API 전달 필드 연결(지우님 계약 후)
+- [ ] AI Design Planner: `background_context`/사용자 입력을 Visual Prompt로 확장
+- [ ] 규제 후속(문서화): 체육관 의료법 침범 표현 정규식, 표시광고법 실증 안내, rule coverage matrix
 - [ ] AI 생성물 고지 문구 (AI 기본법 제31조) — 포스터/프론트 파트와 협의
