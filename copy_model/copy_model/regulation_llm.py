@@ -116,19 +116,22 @@ _SEV_RANK = {"safe": 0, "warn": 1, "block": 2}
 
 
 def apply_trust(rule_severity: str, verdict: "LLMVerdict",
-                trust: str = "asymmetric") -> str:
-    """신뢰 정책에 따라 최종 등급 결정 (실측에서 파손 0 확인된 정책).
+                trust: str = "monotonic") -> str:
+    """신뢰 정책에 따라 최종 등급 결정.
 
-    - full: LLM 판정 그대로.
-    - asymmetric: 엄격해지는 방향(등급 상향)은 즉시 수용, 완화(하향)는
-      근거(reason)가 있을 때만 수용. 규제 도구는 미탐 비용이 커서 LLM
-      오판으로 규제가 뚫리는 경로를 정책으로 차단한다.
+    - monotonic (기본, 운영): 최종 등급은 룰 1차 등급보다 낮아지지 않는다.
+      LLM은 상향(엄격) 또는 동일만 반영하고, 하향(완화)은 무시한다.
+      즉 final = max(rule, llm). block은 어떤 경우에도 완화되지 않는다.
+      (진우/소원 리뷰 반영: 기존 asymmetric은 하향을 'reason 유무'로 허용했으나
+       _JUDGE_PROMPT가 항상 reason을 요구해 하향이 사실상 무력화되지 않았음.
+       규제 도구는 미탐 비용이 커서 하향을 전면 차단하는 편이 안전하고 단순함.)
+    - full: LLM 판정 그대로 (오라클 상한/실험 비교용, 운영 미사용).
     """
+    llm_sev = verdict.severity if verdict.severity in _SEV_RANK else rule_severity
     if trust == "full":
-        return verdict.severity
-    if _SEV_RANK[verdict.severity] >= _SEV_RANK[rule_severity]:
-        return verdict.severity
-    return verdict.severity if verdict.reason.strip() else rule_severity
+        return llm_sev
+    # monotonic: 룰보다 낮은 LLM 판정은 무시(룰 유지), 같거나 높으면 반영
+    return llm_sev if _SEV_RANK[llm_sev] >= _SEV_RANK[rule_severity] else rule_severity
 
 
 Judge = Callable[[str, str, str, str, Optional[str]], LLMVerdict]

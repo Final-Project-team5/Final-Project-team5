@@ -147,7 +147,7 @@ def validate_copy(req: ValidateRequest) -> ValidateResponse:
                     lambda msgs: _client_chat(msgs, temperature=0))
                 verdict = judge(req.headline, req.sub, req.category,
                                 rule_sev, decision.direction)
-                severity = apply_trust(rule_sev, verdict, "asymmetric")
+                severity = apply_trust(rule_sev, verdict, "monotonic")
                 llm_opinion = verdict.reason
 
     safe = severity != "block"
@@ -160,6 +160,6 @@ def validate_copy(req: ValidateRequest) -> ValidateResponse:
         meta={"elapsed": round(time.time() - t0, 3),
               "model": "rules" if not (req.use_llm and escalated) else config.MODEL_NAME,
               "policy": req.policy if req.use_llm else None,
-              "trust": "asymmetric" if req.use_llm else None,
+              "trust": "monotonic" if req.use_llm else None,
               "mock": config.MOCK_MODE},
     )
