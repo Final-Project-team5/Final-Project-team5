@@ -11,8 +11,9 @@ from . import config
 
 
 class CopyRequest(BaseModel):
-    category: Literal["food", "beauty", "goods"] = Field(
-        description="업종 카테고리 (푸드/뷰티/굿즈)")
+    category: Literal["food", "beauty", "goods", "academy", "sports"] = Field(
+        description="업종 카테고리. 제품형(food/beauty/goods) + "
+                    "서비스형(academy=학원, sports=체육관/도장)")
     product: str = Field(min_length=1, description="제품/가게 이름")
     keywords: Optional[list[str]] = Field(
         default=None, description="강조하고 싶은 키워드 목록")
