@@ -63,15 +63,30 @@ def test_service_step1_question_overridden():
     q = next(s["question"] for s in flow if s["slot"] == "category")
     assert "서비스 업종" in q
 
-def test_service_product_question_overridden():
+def test_service_flow_excludes_product():
+    # 8/18 확정: service는 가게/서비스 이름(product) 단계를 챗봇에서 묻지 않는다.
     flow = _effective_flow(None, "service")
-    q = next(s["question"] for s in flow if s["slot"] == "product")
-    assert "서비스나 가게" in q
+    slots = [s["slot"] for s in flow]
+    assert "product" not in slots
+    assert slots == ["category", "purpose", "tone", "keywords", "request"]
+    # 재번호가 1..5로 연속인지 확인(진행률 어긋남 방지).
+    assert [s["step"] for s in flow] == [1, 2, 3, 4, 5]
+
+def test_service_total_steps_is_five():
+    r = _run(1, {"business_type": "service"})
+    assert r.total_steps == 5
+    assert r.next_step == 2
+
+def test_product_flow_still_has_product_step():
+    # 하위호환: 제품형은 product 단계와 6단계를 그대로 유지.
+    flow = _effective_flow(None, "product")
+    assert [s["slot"] for s in flow] == [
+        "category", "purpose", "product", "tone", "keywords", "request"]
 
 def test_service_keywords_options_are_service_set():
-    # 4단계(tone) 처리하며 다음(5단계 keywords) 선택지를 서비스 세트로 노출
-    r = _run(4, {"business_type": "service"})
-    assert r.next_step == 5
+    # service 3단계(tone) 처리하며 다음(4단계 keywords) 선택지를 서비스 세트로 노출.
+    r = _run(3, {"business_type": "service"})
+    assert r.next_step == 4
     assert "전문성·경력" in r.options
 
 def test_service_purpose_forced_1x1():
