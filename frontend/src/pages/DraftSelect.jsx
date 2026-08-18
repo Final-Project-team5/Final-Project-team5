@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { buildPrompt, generateDrafts, toImageSrc } from '../api/posterApi';
+import { generateDrafts, planDesignPrompt, toImageSrc } from '../api/posterApi';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
@@ -67,7 +67,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
       generateDrafts({
         mode,
         image: productImage,
-        prompt: buildPrompt(spec),
+        prompt: planDesignPrompt(spec),
         ratio,
         backgroundType,
         num_images: 3,

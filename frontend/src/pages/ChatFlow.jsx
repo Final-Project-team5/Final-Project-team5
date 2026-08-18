@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ALLOWED_IMAGE_TYPES,
+  BACKGROUND_REFERENCE_GUIDE_TEXT,
+  BACKGROUND_REFERENCE_LABEL,
   BUSINESS_TYPE_OPTIONS,
   BUSINESS_TYPE_QUESTION_TEXT,
   CATEGORY_HINT_TEXT,
@@ -55,6 +57,13 @@ const UI_STEP_BY_TYPE = {
  * 진행률 분모는 business_type별로 다르다(product 7 / service 6 — PR #70 서버
  * total_steps는 아직 이 구분을 반영하지 않아 프론트가 직접 관리한다).
  *
+ * product 사진 단계(3단계)는 제품 사진(필수)과 배경 참고 이미지(선택)를 같은
+ * 질문 화면 안에서 받되, 역할을 처음부터 분리해서 관리한다(8/18 신규 —
+ * LLM이 이미지 역할을 자동 판별하는 구조 아님). productImage는 기존대로 Vision
+ * 제품 인식과 화면 D(refine) original_image에 쓰이고, backgroundReference는
+ * Vision에 보내지 않으며 확정된 poster API 계약이 없어 실제 전송 없이 state로만
+ * 들고 있다가 onComplete outcome에 함께 실어 보낸다.
+ *
  * 느낌(tone)/강조점(keywords, 복수 선택)/추가요청(request, 자유 입력)은 각각
  * 독립된 질문 카드로 순서대로 나온다(8/11 PM 확인 — 한 화면에 합치지 않음).
  * 강조점은 [다음] 버튼으로 그 질문만 마무리하고, 추가 요청은 [이 내용으로 완료]
@@ -69,6 +78,10 @@ function ChatFlow({ onComplete }) {
   const [spec, setSpec] = useState({});
   const [mode, setMode] = useState(null); // 'inpaint'(product) | 'text2img'(service) — business_type 확정 시 함께 정해짐
   const [productImage, setProductImage] = useState(null);
+  // 배경 참고 이미지(선택) — productImage와 역할이 다른 별도 state. Vision 인식
+  // 대상이 아니며, 확정된 poster API 계약이 생기기 전까지는 어디에도 전송하지
+  // 않는다(위 컴포넌트 doc 참고). service 흐름에는 사진 단계 자체가 없어 항상 null.
+  const [backgroundReference, setBackgroundReference] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [totalSteps, setTotalSteps] = useState(TOTAL_STEPS_BY_TYPE.product);
   const [busy, setBusy] = useState(false);
@@ -105,7 +118,10 @@ function ChatFlow({ onComplete }) {
     try {
       const result = await generateCopy(finalSpec);
       setBusy(false);
-      onComplete({ spec: finalSpec, mode, productImage, result });
+      // backgroundReference는 확정된 poster API 계약이 아직 없어 다음 화면들에
+      // state로만 전달된다 — App.jsx가 chatOutcome에 그대로 보관할 뿐, 어떤
+      // API 요청 바디에도 아직 포함시키지 않는다(posterApi.js planDesignPrompt 참고).
+      onComplete({ spec: finalSpec, mode, productImage, backgroundReference, result });
     } catch (err) {
       setBusy(false);
       const errId = uid();
@@ -216,9 +232,10 @@ function ChatFlow({ onComplete }) {
   };
 
   // --- 3단계(product 전용): 사진 업로드 + Vision 확정 후 다음(느낌) 질문으로 --
-  const handlePhotoResolved = (photoMsgId, { image, spec: nextSpec, suggestion }) => {
+  const handlePhotoResolved = (photoMsgId, { image, backgroundReference: bgRef, spec: nextSpec, suggestion }) => {
     setMessages((prev) => prev.map((m) => (m.id === photoMsgId ? { ...m, resolved: true } : m)));
     setProductImage(image);
+    setBackgroundReference(bgRef || null);
     setSpec(nextSpec);
     setCurrentStep(UI_STEP_BY_TYPE.product.tone);
     pushQuestion(suggestion, 'tone');
@@ -363,7 +380,9 @@ function ChatMessage({ message, busy, spec, onBusinessType, onAnswer, onPhotoRes
       <div className="chat-row chat-row--bot">
         <Mascot expression="idle" size={CHAT_AVATAR_SIZE} className="chat-row__avatar" />
         <div className="chat-bubble chat-bubble--bot">
-          <div className="chat-bubble__text">제품 사진을 업로드해주세요</div>
+          <div className="chat-bubble__text">
+            제품 사진 업로드 <span className="chat-photo__required-badge">필수</span>
+          </div>
           <p className="chat-flow__hint">{PHOTO_GUIDE_TEXT}</p>
           {!message.resolved && <ProductPhotoQuestion spec={spec} onResolved={onPhotoResolved} />}
         </div>
@@ -585,11 +604,22 @@ function FreeformQuestion({ question, busy, onAnswer }) {
 }
 
 /**
- * product 3단계 — 사진 업로드 + Vision 제품 인식 (8/14 확정 UX).
+ * product 3단계 — 사진 업로드 + Vision 제품 인식 (8/14 확정 UX, 8/18 배경
+ * 참고 이미지 입력 구조 반영).
  *
- * 단계: upload(파일 선택) → analyzing(/vision/product 호출 중) →
- *   result(인식값 확인 — [맞아요]/[수정할게요]) | edit(제품명 직접 보정).
- * 인식 실패(next_action=reupload)는 upload로 되돌아가 같은 단계에 머문다.
+ * 이 화면 하나에서 역할이 다른 두 이미지를 받는다:
+ *   - 제품 사진(필수): 기존 그대로 Vision 제품 인식에 쓰인다. 단계는
+ *     upload(파일 선택) → analyzing(/vision/product 호출 중) →
+ *     result(인식값 확인 — [맞아요]/[수정할게요]) | edit(제품명 직접 보정).
+ *     인식 실패(next_action=reupload)는 upload로 되돌아가 같은 단계에 머문다.
+ *   - 배경 참고 이미지(선택): 제품 사진과 별개 state(backgroundPreview)로
+ *     관리하며, 어느 phase에서든 독립적으로 업로드/해제할 수 있다. Vision
+ *     analyze()에는 절대 넘기지 않고, poster API 계약이 아직 없어(3장 참고)
+ *     onResolved로 부모에 값만 전달할 뿐 실제 전송은 하지 않는다.
+ *     FileReader.onload가 비동기라 선택 직후 곧바로 제품을 확정하면 아직
+ *     반영되지 않은 값이 넘어갈 수 있어, 읽는 동안은 backgroundFileReading으로
+ *     [맞아요]/[이 이름으로 확정할게요]를 잠근다(8/18 race condition 수정).
+ *
  * Vision이 auto_fill로 확정하면 서버가 이미 다음(느낌) 질문까지 함께 내려주므로
  * [맞아요]를 누르면 추가 호출 없이 그 결과를 그대로 쓴다. 그 외(=confirm에서
  * 그대로 수락하거나 이름을 수정한 경우)는 공식 확정 API 계약이 아직 없어
@@ -607,6 +637,17 @@ function ProductPhotoQuestion({ spec, onResolved }) {
   const [visionError, setVisionError] = useState('');
   const [context, setContext] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
+  // --- 배경 참고 이미지(선택, 8/18 신규) ---------------------------------
+  // 제품 사진과 독립된 state — Vision analyze()에는 절대 전달하지 않는다.
+  // phase(upload/analyzing/result/edit)와 무관하게 항상 업로드/해제 가능하다.
+  const backgroundFileInputRef = useRef(null);
+  const [backgroundPreview, setBackgroundPreview] = useState(null);
+  const [backgroundFileError, setBackgroundFileError] = useState('');
+  // FileReader.onload는 비동기라, 배경 이미지 선택 직후 곧바로 [맞아요]/제품명
+  // 확정을 누르면 아직 backgroundPreview가 갱신되기 전 값(이전 값 또는 null)이
+  // onResolved로 넘어가버리는 race condition이 있었다 — 읽는 동안 제품 확정
+  // 버튼들을 잠가서 막는다(confirmRecognized/submitProductName 가드 참고).
+  const [backgroundFileReading, setBackgroundFileReading] = useState(false);
   // /vision/product 응답의 spec(product_context 포함) — confirm/edit 경로에서
   // 제품명을 확정할 때도 이 spec을 기반으로 써야 auto_fill과 최종 spec 모양이
   // 달라지지 않는다(원래 spec prop에는 product_context가 없다).
@@ -639,6 +680,43 @@ function ProductPhotoQuestion({ spec, onResolved }) {
     const reader = new FileReader();
     reader.onload = () => setPreview(reader.result);
     reader.readAsDataURL(file);
+  };
+
+  // 배경 참고 이미지 선택 — 제품 사진과 같은 형식/용량 제약을 쓰되, 완전히
+  // 독립된 state에만 반영한다(Vision analyze()는 이 값을 참조하지 않는다).
+  const handleBackgroundFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBackgroundFileError('');
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setBackgroundFileError('PNG, JPEG, WebP 형식의 사진만 업로드할 수 있어요.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setBackgroundFileError('사진 용량이 너무 커요. 8MB 이하의 사진으로 올려주세요.');
+      e.target.value = '';
+      return;
+    }
+
+    setBackgroundFileReading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBackgroundPreview(reader.result);
+      setBackgroundFileReading(false);
+    };
+    reader.onerror = () => {
+      setBackgroundFileReading(false);
+      setBackgroundFileError('사진을 불러오지 못했어요. 다시 시도해주세요.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearBackgroundReference = () => {
+    setBackgroundPreview(null);
+    setBackgroundFileError('');
+    if (backgroundFileInputRef.current) backgroundFileInputRef.current.value = '';
   };
 
   const analyze = async () => {
@@ -685,14 +763,14 @@ function ProductPhotoQuestion({ spec, onResolved }) {
   // 쓴다 — auto_fill의 suggestion.spec과 최종 모양이 달라지지 않게 하기 위함.
   const submitProductName = async (name) => {
     const trimmed = (name || '').trim();
-    if (!trimmed || actionLockRef.current) return;
+    if (!trimmed || actionLockRef.current || backgroundFileReading) return;
     actionLockRef.current = true;
     setBridgeBusy(true);
     setVisionError('');
     try {
       const res = await confirmProductLocally({ name: trimmed, spec: visionSpec || spec });
       setBridgeBusy(false);
-      onResolved({ image: preview, spec: res.spec, suggestion: res });
+      onResolved({ image: preview, backgroundReference: backgroundPreview, spec: res.spec, suggestion: res });
     } catch (err) {
       actionLockRef.current = false;
       setBridgeBusy(false);
@@ -701,11 +779,11 @@ function ProductPhotoQuestion({ spec, onResolved }) {
   };
 
   const confirmRecognized = () => {
-    if (actionLockRef.current) return;
+    if (actionLockRef.current || backgroundFileReading) return;
     if (suggestion) {
       // auto_fill 경로 — Vision 호출이 이미 다음(느낌) 질문까지 받아왔다.
       actionLockRef.current = true;
-      onResolved({ image: preview, spec: suggestion.spec, suggestion });
+      onResolved({ image: preview, backgroundReference: backgroundPreview, spec: suggestion.spec, suggestion });
       return;
     }
     submitProductName(context?.product);
@@ -763,8 +841,13 @@ function ProductPhotoQuestion({ spec, onResolved }) {
           <p className="chat-vision-result__label">제품을 이렇게 인식했어요!</p>
           <p className="chat-vision-result__name">{context.product}</p>
           <div className="chat-photo__actions">
-            <button type="button" className="chat-question__submit" disabled={bridgeBusy} onClick={confirmRecognized}>
-              맞아요
+            <button
+              type="button"
+              className="chat-question__submit"
+              disabled={bridgeBusy || backgroundFileReading}
+              onClick={confirmRecognized}
+            >
+              {backgroundFileReading ? '배경 이미지 불러오는 중…' : '맞아요'}
             </button>
             <button type="button" className="chat-question__chip" disabled={bridgeBusy} onClick={openEdit}>
               수정할게요
@@ -799,10 +882,10 @@ function ProductPhotoQuestion({ spec, onResolved }) {
             <button
               type="button"
               className="chat-question__submit"
-              disabled={bridgeBusy || !editValue.trim()}
+              disabled={bridgeBusy || !editValue.trim() || backgroundFileReading}
               onClick={() => submitProductName(editValue)}
             >
-              이 이름으로 확정할게요
+              {backgroundFileReading ? '배경 이미지 불러오는 중…' : '이 이름으로 확정할게요'}
             </button>
           </div>
           {visionError && (
@@ -810,6 +893,56 @@ function ProductPhotoQuestion({ spec, onResolved }) {
           )}
         </div>
       )}
+
+      {/* 배경 참고 이미지(선택) — phase와 무관하게 항상 노출. 제품 사진과 역할이
+          다르다는 걸 시각적으로도 분리하기 위해 구분선 아래 별도 섹션으로 둔다. */}
+      <div className="chat-photo__section">
+        <div className="chat-photo__section-header">
+          <span className="chat-photo__section-title">{BACKGROUND_REFERENCE_LABEL}</span>
+          <span className="chat-photo__optional-badge">선택</span>
+        </div>
+        <p className="chat-flow__hint">{BACKGROUND_REFERENCE_GUIDE_TEXT}</p>
+
+        <input
+          ref={backgroundFileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+          onChange={handleBackgroundFile}
+          disabled={isAnalyzing || bridgeBusy || backgroundFileReading}
+        />
+
+        {backgroundFileReading && <p className="chat-flow__hint">이미지를 불러오는 중…</p>}
+        {backgroundPreview && !backgroundFileReading && (
+          <img
+            className="chat-photo__preview chat-photo__preview--background"
+            src={backgroundPreview}
+            alt="업로드한 배경 참고 이미지 미리보기"
+          />
+        )}
+        {backgroundFileError && <p className="chat-photo__error-text">{backgroundFileError}</p>}
+
+        <div className="chat-photo__actions">
+          <button
+            type="button"
+            className="chat-question__chip"
+            disabled={isAnalyzing || bridgeBusy || backgroundFileReading}
+            onClick={() => backgroundFileInputRef.current?.click()}
+          >
+            {backgroundPreview ? '다시 선택' : '배경 참고 이미지 업로드'}
+          </button>
+          {backgroundPreview && (
+            <button
+              type="button"
+              className="chat-question__chip"
+              disabled={isAnalyzing || bridgeBusy || backgroundFileReading}
+              onClick={clearBackgroundReference}
+            >
+              선택 해제
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

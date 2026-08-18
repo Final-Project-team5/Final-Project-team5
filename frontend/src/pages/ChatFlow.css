@@ -289,6 +289,54 @@
   margin: 0;
 }
 
+/* 배경 참고 이미지(선택, 8/18 신규) 섹션 — 제품 사진과 역할이 다르다는 걸
+   시각적으로도 구분하기 위해 점선 구분선 아래 별도 섹션으로 둔다. */
+.chat-photo__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.chat-photo__section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-photo__section-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.chat-photo__optional-badge,
+.chat-photo__required-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.chat-photo__optional-badge {
+  background: var(--color-border-soft);
+  color: var(--color-text-secondary);
+}
+
+.chat-photo__required-badge {
+  background: var(--color-primary-light);
+  color: var(--color-primary-text);
+}
+
+.chat-photo__preview--background {
+  width: 140px;
+  height: 140px;
+}
+
 /* Vision 인식 결과 확인/수정 UX (8/14 확정) — "제품을 이렇게 인식했어요!" +
    [맞아요]/[수정할게요]. 결과가 확정되기 전에는 다음 단계로 넘어가지 않는다. */
 .chat-vision-result,

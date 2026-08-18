@@ -114,6 +114,15 @@ export const PHOTO_GUIDE_TEXT = '최대한 깨끗한 배경(단색)에 제품이
 export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MiB — 프론트에서도 선제 차단
 
+// 배경 참고 이미지(선택, 8/18 신규) — 제품 사진과 같은 질문 화면 안에서 받되
+// 역할을 프론트가 처음부터 분리해서 관리한다(LLM이 이미지 역할을 자동 판별하지
+// 않음). Vision 제품 인식 대상이 아니며, 확정된 poster API 계약이 아직 없어
+// ChatFlow.jsx가 state로만 들고 있고 어떤 API에도 실제 전송하지 않는다
+// (docs/UIUX_스펙정리.md — 배경 레퍼런스 계약 확정 전까지 mock/interface로 격리).
+export const BACKGROUND_REFERENCE_LABEL = '배경 참고 이미지 업로드';
+export const BACKGROUND_REFERENCE_GUIDE_TEXT =
+  '선택 사항이에요. 원하는 배경 분위기가 있다면 참고 이미지를 함께 올려주세요. (제품 인식에는 사용되지 않아요)';
+
 const TONE_OPTIONS = ['따뜻하고 아늑한', '깔끔하고 모던한', '화려하고 트렌디한', '자연스럽고 담백한'];
 const HIGHLIGHT_OPTIONS = ['신선한 재료', '합리적인 가격', '특별한 이벤트', '브랜드 스토리'];
 const EXTRA_OPTIONS = ['특별히 없어요', '이벤트를 강조해주세요', '가격을 강조해주세요', '심플하게 만들어주세요'];
