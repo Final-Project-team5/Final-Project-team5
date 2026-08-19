@@ -2,8 +2,8 @@
 
 팀 논의 반영:
 - (8/5) PM진우님: 고정 질문 흐름, 각 단계마다 선택지 여러 개 + 기타 직접입력
-- (8/5) 서비스개발소원님: 선택 값이 메인 화면 키워드 칩으로 자동 추가 + 확인 멘트
-- (8/5) 포스터모델지우님: 챗봇은 메인이 아닌 보조 도우미 역할
+- (8/19) 챗봇을 광고 정보 입력 메인 플로우로 사용. 각 단계는 자기 슬롯만 수정하며
+  별도 키워드 UI를 자동 변경했다는 안내는 하지 않는다.
 - (8/11) 소원·지우님 확정: 이미지 비율은 챗봇 '용도' 질문에서 받는다.
     용도 → 비율 매핑: SNS 카드뉴스=1:1 / 배너=3:1 / 상세페이지=3:4
     (비정사각 생성 구조상 draft 생성 전에 비율이 정해져야 하므로 챗봇에서 수집)
@@ -23,6 +23,7 @@ target_slots (서비스개발소원님 요청):
  프론트가 aspect_ratio를 drafts 요청에 실어 넘긴다).
 """
 import json
+import re
 import time
 from typing import Literal, Optional
 
@@ -183,9 +184,9 @@ _FIXED_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
      (배너→"가로로 긴 배너(3:1)", 상세페이지→"세로로 긴 상세페이지(3:4)")
    - product  → "'떡볶이'로 정했어요."
    - tone     → "'모던한 K-푸드 스타일'로 분위기를 잡았어요."
-   - keywords → "'수제', '당일 생산'을 키워드로 추가했어요."
+   - keywords → "'수제', '당일 생산'을 강조 포인트로 확인했어요."
    - request  → "'신메뉴 출시'를 반영할게요."
-   뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (마지막 단계는 생략)
+   별도 화면이나 키워드 영역을 수정했다는 표현은 사용하지 않는다.
 4. 마지막 단계까지 끝나면 done=true, next_question은 마무리 멘트, options는 빈 배열.
 5. 반드시 JSON으로만 응답:
 {{"spec": {{"category": {category_enum},
@@ -214,7 +215,7 @@ _AUTO_SYSTEM_PROMPT = """당신은 소상공인 광고 콘텐츠 제작 서비�
    질문 1개 + 사용자가 고르기 쉬운 선택지 4개를 제시한다.
 4. 한 번에 질문은 반드시 1개만.
 5. 이번 입력으로 새로 확정된 항목이 있으면 confirm_message에 짧은 확인 멘트를 담는다.
-   뒤에 "왼쪽 화면에서 확인해보세요!"를 붙인다. (없으면 빈 문자열)
+   별도 화면이나 키워드 영역을 수정했다는 표현은 사용하지 않는다. (없으면 빈 문자열)
 6. 반드시 JSON으로만 응답:
 {"spec": {"category": null|"food"|"beauty"|"goods",
   "purpose": null|"sns"|"banner"|"detail", "product": null|"...",
@@ -266,8 +267,7 @@ class SuggestResponse(BaseModel):
         default=False, description="다음 질문이 복수 선택 가능한지")
     confirm_message: str = Field(
         default="",
-        description="이번 턴에 새로 확정된 항목 확인 멘트. "
-                    "메인 화면 키워드 칩 자동 추가와 연동해 띄우는 용도 (빈 문자열이면 표시 안 함)")
+        description="이번 턴에 현재 단계 값을 확정한 확인 멘트 (빈 문자열이면 표시 안 함)")
     meta: dict
 
 
@@ -276,7 +276,7 @@ _MOCK_SLOT = {
     "category": {
         "options": ["음식점·카페", "화장품·뷰티", "소품·잡화", "기타"],
         "patch": {"category": "food"},
-        "confirm": "'푸드'로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'푸드'로 업종을 설정했어요."},
     "purpose": {
         "options": ["SNS 카드뉴스 (정사각 1:1)", "배너 (가로로 긴 3:1)",
                     "상세페이지 (세로로 긴 3:4)"],
@@ -285,16 +285,16 @@ _MOCK_SLOT = {
     "product": {
         "options": ["떡볶이", "김밥", "분식 세트", "음료"],
         "patch": {"product": "떡볶이"},
-        "confirm": "'떡볶이'로 정했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'떡볶이'로 정했어요."},
     "tone": {
         "options": ["활기찬 분식집 느낌", "모던한 K-푸드 스타일", "정겹고 따뜻한 느낌",
                     "깔끔한 정보 전달형"],
         "patch": {"tone": "energetic"},
-        "confirm": "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'활기찬 분식집 느낌'으로 분위기를 잡았어요."},
     "keywords": {
         "options": ["수제", "당일 생산", "매운맛 단계 선택", "포장 가능"],
         "patch": {"keywords": ["수제", "당일 생산"]},
-        "confirm": "'수제', '당일 생산'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'수제', '당일 생산'을 강조 포인트로 확인했어요."},
     "request": {
         "options": ["신메뉴 출시", "할인 행사", "배달 시작", "없음"],
         "patch": {"request": "신메뉴 출시"},
@@ -307,7 +307,7 @@ _MOCK_SLOT_SERVICE = {
     "category": {
         "options": ["학원 (입시·보습)", "체육관·도장 (헬스·복싱·태권도)", "기타"],
         "patch": {"category": "academy"},
-        "confirm": "'학원'으로 업종을 설정했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'학원'으로 업종을 설정했어요."},
     "purpose": {
         "options": ["SNS 카드뉴스 (정사각 1:1)"],
         "patch": {"purpose": "sns"},
@@ -315,16 +315,16 @@ _MOCK_SLOT_SERVICE = {
     "product": {
         "options": ["수학 전문 학원", "영어 회화 학원", "입시 종합반", "코딩 학원"],
         "patch": {"product": "수학 전문 학원"},
-        "confirm": "'수학 전문 학원'으로 정했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'수학 전문 학원'으로 정했어요."},
     "tone": {
         "options": ["신뢰감 있는 전문가 느낌", "활기찬 분위기", "차분하고 깔끔한 느낌",
                     "따뜻하고 친근한 느낌"],
         "patch": {"tone": "simple"},
-        "confirm": "'차분하고 깔끔한 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'차분하고 깔끔한 느낌'으로 분위기를 잡았어요."},
     "keywords": {
         "options": ["전문성·경력", "후기·평판", "접근성(위치·시간)", "상담·가격 안내"],
         "patch": {"keywords": ["전문성·경력", "후기·평판"]},
-        "confirm": "'전문성·경력', '후기·평판'을 키워드로 추가했어요. 왼쪽 화면에서 확인해보세요!"},
+        "confirm": "'전문성·경력', '후기·평판'을 강조 포인트로 확인했어요."},
     "request": {
         "options": ["신규 개강", "무료 상담 이벤트", "수강료 할인", "없음"],
         "patch": {"request": "신규 개강"},
@@ -380,6 +380,17 @@ def _merge_fixed_slot(
         merged[slot] = incoming[slot]
 
     return merged
+
+
+def _sanitize_confirm_message(value: object) -> str:
+    """Remove obsolete references to a separate/left-side keyword UI."""
+    message = str(value or "")
+    cleaned = re.sub(
+        r"[^.!?\n]*(?:왼쪽|키워드\s*(?:창|영역))[^.!?\n]*[.!?]?",
+        "",
+        message,
+    ).strip()
+    return re.sub(r"^확인해보세요[.!?]?$", "", cleaned).strip()
 
 def _mock_fixed(req: SuggestRequest, t0: float) -> SuggestResponse:
     business_type = _business_type(req.spec)
@@ -477,7 +488,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
             question=str(data.get("next_question", "")),
             options=[] if done else [str(o) for o in data.get("options", [])][:4],
             allow_multiple=False if done else next_cfg["multi"],
-            confirm_message=str(data.get("confirm_message", "")),
+            confirm_message=_sanitize_confirm_message(data.get("confirm_message", "")),
             meta={"elapsed": round(time.time() - t0, 3),
                   "model": config.MODEL_NAME, "mock": False},
         )
@@ -506,7 +517,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
         step=req.step, next_step=None,
         question=str(data.get("next_question", "")),
         options=[str(o) for o in data.get("options", [])][:4],
-        confirm_message=str(data.get("confirm_message", "")),
+        confirm_message=_sanitize_confirm_message(data.get("confirm_message", "")),
         meta={"elapsed": round(time.time() - t0, 3),
               "model": config.MODEL_NAME, "mock": False},
     )
