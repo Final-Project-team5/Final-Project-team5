@@ -104,9 +104,9 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MiB — 프론트에서도 
 // 역할을 프론트가 처음부터 분리해서 관리한다(LLM이 이미지 역할을 자동 판별하지
 // 않음). 제품 Vision 인식 대상이 아니며, 제품 confirm 뒤 별도 background Vision
 // 분석에만 사용한다. poster API에는 여전히 직접 전송하지 않는다.
-export const BACKGROUND_REFERENCE_LABEL = '배경 참고 이미지 업로드';
+export const BACKGROUND_REFERENCE_LABEL = '배경 참고 이미지';
 export const BACKGROUND_REFERENCE_GUIDE_TEXT =
-  '선택 사항이에요. 원하는 배경 분위기가 있다면 참고 이미지를 함께 올려주세요. (제품 인식에는 사용되지 않아요)';
+  '원하는 배경 분위기가 있다면 참고 이미지를 올려주세요.';
 
 const TONE_OPTIONS = ['따뜻하고 아늑한', '깔끔하고 모던한', '화려하고 트렌디한', '자연스럽고 담백한'];
 const HIGHLIGHT_OPTIONS = ['신선한 재료', '합리적인 가격', '특별한 이벤트', '브랜드 스토리'];
