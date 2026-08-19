@@ -20,6 +20,13 @@
  *
  * mock 실패 시뮬레이션(?mockFail=drafts,refine / ?mockFailRate=0.3)은 mockUtils.js
  * 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다(mock 모드 전용).
+ *
+ * ⚠ 배경 참고 이미지(ChatFlow.jsx의 backgroundReference state, 8/18 신규) — 화면 A
+ * 사진 단계에서 선택 업로드하지만, 이 파일의 어떤 요청 바디에도 아직 포함되지
+ * 않는다. 확정된 계약이 없어 임의 필드명을 만들지 않았다. 계약이 정해지면
+ * generateDrafts/realGenerateDrafts에 예상되는 형태로 추가될 가능성이 크다
+ * (예: `background_reference_image`, 미확정) — 그 전까지는 state로만 보관.
+ * (아래 planDesignPrompt()도 같은 이유로 백엔드 계약 확정 전까지는 패스스루.)
  */
 
 import { MockApiError, maybeFail } from './mockUtils';
@@ -49,22 +56,44 @@ function delay(ms = MOCK_DELAY_MS) {
 /**
  * 챗봇 spec(화면 A)에서 포스터용 "배경 설명" 프롬프트를 만든다. 화면 C/D가 공유.
  *
- * 강조점 필드명이 mock/real에서 다르다 — mock copyApi.js(suggestOptions)는
- * spec.highlights(콤마로 합친 문자열)를 쓰고, 실제 백엔드(chatbot.py)는
- * spec.keywords(배열)를 내려준다. 여기서 둘 다 흡수해서 항상 문자열로 맞춘다
- * (실제 백엔드 필드명은 keywords가 우선 — 8/13 확인된 불일치 수정).
- *
- * spec.request(6단계 "추가 요청" 자유입력)도 이어붙인다 — 이전에는 buildPrompt()가
- * 아예 참조하지 않아서 6단계에 뭘 입력해도 포스터 prompt에 반영되지 않았다
- * (8/13 확인된 누락, 이번에 추가).
+ * spec.keywords(배열, 강조점)와 spec.request(자유입력 추가요청)를 함께 이어붙인다
+ * — mock copyApi.js도 8/14 챗봇 개편으로 실제 백엔드(chatbot.py)와 동일하게
+ * spec.keywords(배열)/spec.request(문자열) 필드명을 쓰도록 정리됐다(예전 mock 전용
+ * spec.highlights/spec.extra는 더 이상 만들어지지 않는다).
  */
 export function buildPrompt(spec = {}) {
-  const highlights = Array.isArray(spec.keywords)
-    ? spec.keywords.join(', ')
-    : spec.keywords || spec.highlights;
-  return (
-    [spec.tone, spec.product, highlights, spec.request].filter(Boolean).join(', ') || '포스터 배경'
-  );
+  const keywords = Array.isArray(spec.keywords) ? spec.keywords.join(', ') : spec.keywords;
+  return [spec.tone, spec.product, keywords, spec.request].filter(Boolean).join(', ') || '포스터 배경';
+}
+
+/**
+ * AI Design Planner 연동 지점 (TODO — 백엔드 계약 미확정, 8/18).
+ *
+ * 지금 이미지 모델에 넘기는 prompt는 buildPrompt()가 만드는 단순 조합
+ * (tone + product + keywords + request를 콤마로 이어붙인 문자열)이다. 최신
+ * 기획에서는 이 조합을 그대로 넘기는 대신, 내부 LLM이 이를 구체적인 Visual
+ * Prompt로 확장하는 "AI Design Planner" 단계를 이 자리에 끼워 넣기로 했다.
+ *
+ * 호출부 (buildPrompt를 대신 이 함수로 호출):
+ *   - DraftSelect.jsx  → generateDrafts({ prompt: planDesignPrompt(spec), ... })
+ *   - App.jsx           → <PosterEditor prompt={planDesignPrompt(chatOutcome.spec)} />
+ *     (PosterEditor.jsx가 그 prompt를 그대로 generateRefine 요청에 전달)
+ *
+ * 두 호출부 모두 지금은 prompt를 렌더링 시점에 동기적으로 얻는 구조라, 이
+ * 함수도 당분간은 buildPrompt()의 단순 패스스루로만 동작한다 — 실제 Design
+ * Planner API 계약(endpoint, request/response 스키마)이 아직 확정되지
+ * 않았으므로 임의로 만들지 않는다.
+ *
+ * 계약이 확정되면:
+ *   1. 이 함수 내부만 실제 LLM 호출(비동기)로 교체
+ *   2. 위 두 호출부를 await 가능한 형태로 바꿔야 함 — 특히 App.jsx는 JSX
+ *      렌더링 중 동기 호출이라, prompt를 미리 계산해 상태로 들고 있는 구조로
+ *      바꿔야 할 가능성이 큼(예: 화면 B→C 전환 시점에 한 번 호출해 결과를
+ *      chatOutcome과 함께 보관)
+ * 이 두 가지 모두 계약 확정 전에는 착수하지 않는다.
+ */
+export function planDesignPrompt(spec = {}) {
+  return buildPrompt(spec);
 }
 
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.

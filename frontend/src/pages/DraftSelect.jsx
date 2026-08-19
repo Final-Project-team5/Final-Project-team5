@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { buildPrompt, generateDrafts, toImageSrc } from '../api/posterApi';
+import { generateDrafts, planDesignPrompt, toImageSrc } from '../api/posterApi';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
@@ -37,6 +37,13 @@ const BACKGROUND_TYPE_OPTIONS = [
 function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const ratio = spec?.aspect_ratio || '1:1';
   const aiDisabled = ratio === '3:4';
+  // service는 사진이 없어 flat(단색·그라데이션) 배경을 만들 제품 마스크 자체가
+  // 없다 — AI 배경만 제공한다(docs/UIUX_스펙정리.md 5장 business_type×비율×배경
+  // 표, 8/14 갱신). product는 기존대로 flat/AI 둘 다 노출.
+  const isService = spec?.business_type === 'service';
+  const backgroundTypeOptions = isService
+    ? BACKGROUND_TYPE_OPTIONS.filter((opt) => opt.id === 'ai')
+    : BACKGROUND_TYPE_OPTIONS;
   const [backgroundType, setBackgroundType] = useState(aiDisabled ? 'flat' : 'ai');
   const [drafts, setDrafts] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -60,7 +67,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
       generateDrafts({
         mode,
         image: productImage,
-        prompt: buildPrompt(spec),
+        prompt: planDesignPrompt(spec),
         ratio,
         backgroundType,
         num_images: 3,
@@ -106,7 +113,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
       <div className="draft-select__bg-type">
         <div className="draft-select__bg-type-label">배경 스타일</div>
         <div className="draft-select__bg-type-options">
-          {BACKGROUND_TYPE_OPTIONS.map((opt) => {
+          {backgroundTypeOptions.map((opt) => {
             const permanentlyDisabled = opt.id === 'ai' && aiDisabled;
             const disabled = permanentlyDisabled || isLoadingDrafts;
             return (

@@ -1,25 +1,41 @@
 /**
- * 문구 생성/규제 검증 API.
+ * 문구 생성/규제 검증 API + 제품 Vision 인식 API.
  * 요청/응답 형태는 docs/UIUX_스펙정리.md 5장(문구 모델) 기준을 따른다.
  *
- *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A)
+ *   POST /suggest/options  { message, step, spec } → ChatFlow.jsx (화면 A, product 느낌/강조점/추가요청)
+ *   POST /vision/product   { image_data_url, spec } → ChatFlow.jsx (화면 A, product 사진 인식)
+ *   POST /vision/product/confirm { spec, confirmed_product, confirmation_source }
+ *                                                → 사용자 확인 후 product 확정 + tone 질문
  *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  *
  * 이 파일 아래쪽은 크게 두 갈래로 나뉜다 (컴포넌트는 둘 중 뭐가 쓰이는지 몰라도 됨):
  *   - mockXxx()  : 실서버 없이 프론트 흐름만 검증하던 기존 mock (그대로 보존)
  *   - realXxx()  : 실제 백엔드(copy_model, 기본 http://localhost:8001) 호출 어댑터
- * 맨 아래 suggestOptions/generateCopy/validateCopy가 실제 진입점이며,
+ * 맨 아래 suggestOptions/visionProduct/generateCopy/validateCopy가 실제 진입점이며,
  * VITE_USE_REAL_COPY_API=true일 때만 real 쪽을, 아니면 mock 쪽을 그대로 쓴다.
  *
- * mock 실패 시뮬레이션(?mockFail=options,copy,validate / ?mockFailRate=0.3)은
+ * mock 실패 시뮬레이션(?mockFail=options,copy,validate,vision / ?mockFailRate=0.3)은
  * mockUtils.js 참고 — 개발/테스트 중 재시도 버튼 동작을 확인할 때 쓴다(mock 모드 전용).
+ * Vision mock 결과를 강제로 바꾸고 싶으면 ?mockVision=auto_fill|confirm|reupload
+ * 쿼리 파라미터를 쓴다(기본은 auto_fill) — 맞아요/수정할게요/재업로드 세 분기를
+ * 실제 사진 없이도 재현해볼 수 있다.
+ *
+ * --- 8/14 챗봇 분기 개편 핵심 요약 (docs/UIUX_스펙정리.md 3-3·3-4장) ---
+ * 0단계(business_type)·업종·용도는 이제 전부 프론트 하드코딩이라 서버 호출이
+ * 없다. product는 업종/용도 확정 후 곧바로 사진 업로드 → Vision 인식으로
+ * 넘어가며(제품명 직접 입력 질문 없음), Vision이 spec.product를 확정지어야만
+ * 사용자 확인을 /vision/product/confirm으로 보낸 뒤 느낌(tone)부터 실제
+ * /suggest/options 호출이 시작된다(백엔드 기준 4=tone/5=keywords/6=request).
+ *
+ * service는 사진/제품명 단계 없이 프론트 고정 흐름(serviceAdvance)으로 진행한다.
+ * category=academy|sports를 그대로 /generate/copy에 보내며 product를 임의로
+ * 채우지 않는다(비어 있으면 서버가 업종별 기본값을 적용한다).
  */
 
 import { MockApiError, maybeFail } from './mockUtils';
 
 const MOCK_DELAY_MS = 400;
-export const TOTAL_STEPS = 6;
 
 // --- 실제 서버 연동 스위치 -----------------------------------------------
 // VITE_USE_REAL_COPY_API=true면 아래 realXxx()가, 아니면 기존 mockXxx()가 쓰인다.
@@ -31,73 +47,94 @@ function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// --- 용도 질문 (8/11 확정: 비율 매핑은 프론트가 아니라 서버가 결정) --------
-// 프론트는 이 선택지로 질문만 보여주고, 매핑 결과(purpose/aspect_ratio)는
-// 서버가 /suggest/options 응답 spec에 채워서 내려준다. 프론트는 그 값을
-// 그대로 받아 쓸 뿐 계산하지 않는다 — 아래 PURPOSE_BY_USAGE는 mock이 "서버라면
-// 이렇게 채워줬을 값"을 흉내내기 위한 내부 구현일 뿐, 프론트 쪽 매핑 로직이 아니다.
-export const USAGE_OPTIONS = ['SNS 카드뉴스', '배너', '상세페이지'];
-const PURPOSE_BY_USAGE = {
-  'SNS 카드뉴스': { purpose: 'sns', aspect_ratio: '1:1' },
-  배너: { purpose: 'banner', aspect_ratio: '3:1' },
-  상세페이지: { purpose: 'detail', aspect_ratio: '3:4' },
-};
-function resolvePurpose(usage) {
-  return PURPOSE_BY_USAGE[usage] || { purpose: 'sns', aspect_ratio: '1:1' };
-}
+// 백엔드 total_steps(product 6 / service 5)에 프론트 전용 business_type 단계를
+// 하나 더한 사용자 표시 분모다. API 응답의 total_steps를 화면에 그대로 쓰지 않는다.
+export const TOTAL_STEPS_BY_TYPE = { product: 7, service: 6 };
 
-// --- 업종별 3번 질문(제품/가게) 선택지 ---------------------------------
-const CATEGORY_PRODUCT_OPTIONS = {
-  food: ['떡볶이집', '베이커리·디저트', '카페', '도시락 전문점'],
-  beauty: ['스킨케어 브랜드', '헤어살롱', '네일샵', '향수 브랜드'],
-  goods: ['문구·디자인 소품', '반려동물 굿즈', '캠핑용품', '인테리어 소품'],
-  default: ['우리 브랜드 제품', '오프라인 매장', '온라인 스토어', '신제품 라인업'],
+// --- 0단계 — business_type (프론트 하드코딩, 8/14 확정) --------------------
+// 서버는 이 시점에 business_type을 아직 몰라 내려줄 선택지 자체가 없다
+// (docs/UIUX_스펙정리.md 3-3장) — 프론트가 고정 질문/선택지를 들고 있는다.
+export const BUSINESS_TYPE_QUESTION_TEXT = '어떤 광고를 만들어 드릴까요?';
+export const BUSINESS_TYPE_OPTIONS = [
+  { value: 'product', label: '제품 광고', description: '푸드 · 뷰티 · 굿즈' },
+  { value: 'service', label: '서비스 광고', description: '학원 · 체육관' },
+];
+
+// --- 1단계 — 업종 (프론트 하드코딩) -----------------------------------
+// product/service 모두 지원 업종이 고정된 소수 집합이라(Vision·CopyRequest가
+// 요구하는 enum과 정확히 일치해야 함) LLM 자유 매핑 없이 프론트가 값을 직접 emit한다.
+export const CATEGORY_QUESTION_TEXT_BY_TYPE = {
+  product: '어떤 업종이신가요?',
+  service: '어떤 서비스 업종이신가요?',
+};
+// 업종 화면 안내 문구 (8/14 신규) — 서비스형 업종이 2개뿐이라 실망하지 않도록.
+export const CATEGORY_HINT_TEXT = '업종은 계속 추가될 예정이에요.';
+export const CATEGORY_OPTIONS_BY_TYPE = {
+  product: [
+    { value: 'food', label: '푸드' },
+    { value: 'beauty', label: '뷰티' },
+    { value: 'goods', label: '굿즈' },
+  ],
+  service: [
+    { value: 'academy', label: '학원' },
+    { value: 'sports', label: '체육관·도장' },
+  ],
 };
 
-function categoryKey(message = '') {
-  if (message.includes('푸드')) return 'food';
-  if (message.includes('뷰티')) return 'beauty';
-  if (message.includes('굿즈')) return 'goods';
-  return 'default';
-}
+// --- 2단계 — 용도 (프론트 하드코딩, 8/14 확정) ------------------------
+// 비율 매핑도 프론트가 직접 들고 있는다(서버 매핑 응답을 기다리지 않음).
+export const USAGE_QUESTION_TEXT = '이 포스터는 어디에 사용하실 예정인가요?';
+export const USAGE_OPTIONS_BY_TYPE = {
+  product: [
+    { value: 'sns', label: 'SNS (1:1)', aspect_ratio: '1:1' },
+    { value: 'banner', label: '배너 (3:1)', aspect_ratio: '3:1' },
+    { value: 'detail', label: '상세페이지 (3:4)', aspect_ratio: '3:4' },
+  ],
+  // service는 SNS 1:1 고정 — 배너/상세는 선택지 자체를 노출하지 않는다.
+  service: [{ value: 'sns', label: 'SNS (1:1)', aspect_ratio: '1:1' }],
+};
+
+// --- 3단계(product 전용) — 사진 업로드 + Vision 인식 ------------------
+export const PHOTO_GUIDE_TEXT = '최대한 깨끗한 배경(단색)에 제품이 1개만 나오도록 찍어주세요.';
+export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MiB — 프론트에서도 선제 차단
+
+// 배경 참고 이미지(선택, 8/18 신규) — 제품 사진과 같은 질문 화면 안에서 받되
+// 역할을 프론트가 처음부터 분리해서 관리한다(LLM이 이미지 역할을 자동 판별하지
+// 않음). Vision 제품 인식 대상이 아니며, 확정된 poster API 계약이 아직 없어
+// ChatFlow.jsx가 state로만 들고 있고 어떤 API에도 실제 전송하지 않는다
+// (docs/UIUX_스펙정리.md — 배경 레퍼런스 계약 확정 전까지 mock/interface로 격리).
+export const BACKGROUND_REFERENCE_LABEL = '배경 참고 이미지 업로드';
+export const BACKGROUND_REFERENCE_GUIDE_TEXT =
+  '선택 사항이에요. 원하는 배경 분위기가 있다면 참고 이미지를 함께 올려주세요. (제품 인식에는 사용되지 않아요)';
 
 const TONE_OPTIONS = ['따뜻하고 아늑한', '깔끔하고 모던한', '화려하고 트렌디한', '자연스럽고 담백한'];
 const HIGHLIGHT_OPTIONS = ['신선한 재료', '합리적인 가격', '특별한 이벤트', '브랜드 스토리'];
 const EXTRA_OPTIONS = ['특별히 없어요', '이벤트를 강조해주세요', '가격을 강조해주세요', '심플하게 만들어주세요'];
 
-/** 첫 질문(1단계, 업종)은 고정 선택지라 API 호출 없이 프론트에서 바로 사용한다. */
-export const INITIAL_QUESTION = {
-  step: 1,
-  total_steps: TOTAL_STEPS,
-  question: '어떤 업종이신가요?',
-  options: ['푸드', '뷰티', '굿즈'],
-  multiSelect: false,
-  freeform: false,
-};
+// service 강조점 세트는 제품형과 결이 달라야 한다(docs 3-3장: 전문성·경력 /
+// 후기·평판 / 접근성 / 상담·가격 안내). service는 서버 호출이 아예 없어
+// (아래 serviceAdvance 참고) 느낌/강조점/추가요청 선택지를 여기서 고정해둔다.
+const SERVICE_TONE_OPTIONS = ['신뢰감 있는 전문가 느낌', '활기찬 분위기', '차분하고 깔끔한 느낌', '따뜻하고 친근한 느낌'];
+const SERVICE_HIGHLIGHT_OPTIONS = ['전문성·경력', '후기·평판', '접근성(위치·시간)', '상담·가격 안내'];
+const SERVICE_REQUEST_OPTIONS = ['신규 개강', '무료 상담 이벤트', '수강료 할인', '특별히 없어요'];
 
-function buildQuestion(step, spec) {
+/** 문구 3개(시안) 생성 전, /generate/copy 바디의 category enum과 정합되는지 확인하는 헬퍼. */
+function categoryKey(category = '') {
+  return ['food', 'beauty', 'goods'].includes(category) ? category : 'default';
+}
+
+// ============================================================================
+// --- mock: /suggest/options (product 전용, 백엔드 FLOW_STEPS 3~6번 흉내) ---
+// step 3(product)은 Vision 확정/보정 브리지가 호출하고, 4(tone)/5(keywords)/
+// 6(request)는 ChatFlow가 순서대로 호출한다. 1(category)/2(purpose)는 이제
+// 프론트 하드코딩이라 이 함수에 도달하지 않는다.
+// ============================================================================
+
+function buildQuestion(step) {
   switch (step) {
-    case 2:
-      return {
-        question: '이 포스터는 어디에 사용하실 예정인가요?',
-        options: USAGE_OPTIONS,
-        multiSelect: false,
-        freeform: false,
-      };
-    case 3:
-      return {
-        question: '어떤 제품/가게인가요?',
-        options: CATEGORY_PRODUCT_OPTIONS[categoryKey(spec.category)],
-        multiSelect: false,
-        freeform: false,
-      };
     case 4:
-      return {
-        question: '원하시는 포스터 느낌은 어떤가요?',
-        options: TONE_OPTIONS,
-        multiSelect: false,
-        freeform: false,
-      };
+      return { question: '원하시는 포스터 느낌은 어떤가요?', options: TONE_OPTIONS, multiSelect: false, freeform: false };
     case 5:
       return {
         question: '강조하고 싶은 점은 무엇인가요? (복수 선택 가능)',
@@ -106,12 +143,7 @@ function buildQuestion(step, spec) {
         freeform: false,
       };
     case 6:
-      return {
-        question: '추가로 요청하실 사항이 있나요?',
-        options: EXTRA_OPTIONS,
-        multiSelect: false,
-        freeform: true,
-      };
+      return { question: '추가로 요청하실 사항이 있나요?', options: EXTRA_OPTIONS, multiSelect: false, freeform: true };
     default:
       return { question: '', options: [], multiSelect: false, freeform: false };
   }
@@ -119,10 +151,6 @@ function buildQuestion(step, spec) {
 
 function buildConfirmMessage(step, spec) {
   switch (step) {
-    case 1:
-      return `${spec.category} 업종이시군요!`;
-    case 2:
-      return `${spec.usage}에 맞는 비율로 준비할게요!`;
     case 3:
       return `${spec.product}, 멋지네요!`;
     case 4:
@@ -137,28 +165,17 @@ function buildConfirmMessage(step, spec) {
 }
 
 /**
- * POST /suggest/options 목 함수.
- * message: 사용자가 고른 선택지 텍스트 또는 기타 직접입력 값
- * step: 직전 응답의 next_step 값 (첫 요청은 생략 → 1로 처리)
+ * POST /suggest/options 목 함수 (product step 3~6 전용, 백엔드 번호 그대로 사용).
+ * message: 사용자가 고른 선택지 텍스트 / Vision 확정·보정 제품명
+ * step: 직전 응답의 next_step 값(3부터 시작 — Vision 브리지가 최초 호출)
  * spec: 누적 상태
  */
-export async function mockSuggestOptions({ message, step = 1, spec = {} } = {}) {
+export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) {
   await delay();
   maybeFail('options');
 
   const nextSpec = { ...spec };
   switch (step) {
-    case 1:
-      nextSpec.category = message;
-      break;
-    case 2: {
-      nextSpec.usage = message;
-      // 서버 응답 흉내: spec에 purpose/aspect_ratio를 이미 채운 상태로 내려준다.
-      const { purpose, aspect_ratio } = resolvePurpose(message);
-      nextSpec.purpose = purpose;
-      nextSpec.aspect_ratio = aspect_ratio;
-      break;
-    }
     case 3:
       nextSpec.product = message;
       break;
@@ -166,20 +183,20 @@ export async function mockSuggestOptions({ message, step = 1, spec = {} } = {}) 
       nextSpec.tone = message;
       break;
     case 5:
-      nextSpec.highlights = message;
+      nextSpec.keywords = message.split(',').map((s) => s.trim()).filter(Boolean);
       break;
     case 6:
-      nextSpec.extra = message;
+      nextSpec.request = message;
       break;
     default:
       break;
   }
 
-  if (step >= TOTAL_STEPS) {
+  if (step >= 6) {
     return {
       step,
       next_step: null,
-      total_steps: TOTAL_STEPS,
+      total_steps: 6,
       question: null,
       options: [],
       multiSelect: false,
@@ -191,18 +208,243 @@ export async function mockSuggestOptions({ message, step = 1, spec = {} } = {}) 
   }
 
   const nextStep = step + 1;
-  const { question, options, multiSelect, freeform } = buildQuestion(nextStep, nextSpec);
+  const { question, options, multiSelect, freeform } = buildQuestion(nextStep);
 
   return {
     step,
     next_step: nextStep,
-    total_steps: TOTAL_STEPS,
+    total_steps: 6,
     question,
     options,
     multiSelect,
     freeform,
     spec: nextSpec,
     confirm_message: buildConfirmMessage(step, nextSpec),
+    done: false,
+  };
+}
+
+/** mock POST /vision/product/confirm — 사용자 확정 후 product와 tone 질문을 반환. */
+async function mockConfirmProduct({ confirmedProduct, confirmationSource, spec = {} } = {}) {
+  await delay(150);
+  const context = spec.product_context;
+  const allowedSources = ['vision_confirmed', 'user_corrected'];
+  if (
+    !confirmedProduct?.trim() ||
+    !context ||
+    context.next_action === 'reupload' ||
+    !allowedSources.includes(confirmationSource) ||
+    (confirmationSource === 'vision_confirmed' && confirmedProduct !== context.product)
+  ) {
+    throw new MockApiError('productConfirm');
+  }
+  const nextSpec = {
+    ...spec,
+    product: confirmedProduct,
+    product_context: {
+      ...context,
+      vision_product: context.product,
+      confirmed_product: confirmedProduct,
+      confirmation_source: confirmationSource,
+    },
+  };
+  const { question, options, multiSelect, freeform } = buildQuestion(4);
+  return {
+    step: 3,
+    next_step: 4,
+    total_steps: 6,
+    question,
+    options,
+    multiSelect,
+    freeform,
+    spec: nextSpec,
+    confirm_message: buildConfirmMessage(3, nextSpec),
+    done: false,
+  };
+}
+
+// ============================================================================
+// --- mock: /vision/product (product 3단계 — 제품 사진 인식) ----------------
+// PR #70의 vision.py `_mock_context`/`_finalize_context`와 같은 판정 정책을
+// 흉내낸다: clear+category 일치 → auto_fill / ambiguous·mismatch → confirm /
+// invalid → reupload. ?mockVision=auto_fill|confirm|reupload로 강제 가능.
+// ============================================================================
+
+const MOCK_VISION_SAMPLES = {
+  food: { product: '쿠키 세트', detected_category: 'food', visible_features: ['박스 포장', '개별 쿠키가 보임'] },
+  beauty: { product: '립 틴트', detected_category: 'beauty', visible_features: ['원통형 패키지', '핑크 계열'] },
+  goods: { product: '다이어리', detected_category: 'goods', visible_features: ['책 형태', '하드 커버'] },
+};
+
+// confirm(category mismatch) mock 전용 — requested_category와 다른 카테고리의
+// 샘플을 "detected"로 골라서 실제 판정 로직(vision.py `_finalize_context`의
+// category_match = detected == requested_category)과 같은 방식으로 계산해도
+// 항상 false가 나오게 한다(진짜 불일치를 재현).
+const MISMATCH_CATEGORY_BY_CATEGORY = { food: 'beauty', beauty: 'goods', goods: 'food' };
+
+function mockVisionOverride() {
+  const raw = new URLSearchParams(window.location.search).get('mockVision');
+  return ['auto_fill', 'confirm', 'reupload'].includes(raw) ? raw : null;
+}
+
+function buildMockVisionContext(category, forced) {
+  const sample = MOCK_VISION_SAMPLES[category] || MOCK_VISION_SAMPLES.goods;
+  const base = {
+    requested_category: category,
+    visible_text: [],
+    candidates: [],
+  };
+
+  if (forced === 'reupload') {
+    return {
+      ...base,
+      product: null,
+      detected_category: 'unknown',
+      category_match: false,
+      visible_features: [],
+      recognition_status: 'invalid',
+      next_action: 'reupload',
+    };
+  }
+  if (forced === 'confirm') {
+    // 이전엔 requested_category와 같은 카테고리의 샘플을 쓰면서 category_match만
+    // false로 하드코딩해 requested===detected인데 mismatch라는 모순 데이터였다.
+    // 실제로 다른 카테고리의 샘플을 "인식 결과"로 써서 category_match를
+    // 계산값(detected === requested)으로 채운다 — 결과는 항상 false지만,
+    // 데이터 자체가 자기모순 없는 진짜 mismatch를 재현한다.
+    const detectedCategory = MISMATCH_CATEGORY_BY_CATEGORY[category] || 'goods';
+    const detectedSample = MOCK_VISION_SAMPLES[detectedCategory];
+    return {
+      ...base,
+      product: detectedSample.product,
+      detected_category: detectedSample.detected_category,
+      category_match: detectedSample.detected_category === category,
+      visible_features: detectedSample.visible_features,
+      recognition_status: 'clear',
+      next_action: 'confirm',
+    };
+  }
+  return {
+    ...base,
+    product: sample.product,
+    detected_category: sample.detected_category,
+    category_match: true,
+    visible_features: sample.visible_features,
+    recognition_status: 'clear',
+    next_action: 'auto_fill',
+  };
+}
+
+/**
+ * POST /vision/product 목 함수. 실제 이미지 인식은 하지 않고(비용 0), 사진 대신
+ * category와 ?mockVision 쿼리로 결과를 결정한다 — UI 흐름(맞아요/수정할게요/
+ * 재업로드) 검증용. 인식 결과가 명확해도 사용자 확인 전에는 product를 확정하거나
+ * tone 단계로 자동 진행하지 않는다.
+ */
+export async function mockVisionProduct({ spec = {} } = {}) {
+  await delay(700);
+  maybeFail('vision');
+
+  const category = spec.category || 'goods';
+  const context = buildMockVisionContext(category, mockVisionOverride());
+
+  const productContext = {
+    product: context.product,
+    detected_category: context.detected_category,
+    category_match: context.category_match,
+    visible_features: context.visible_features,
+    visible_text: context.visible_text,
+    recognition_status: context.recognition_status,
+    next_action: context.next_action,
+  };
+  const baseSpec = { ...spec, product_context: productContext };
+
+  delete baseSpec.product;
+  return {
+    context,
+    spec: baseSpec,
+    suggestion: null,
+    meta: {
+      model: 'mock',
+      mock: true,
+      advanced: false,
+      confirmation_required: context.next_action !== 'reupload',
+    },
+  };
+}
+
+// --- service 전용 고정 진행(tone/keywords/request) -------------------------
+// 서비스는 category → purpose 뒤 product 단계 없이 이 흐름으로 이어진다.
+// 응답 모양은 suggestOptions와 동일하게 맞춰 ChatFlow의 공통 렌더링 경로를 쓰되,
+// 최종 spec에는 product를 추가하지 않고 academy/sports category를 보존한다.
+export const SERVICE_FLOW = [
+  { slot: 'tone', question: '원하시는 포스터 느낌은 어떤가요?', options: SERVICE_TONE_OPTIONS, multiSelect: false, freeform: false },
+  {
+    slot: 'keywords',
+    question: '강조하고 싶은 점은 무엇인가요? (복수 선택 가능)',
+    options: SERVICE_HIGHLIGHT_OPTIONS,
+    multiSelect: true,
+    freeform: false,
+  },
+  { slot: 'request', question: '추가로 요청하실 사항이 있나요?', options: SERVICE_REQUEST_OPTIONS, multiSelect: false, freeform: true },
+];
+
+function serviceConfirmMessage(slot) {
+  switch (slot) {
+    case 'tone':
+      return '좋은 느낌이에요!';
+    case 'keywords':
+      return '강조 포인트 확인했어요!';
+    case 'request':
+      return '모든 답변을 확인했어요. 문구를 만들어볼게요!';
+    default:
+      return '';
+  }
+}
+
+/**
+ * service 전용 진행 함수. step 1=tone 답변, 2=keywords 답변, 3=request 답변
+ * (SERVICE_FLOW 내부 인덱스 — 백엔드 FLOW_STEPS 번호와는 무관). 실제 네트워크
+ * 호출은 없지만 suggestOptions와 동일한 응답 모양을 반환해 ChatFlow가 그대로
+ * pushQuestion에 사용할 수 있게 한다.
+ */
+export async function serviceAdvance({ message, step = 1, spec = {} } = {}) {
+  await delay(150);
+  const cfg = SERVICE_FLOW[step - 1];
+  const nextSpec = { ...spec };
+  if (cfg.slot === 'keywords') {
+    nextSpec.keywords = message.split(',').map((s) => s.trim()).filter(Boolean);
+  } else {
+    nextSpec[cfg.slot] = message;
+  }
+
+  const done = step >= SERVICE_FLOW.length;
+  if (done) {
+    return {
+      step,
+      next_step: null,
+      total_steps: SERVICE_FLOW.length,
+      question: null,
+      options: [],
+      multiSelect: false,
+      freeform: false,
+      spec: nextSpec,
+      confirm_message: serviceConfirmMessage(cfg.slot),
+      done: true,
+    };
+  }
+
+  const next = SERVICE_FLOW[step];
+  return {
+    step,
+    next_step: step + 1,
+    total_steps: SERVICE_FLOW.length,
+    question: next.question,
+    options: next.options,
+    multiSelect: next.multiSelect,
+    freeform: next.freeform,
+    spec: nextSpec,
+    confirm_message: serviceConfirmMessage(cfg.slot),
     done: false,
   };
 }
@@ -328,6 +570,8 @@ const CATEGORY_RULES = {
   food: [...COMMON_RULES, ...FOOD_RULES],
   beauty: [...COMMON_RULES, ...BEAUTY_RULES],
   goods: [...COMMON_RULES, ...GOODS_RULES],
+  // academy/sports 전용 룰은 아직 없음 — 도혁님 쪽 업종 확장(8/13 확정) 후 추가 예정.
+  // 그 전까지는 공통 룰만 적용한다.
   default: COMMON_RULES,
 };
 
@@ -359,11 +603,13 @@ function truncate(text = '', max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function splitHighlights(spec) {
-  return (spec.highlights || '특별한 매력')
-    .split(',')
-    .map((h) => h.trim())
-    .filter(Boolean);
+/** spec.keywords(배열, 실제 계약 기준) — 과거 mock이 쓰던 spec.highlights(문자열)는 더 이상 만들지 않는다. */
+function splitKeywords(spec) {
+  if (Array.isArray(spec.keywords) && spec.keywords.length) return spec.keywords;
+  if (typeof spec.keywords === 'string' && spec.keywords.trim()) {
+    return spec.keywords.split(',').map((k) => k.trim()).filter(Boolean);
+  }
+  return ['특별한 매력'];
 }
 
 /**
@@ -374,9 +620,9 @@ function splitHighlights(spec) {
 function buildCopyCandidates(spec) {
   const product = spec.product || '우리 브랜드';
   const tone = spec.tone || '자연스러운';
-  const highlights = splitHighlights(spec);
-  const first = highlights[0] || '특별한 매력';
-  const second = highlights[1] || first;
+  const keywords = splitKeywords(spec);
+  const first = keywords[0] || '특별한 매력';
+  const second = keywords[1] || first;
 
   return [
     {
@@ -395,9 +641,12 @@ function buildCopyCandidates(spec) {
 }
 
 /**
- * POST /generate/copy 목 함수. 6단계 완료 후 자동으로 이어서 호출한다.
+ * POST /generate/copy 목 함수. 챗봇 마지막 단계(추가요청) 완료 후 자동으로 이어서 호출한다.
  * 응답은 `copies` 배열(3개) — 각 항목이 headline/sub와 함께 자기 자신의
  * regulation_flags/safe/status를 따로 갖는다(문구마다 규제 상태가 다를 수 있음).
+ *
+ * service도 category=academy|sports를 그대로 사용하며 product는 채우지 않는다.
+ * 비어 있는 service product의 업종별 기본값은 백엔드가 생성 시 적용한다.
  */
 export async function mockGenerateCopy(spec = {}) {
   await delay(600);
@@ -406,8 +655,6 @@ export async function mockGenerateCopy(spec = {}) {
   const candidates = buildCopyCandidates(spec);
   // 실제 화면에 노출/수정되는 headline+sub만 검사한다 — 그래야 화면 B에서
   // "이 표현으로 바꿀게요"를 눌렀을 때 flag.pattern이 입력창 안에서 실제로 매칭된다.
-  // (Q3 "제품/가게"나 Q5 "강조점"을 기타로 직접 입력하면 headline에 그대로 반영되어
-  // block/warn 데모를 재현할 수 있다 — 예: 제품에 "아토피 치료 크림" 입력)
   const copies = candidates.map((candidate, idx) => {
     const { status, flags, safe } = scanRegulation(`${candidate.headline} ${candidate.sub}`, spec);
     return {
@@ -505,18 +752,8 @@ function mapRegulationFlags(flags = []) {
   }));
 }
 
-/**
- * POST /suggest/options 실제 호출.
- * { message, step, spec, mode: "fixed" } 전송 → SuggestResponse를 mock과
- * 동일한 { step, next_step, total_steps, question, options, multiSelect,
- * freeform, spec, confirm_message, done } 형태로 매핑한다.
- *
- * 주의: 서버는 allow_multiple만 내려주고 freeform(자유 입력) 플래그는 없다.
- * 고정 6단계 흐름에서 마지막 질문(6번, "추가 요청")만 자유 입력이므로,
- * "다음 질문이 마지막 단계인지"로 freeform 여부를 판단한다.
- */
-async function realSuggestOptions({ message, step = 1, spec = {} } = {}) {
-  const res = await postJSON('/suggest/options', { message, step, spec, mode: 'fixed' }, 'options');
+/** 서버 SuggestResponse(raw) → 컴포넌트가 쓰는 공통 모양으로 매핑. suggestOptions/vision 양쪽에서 공유. */
+function mapSuggestRaw(res) {
   const done = Boolean(res.done);
   return {
     step: res.step,
@@ -530,6 +767,46 @@ async function realSuggestOptions({ message, step = 1, spec = {} } = {}) {
     confirm_message: res.confirm_message || '',
     done,
   };
+}
+
+/**
+ * POST /suggest/options 실제 호출 (product step 4~6 전용).
+ * 1/2는 프론트 하드코딩이고 product 확정(step 3)은 confirm endpoint가 처리한다.
+ * { message, step, spec, mode: "fixed" } 전송 → SuggestResponse를 mock과
+ * 동일한 형태로 매핑한다.
+ */
+async function realSuggestOptions({ message, step = 3, spec = {} } = {}) {
+  const res = await postJSON('/suggest/options', { message, step, spec, mode: 'fixed' }, 'options');
+  return mapSuggestRaw(res);
+}
+
+/**
+ * POST /vision/product 실제 호출. 인식만 수행하고 product 확정은 별도
+ * /vision/product/confirm 요청에서 한다. 요청 바디는 { image_data_url, spec }이다.
+ */
+async function realVisionProduct({ imageDataUrl, spec = {} } = {}) {
+  const res = await postJSON('/vision/product', { image_data_url: imageDataUrl, spec }, 'vision');
+  return {
+    context: res.context,
+    spec: res.spec || {},
+    suggestion: res.suggestion ? mapSuggestRaw(res.suggestion) : null,
+    meta: res.meta || {},
+  };
+}
+
+/** POST /vision/product/confirm 실제 호출 — 확정값은 /suggest/options step 3을 거치지 않는다. */
+async function realConfirmProduct({ confirmedProduct, confirmationSource, spec = {} } = {}) {
+  const res = await postJSON(
+    '/vision/product/confirm',
+    {
+      spec,
+      confirmed_product: confirmedProduct,
+      confirmation_source: confirmationSource,
+    },
+    'productConfirm',
+  );
+  const suggestion = mapSuggestRaw(res.suggestion);
+  return { ...suggestion, spec: res.spec || suggestion.spec };
 }
 
 /**
@@ -570,12 +847,24 @@ async function realValidateCopy({ headline = '', sub = '' } = {}, spec = {}) {
 }
 
 // --- 컴포넌트가 실제로 import하는 진입점 -----------------------------------
-// ChatFlow.jsx/CopyResult.jsx는 이 세 함수만 알면 되고, mock/real 분기는
-// VITE_USE_REAL_COPY_API 값에 따라 여기서만 결정된다.
+// ChatFlow.jsx/CopyResult.jsx는 아래 함수들만 알면 되고, mock/real 분기는
+// VITE_USE_REAL_COPY_API 값에 따라 여기서만 결정된다. business_type=service는
+// suggestOptions/visionProduct 대상이 아니다(위 SERVICE_FLOW 각주 참고) — 항상
+// serviceAdvance를 직접 호출한다.
 
-/** POST /suggest/options — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+/** POST /suggest/options — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
 export async function suggestOptions(args) {
   return USE_REAL_API ? realSuggestOptions(args) : mockSuggestOptions(args);
+}
+
+/** POST /vision/product — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+export async function visionProduct(args) {
+  return USE_REAL_API ? realVisionProduct(args) : mockVisionProduct(args);
+}
+
+/** POST /vision/product/confirm — mock/real 공통 사용자 확정 진입점. */
+export async function confirmProduct(args) {
+  return USE_REAL_API ? realConfirmProduct(args) : mockConfirmProduct(args);
 }
 
 /** POST /generate/copy — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */

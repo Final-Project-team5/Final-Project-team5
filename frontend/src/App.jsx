@@ -7,7 +7,7 @@ import DraftSelect from './pages/DraftSelect';
 import PosterEditor from './pages/PosterEditor';
 import FinalResult from './pages/FinalResult';
 import FaqPage from './pages/FaqPage';
-import { buildPrompt } from './api/posterApi';
+import { planDesignPrompt } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
 
@@ -23,7 +23,10 @@ const pathToView = (pathname) => (pathname === '/faq' ? 'faq' : 'home');
 function App() {
   // 'home' | 'chat' | 'result' | 'drafts' | 'poster' | 'final' | 'faq'
   const [view, setView] = useState(() => pathToView(window.location.pathname));
-  const [chatOutcome, setChatOutcome] = useState(null); // { spec, mode, productImage, result }
+  // { spec, mode, productImage, backgroundReference, result } — backgroundReference는
+  // product 사진 단계(선택)에서 올린 배경 참고 이미지. 확정된 poster API 계약이
+  // 없어 아직 어떤 화면/요청에도 실제 전달하지 않는다(posterApi.js 상단 doc 참고).
+  const [chatOutcome, setChatOutcome] = useState(null);
   const [confirmedCopy, setConfirmedCopy] = useState(null); // { headline, sub } — 화면 B에서 확정
   // { id, image, seed, background } — 화면 C에서 선택. 서버가 stateless라 image(base64)와
   // background를 화면 D(refine 호출)에서 draft_image/background로 그대로 재전송해야 한다.
@@ -31,6 +34,13 @@ function App() {
   const [refineResult, setRefineResult] = useState(null); // 화면 D에서 완성한 최종 결과(mock)
   const [regTipIndex, setRegTipIndex] = useState(0);
   const [regTipVisible, setRegTipVisible] = useState(true);
+  // ChatFlow를 강제로 리마운트시키기 위한 key. view가 이미 'chat'인 상태(챗봇
+  // 진행 중)에서 사이드바 "새로 만들기"를 다시 누르면 setView('chat')이
+  // 동일 값 재설정이라 React가 리렌더를 스킵해 ChatFlow가 리마운트되지
+  // 않고 messages/spec/productImage/backgroundReference 등 내부 state가 그대로
+  // 남는 문제가 있었다. newFlow()마다 이 값을 증가시켜 key={chatKey}로 넘기면
+  // view 값이 바뀌지 않아도 매번 새 ChatFlow 인스턴스로 강제 교체된다.
+  const [chatKey, setChatKey] = useState(0);
   // 사이드바 진행 스텝은 /faq를 보는 중에도 직전 흐름 단계를 그대로 보여줘야 하므로,
   // faq가 아닌 마지막 view를 별도로 기억해둔다.
   const [lastFlowView, setLastFlowView] = useState('home');
@@ -82,6 +92,7 @@ function App() {
     setConfirmedCopy(null);
     setSelectedDraft(null);
     setRefineResult(null);
+    setChatKey((k) => k + 1); // 이미 'chat' 화면이어도 ChatFlow를 강제 리마운트
     setView('chat');
   };
   // FAQ는 흐름 상태를 건드리지 않는다 — 어느 화면에서 보든 그대로 돌아올 수 있게.
@@ -121,7 +132,7 @@ function App() {
       <main className="app__main">
         {view === 'home' && <Home onNewFlow={newFlow} />}
         {view === 'faq' && <FaqPage />}
-        {view === 'chat' && <ChatFlow onComplete={handleChatComplete} />}
+        {view === 'chat' && <ChatFlow key={chatKey} onComplete={handleChatComplete} />}
         {view === 'result' && chatOutcome && (
           <CopyResult
             result={chatOutcome.result}
@@ -144,7 +155,7 @@ function App() {
             draftImage={selectedDraft.image}
             background={selectedDraft.background}
             originalImage={chatOutcome.productImage}
-            prompt={buildPrompt(chatOutcome.spec)}
+            prompt={planDesignPrompt(chatOutcome.spec)}
             ratio={chatOutcome.spec?.aspect_ratio}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
