@@ -199,6 +199,86 @@ def test_prod_partial_valid_types_kept():
     assert res.context.usable is True
 
 
+# ── 실제 JSON 파싱 경로 검증 (소원님 approve 후속) ─────────
+# 위 _run_prod는 _call_background_vision을 dict로 stub해서 json.loads를
+# 건너뛴다. 여기서는 openai.OpenAI 클라이언트만 가짜로 바꿔서
+# _call_background_vision 내부의 실제 json.loads 경로까지 태운다.
+# {invalid json 같은 깨진 응답이 크래시(500) 없이 usable=False로
+# 안전 처리되는지 확인한다.
+def _run_prod_raw(content):
+    """LLM이 반환한 원본 content(문자열)를 실제 파싱 경로로 통과시킨다."""
+    import openai
+
+    from copy_model import config
+    import copy_model.background as bg
+
+    class _Msg:
+        def __init__(self):
+            self.content = content
+
+    class _Choice:
+        def __init__(self):
+            self.message = _Msg()
+
+    class _Resp:
+        def __init__(self):
+            self.choices = [_Choice()]
+
+    class _Completions:
+        def create(self, **kwargs):
+            return _Resp()
+
+    class _Chat:
+        def __init__(self):
+            self.completions = _Completions()
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.chat = _Chat()
+
+    old_mock, old_key = config.MOCK_MODE, config.OPENAI_API_KEY
+    old_openai = openai.OpenAI
+    config.MOCK_MODE = False
+    config.OPENAI_API_KEY = "test-key"
+    openai.OpenAI = _FakeClient          # from openai import OpenAI가 이걸 집는다
+    try:
+        return bg.analyze_background_image(
+            bg.BackgroundImageRequest(image_data_url=TINY_PNG)
+        )
+    finally:
+        openai.OpenAI = old_openai
+        config.MOCK_MODE = old_mock
+        config.OPENAI_API_KEY = old_key
+
+
+def test_prod_malformed_json_is_safe():
+    # {invalid json → json.loads 실패 → 크래시 없이 usable=False.
+    res = _run_prod_raw("{invalid json")
+    assert res.context.usable is False
+    spec = apply_background_context({"product": "립 틴트"}, res.context)
+    assert "background_context" not in spec       # 기록되면 안 됨
+    assert spec["product"] == "립 틴트"
+
+
+def test_prod_empty_content_is_safe():
+    # 빈 문자열 응답도 예외 없이 usable=False.
+    assert _run_prod_raw("").context.usable is False
+
+
+def test_prod_non_json_text_is_safe():
+    # JSON이 아닌 평문도 예외 없이 usable=False.
+    assert _run_prod_raw("배경 분석 실패했습니다").context.usable is False
+
+
+def test_prod_valid_json_string_still_parses():
+    # 정상 JSON 문자열은 실제 파싱 경로로도 그대로 통과한다(회귀 방지).
+    res = _run_prod_raw(
+        '{"usable": true, "palette": ["웜 베이지"], "mood": "차분한"}'
+    )
+    assert res.context.usable is True
+    assert res.context.palette == ["웜 베이지"]
+
+
 if __name__ == "__main__":
     import sys
     import traceback

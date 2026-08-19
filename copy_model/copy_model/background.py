@@ -189,9 +189,15 @@ def _call_background_vision(req: BackgroundImageRequest) -> dict:
     import json
 
     content = resp.choices[0].message.content
+    # 빈 응답 / 깨진 JSON은 크래시(500) 대신 빈 dict로 안전 처리한다.
+    # 빈 dict는 _finalize_background에서 usable=False가 되어 배경 없이 진행된다.
+    # (소원님 리뷰: {invalid json 같은 실제 파싱 실패 경로 방어)
     if not content:
-        raise ValueError("Vision 모델이 빈 응답을 반환했습니다.")
-    return json.loads(content)
+        return {}
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return {}
 
 
 def analyze_background_image(
