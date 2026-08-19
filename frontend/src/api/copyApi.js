@@ -6,6 +6,7 @@
  *   POST /vision/product   { image_data_url, spec } → ChatFlow.jsx (화면 A, product 사진 인식)
  *   POST /vision/product/confirm { spec, confirmed_product, confirmation_source }
  *                                                → 사용자 확인 후 product 확정 + tone 질문
+ *   POST /vision/background { image_data_url, spec } → 선택 배경의 디자인 맥락 분석
  *   POST /generate/copy    { spec }                → { copies: [...] }(3개) → CopyResult.jsx (화면 B)
  *   POST /validate/copy    { headline, sub }        → CopyResult.jsx (화면 B, 선택한 문구 재검증)
  *
@@ -101,9 +102,8 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MiB — 프론트에서도 
 
 // 배경 참고 이미지(선택, 8/18 신규) — 제품 사진과 같은 질문 화면 안에서 받되
 // 역할을 프론트가 처음부터 분리해서 관리한다(LLM이 이미지 역할을 자동 판별하지
-// 않음). Vision 제품 인식 대상이 아니며, 확정된 poster API 계약이 아직 없어
-// ChatFlow.jsx가 state로만 들고 있고 어떤 API에도 실제 전송하지 않는다
-// (docs/UIUX_스펙정리.md — 배경 레퍼런스 계약 확정 전까지 mock/interface로 격리).
+// 않음). 제품 Vision 인식 대상이 아니며, 제품 confirm 뒤 별도 background Vision
+// 분석에만 사용한다. poster API에는 여전히 직접 전송하지 않는다.
 export const BACKGROUND_REFERENCE_LABEL = '배경 참고 이미지 업로드';
 export const BACKGROUND_REFERENCE_GUIDE_TEXT =
   '선택 사항이에요. 원하는 배경 분위기가 있다면 참고 이미지를 함께 올려주세요. (제품 인식에는 사용되지 않아요)';
@@ -371,6 +371,31 @@ export async function mockVisionProduct({ spec = {} } = {}) {
       confirmation_required: context.next_action !== 'reupload',
     },
   };
+}
+
+/** mock POST /vision/background — 실서버와 같은 context/meta.spec 모양을 반환한다. */
+async function mockVisionBackground({ spec = {} } = {}) {
+  await delay(500);
+  maybeFail('background');
+
+  const usable = new URLSearchParams(window.location.search).get('mockBackground') !== 'unusable';
+  const context = {
+    palette: usable ? ['웜 베이지', '소프트 크림'] : [],
+    lighting: usable ? '부드러운 자연광' : '',
+    texture: usable ? ['매트한 종이'] : [],
+    mood: usable ? '차분하고 고급스러운' : '',
+    composition: usable ? '중앙 여백이 넓은 미니멀 구성' : '',
+    usable,
+  };
+  const nextSpec = { ...spec };
+  if (usable) {
+    const { usable: _usable, ...backgroundContext } = context;
+    nextSpec.background_context = backgroundContext;
+  } else {
+    delete nextSpec.background_context;
+  }
+
+  return { context, meta: { model: 'mock', mock: true, spec: nextSpec } };
 }
 
 // --- service 전용 고정 진행(tone/keywords/request) -------------------------
@@ -794,6 +819,12 @@ async function realVisionProduct({ imageDataUrl, spec = {} } = {}) {
   };
 }
 
+/** POST /vision/background 실제 호출 — 응답 계약은 변형 없이 공통 진입점에 전달한다. */
+async function realVisionBackground({ imageDataUrl, spec = {} } = {}) {
+  const res = await postJSON('/vision/background', { image_data_url: imageDataUrl, spec }, 'background');
+  return { context: res.context || {}, meta: res.meta || {} };
+}
+
 /** POST /vision/product/confirm 실제 호출 — 확정값은 /suggest/options step 3을 거치지 않는다. */
 async function realConfirmProduct({ confirmedProduct, confirmationSource, spec = {} } = {}) {
   const res = await postJSON(
@@ -860,6 +891,11 @@ export async function suggestOptions(args) {
 /** POST /vision/product — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
 export async function visionProduct(args) {
   return USE_REAL_API ? realVisionProduct(args) : mockVisionProduct(args);
+}
+
+/** POST /vision/background — product의 선택 배경 전용 mock/real 공통 진입점. */
+export async function visionBackground(args) {
+  return USE_REAL_API ? realVisionBackground(args) : mockVisionBackground(args);
 }
 
 /** POST /vision/product/confirm — mock/real 공통 사용자 확정 진입점. */

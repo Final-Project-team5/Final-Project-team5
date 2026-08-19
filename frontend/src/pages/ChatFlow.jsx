@@ -18,6 +18,7 @@ import {
   generateCopy,
   serviceAdvance,
   suggestOptions,
+  visionBackground,
   visionProduct,
 } from '../api/copyApi';
 import { toFriendlyMessage } from '../api/mockUtils';
@@ -61,8 +62,8 @@ const UI_STEP_BY_TYPE = {
  * 질문 화면 안에서 받되, 역할을 처음부터 분리해서 관리한다(8/18 신규 —
  * LLM이 이미지 역할을 자동 판별하는 구조 아님). productImage는 기존대로 Vision
  * 제품 인식과 화면 D(refine) original_image에 쓰이고, backgroundReference는
- * Vision에 보내지 않으며 확정된 poster API 계약이 없어 실제 전송 없이 state로만
- * 들고 있다가 onComplete outcome에 함께 실어 보낸다.
+ * 제품 confirm 뒤 별도 background Vision에만 보낸다. 이후에는 state로 보존해
+ * onComplete outcome에 함께 실어 보내되 poster API 요청에는 직접 추가하지 않는다.
  *
  * 느낌(tone)/강조점(keywords, 복수 선택)/추가요청(request, 자유 입력)은 각각
  * 독립된 질문 카드로 순서대로 나온다(8/11 PM 확인 — 한 화면에 합치지 않음).
@@ -78,9 +79,8 @@ function ChatFlow({ onComplete }) {
   const [spec, setSpec] = useState({});
   const [mode, setMode] = useState(null); // 'inpaint'(product) | 'text2img'(service) — business_type 확정 시 함께 정해짐
   const [productImage, setProductImage] = useState(null);
-  // 배경 참고 이미지(선택) — productImage와 역할이 다른 별도 state. Vision 인식
-  // 대상이 아니며, 확정된 poster API 계약이 생기기 전까지는 어디에도 전송하지
-  // 않는다(위 컴포넌트 doc 참고). service 흐름에는 사진 단계 자체가 없어 항상 null.
+  // 배경 참고 이미지(선택) — productImage와 역할이 다른 별도 state. 제품 Vision과
+  // 분리된 background Vision에만 사용한다. service 흐름에는 사진 단계가 없어 null.
   const [backgroundReference, setBackgroundReference] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [totalSteps, setTotalSteps] = useState(TOTAL_STEPS_BY_TYPE.product);
@@ -118,9 +118,8 @@ function ChatFlow({ onComplete }) {
     try {
       const result = await generateCopy(finalSpec);
       setBusy(false);
-      // backgroundReference는 확정된 poster API 계약이 아직 없어 다음 화면들에
-      // state로만 전달된다 — App.jsx가 chatOutcome에 그대로 보관할 뿐, 어떤
-      // API 요청 바디에도 아직 포함시키지 않는다(posterApi.js planDesignPrompt 참고).
+      // backgroundReference는 다음 화면들에 state로 전달된다. 분석 결과인
+      // background_context는 finalSpec에 남지만 poster API 스키마는 변경하지 않는다.
       onComplete({ spec: finalSpec, mode, productImage, backgroundReference, result });
     } catch (err) {
       setBusy(false);
@@ -232,12 +231,13 @@ function ChatFlow({ onComplete }) {
   };
 
   // --- 3단계(product 전용): 사진 업로드 + Vision 확정 후 다음(느낌) 질문으로 --
-  const handlePhotoResolved = (photoMsgId, { image, backgroundReference: bgRef, spec: nextSpec, suggestion }) => {
+  const handlePhotoResolved = (photoMsgId, { image, backgroundReference: bgRef, spec: nextSpec, suggestion, backgroundWarning }) => {
     setMessages((prev) => prev.map((m) => (m.id === photoMsgId ? { ...m, resolved: true } : m)));
     setProductImage(image);
     setBackgroundReference(bgRef || null);
     setSpec(nextSpec);
     setCurrentStep(UI_STEP_BY_TYPE.product.tone);
+    addNote(backgroundWarning);
     pushQuestion(suggestion, 'tone');
   };
 
@@ -614,9 +614,9 @@ function FreeformQuestion({ question, busy, onAnswer }) {
  *     result(인식값 확인 — [맞아요]/[수정할게요]) | edit(제품명 직접 보정).
  *     인식 실패(next_action=reupload)는 upload로 되돌아가 같은 단계에 머문다.
  *   - 배경 참고 이미지(선택): 제품 사진과 별개 state(backgroundPreview)로
- *     관리하며, 어느 phase에서든 독립적으로 업로드/해제할 수 있다. Vision
- *     analyze()에는 절대 넘기지 않고, poster API 계약이 아직 없어(3장 참고)
- *     onResolved로 부모에 값만 전달할 뿐 실제 전송은 하지 않는다.
+ *     관리하며, 어느 phase에서든 독립적으로 업로드/해제할 수 있다. 제품 Vision
+ *     analyze()에는 절대 넘기지 않고, 제품 confirm 성공 뒤 /vision/background로
+ *     별도 분석한다. 배경 응답에서는 background_context만 확정 spec에 병합한다.
  *     FileReader.onload가 비동기라 선택 직후 곧바로 제품을 확정하면 아직
  *     반영되지 않은 값이 넘어갈 수 있어, 읽는 동안은 backgroundFileReading으로
  *     [맞아요]/[이 이름으로 확정할게요]를 잠근다(8/18 race condition 수정).
@@ -762,8 +762,37 @@ function ProductPhotoQuestion({ spec, onResolved }) {
         confirmationSource,
         spec: visionSpec || spec,
       });
+      let nextSpec = res.spec;
+      let backgroundWarning = '';
+
+      if (backgroundPreview) {
+        try {
+          const backgroundRes = await visionBackground({ imageDataUrl: backgroundPreview, spec: nextSpec });
+          const backgroundContext = backgroundRes.meta?.spec?.background_context;
+          if (
+            backgroundRes.context?.usable === true &&
+            backgroundContext &&
+            typeof backgroundContext === 'object' &&
+            !Array.isArray(backgroundContext)
+          ) {
+            nextSpec = { ...nextSpec, background_context: backgroundContext };
+          } else {
+            const { background_context: _staleContext, ...specWithoutBackground } = nextSpec;
+            nextSpec = specWithoutBackground;
+            backgroundWarning = '배경 참고 이미지는 적용하기 어려워 제외했어요. 제품 광고는 그대로 진행할게요.';
+          }
+        } catch {
+          backgroundWarning = '배경 참고 이미지 분석에 실패해 배경 없이 진행할게요.';
+        }
+      }
       setBridgeBusy(false);
-      onResolved({ image: preview, backgroundReference: backgroundPreview, spec: res.spec, suggestion: res });
+      onResolved({
+        image: preview,
+        backgroundReference: backgroundPreview,
+        spec: nextSpec,
+        suggestion: res,
+        backgroundWarning,
+      });
     } catch (err) {
       actionLockRef.current = false;
       setBridgeBusy(false);
