@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
+from .errors import CopyInputError
 from .chatbot import SuggestRequest, SuggestResponse, suggest_options
 from .generator import generate_copy
 from .regulation import ValidateRequest, ValidateResponse, validate_copy
@@ -41,6 +42,23 @@ app.add_middleware(
 )
 
 
+def _run(fn, req, fail_msg):
+    """핸들러 실행 + 예외를 상태코드로 매핑.
+
+    - CopyInputError(클라이언트 입력 오류) → 400 Bad Request.
+    - 그 외 예외(모델/네트워크/서버 내부 오류) → 502 Bad Gateway.
+
+    스키마 검증 오류는 FastAPI가 이 지점 이전에 422로 처리하므로 여기 오지 않는다.
+    잘못된 입력이 502로 나가 서버 장애처럼 보이던 문제(service+auto 등)를 바로잡는다.
+    """
+    try:
+        return fn(req)
+    except CopyInputError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"{fail_msg}: {e}") from e
+
+
 @app.get("/health")
 def health():
     """서버 상태 확인 — 프론트 연동 시 첫 호출로 사용하면 편합니다."""
@@ -60,10 +78,7 @@ def post_generate_copy(req: CopyRequest) -> CopyResponse:
             status_code=500,
             detail="OPENAI_API_KEY가 설정되지 않았습니다. "
                    ".env 설정 또는 COPY_MOCK=1로 실행하세요.")
-    try:
-        return generate_copy(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"문구 생성 실패: {e}") from e
+    return _run(generate_copy, req, "문구 생성 실패")
 
 
 @app.post("/suggest/options", response_model=SuggestResponse)
@@ -77,10 +92,7 @@ def post_suggest_options(req: SuggestRequest) -> SuggestResponse:
             status_code=500,
             detail="OPENAI_API_KEY가 설정되지 않았습니다. "
                    ".env 설정 또는 COPY_MOCK=1로 실행하세요.")
-    try:
-        return suggest_options(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"선택지 생성 실패: {e}") from e
+    return _run(suggest_options, req, "선택지 생성 실패")
 
 
 @app.post(
@@ -100,13 +112,7 @@ def post_vision_product(
             detail="OPENAI_API_KEY is not configured.",
         )
 
-    try:
-        return advance_product_image(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(
-            status_code=502,
-            detail=f"Product Vision flow failed: {e}",
-        ) from e
+    return _run(advance_product_image, req, "Product Vision flow failed")
 
 
 @app.post(
@@ -123,13 +129,7 @@ def post_vision_product_confirm(
             detail="OPENAI_API_KEY is not configured.",
         )
 
-    try:
-        return confirm_product(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(
-            status_code=502,
-            detail=f"Product Vision confirm failed: {e}",
-        ) from e
+    return _run(confirm_product, req, "Product Vision confirm failed")
 
 
 @app.post(
@@ -150,13 +150,7 @@ def post_vision_background(
             detail="OPENAI_API_KEY is not configured.",
         )
 
-    try:
-        return advance_background_image(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(
-            status_code=502,
-            detail=f"Background Vision flow failed: {e}",
-        ) from e
+    return _run(advance_background_image, req, "Background Vision flow failed")
 
 
 @app.post("/validate/copy", response_model=ValidateResponse)
@@ -170,7 +164,4 @@ def post_validate_copy(req: ValidateRequest) -> ValidateResponse:
         raise HTTPException(
             status_code=500,
             detail="use_llm=true는 OPENAI_API_KEY 필요 (룰 검사만은 use_llm=false)")
-    try:
-        return validate_copy(req)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"규제 검증 실패: {e}") from e
+    return _run(validate_copy, req, "규제 검증 실패")

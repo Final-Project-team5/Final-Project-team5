@@ -29,6 +29,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from . import config
+from .errors import CopyInputError
 
 # ── 용도 → 이미지 비율 매핑 (8/11 소원·지우님 확정) ──────
 #   SNS 카드뉴스 = 1:1 / 배너 = 3:1 / 상세페이지 = 3:4
@@ -431,7 +432,8 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
     # service는 fixed 모드만 지원한다(8/18 확정). auto는 product 슬롯 처리가
     # fixed와 달라 계약이 어긋나므로 service+auto를 명시적으로 미지원 처리한다.
     if req.mode == "auto" and _business_type(req.spec) == "service":
-        raise ValueError(
+        # 클라이언트가 미지원 조합을 요청한 입력 오류 → api에서 400으로 매핑.
+        raise CopyInputError(
             "service(business_type=service)는 fixed 모드만 지원합니다. "
             "auto 모드는 제품형에서만 사용하세요."
         )
