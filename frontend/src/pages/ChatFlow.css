@@ -169,6 +169,14 @@
   transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
 }
 
+.chat-question__chip-description {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
 .chat-question__chip:hover:not(:disabled) {
   border-color: var(--color-primary);
   transform: translateY(-1px);

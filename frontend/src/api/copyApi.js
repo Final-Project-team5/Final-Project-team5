@@ -54,10 +54,10 @@ export const TOTAL_STEPS_BY_TYPE = { product: 7, service: 6 };
 // --- 0단계 — business_type (프론트 하드코딩, 8/14 확정) --------------------
 // 서버는 이 시점에 business_type을 아직 몰라 내려줄 선택지 자체가 없다
 // (docs/UIUX_스펙정리.md 3-3장) — 프론트가 고정 질문/선택지를 들고 있는다.
-export const BUSINESS_TYPE_QUESTION_TEXT = '제품이 있으신가요, 서비스 위주이신가요?';
+export const BUSINESS_TYPE_QUESTION_TEXT = '어떤 광고를 만들어 드릴까요?';
 export const BUSINESS_TYPE_OPTIONS = [
-  { value: 'product', label: '제품이 있어요 (사진 촬영 가능)' },
-  { value: 'service', label: '서비스 위주예요 (사진 없이 진행)' },
+  { value: 'product', label: '제품 광고', description: '푸드 · 뷰티 · 굿즈' },
+  { value: 'service', label: '서비스 광고', description: '학원 · 체육관' },
 ];
 
 // --- 1단계 — 업종 (프론트 하드코딩) -----------------------------------
@@ -86,12 +86,12 @@ export const CATEGORY_OPTIONS_BY_TYPE = {
 export const USAGE_QUESTION_TEXT = '이 포스터는 어디에 사용하실 예정인가요?';
 export const USAGE_OPTIONS_BY_TYPE = {
   product: [
-    { value: 'sns', label: 'SNS', aspect_ratio: '1:1' },
-    { value: 'banner', label: '배너', aspect_ratio: '3:1' },
-    { value: 'detail', label: '상세페이지', aspect_ratio: '3:4' },
+    { value: 'sns', label: 'SNS (1:1)', aspect_ratio: '1:1' },
+    { value: 'banner', label: '배너 (3:1)', aspect_ratio: '3:1' },
+    { value: 'detail', label: '상세페이지 (3:4)', aspect_ratio: '3:4' },
   ],
   // service는 SNS 1:1 고정 — 배너/상세는 선택지 자체를 노출하지 않는다.
-  service: [{ value: 'sns', label: 'SNS', aspect_ratio: '1:1' }],
+  service: [{ value: 'sns', label: 'SNS (1:1)', aspect_ratio: '1:1' }],
 };
 
 // --- 3단계(product 전용) — 사진 업로드 + Vision 인식 ------------------

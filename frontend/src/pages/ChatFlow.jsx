@@ -352,7 +352,8 @@ function ChatMessage({ message, busy, spec, onBusinessType, onAnswer, onPhotoRes
                   disabled={busy}
                   onClick={() => onBusinessType(opt.value, opt.label)}
                 >
-                  {opt.label}
+                  <span>{opt.label}</span>
+                  <span className="chat-question__chip-description">{opt.description}</span>
                 </button>
               ))}
             </div>
