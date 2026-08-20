@@ -2,7 +2,7 @@
  * 포스터 이미지 생성 API.
  * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/10 용도→비율 매핑 반영)
  *
- *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundType?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
+ *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundMode?, bgColors?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
  *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D, 로딩 B)
  *
  * copyApi.js와 동일한 패턴: 아래는 크게 두 갈래로 나뉜다(컴포넌트는 둘 중 뭐가
@@ -99,9 +99,9 @@ export function planDesignPrompt(spec = {}) {
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.
 // (화면 D에서 base64 strip → 재조합 왕복을 거치는데, 실제로 다시 렌더되는 이미지여야
 //  어댑터 동작을 눈으로 확인할 수 있어서 SVG 대신 PNG로 그린다)
-// backgroundType이 'flat'이면 점선 테두리(= "AI가 그렸다"는 표시) 없이 단순 배경만 그려서
+// backgroundMode가 solid/gradient면 점선 테두리(= "AI가 그렸다"는 표시) 없이 단순 배경만 그려서
 // 화면 C/E에서 AI 배경과 flat 배경을 시각적으로 구분할 수 있게 한다.
-function placeholderImage(seed, label, ratio, backgroundType) {
+function placeholderImage(seed, label, ratio, backgroundMode, bgColors) {
   const { w, h } = RATIO_DIMENSIONS[ratio] || RATIO_DIMENSIONS['1:1'];
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -109,10 +109,19 @@ function placeholderImage(seed, label, ratio, backgroundType) {
   const ctx = canvas.getContext('2d');
   const hue = (seed * 47) % 360;
 
-  ctx.fillStyle = `hsl(${hue} 20% 90%)`;
+  if (backgroundMode === 'solid' && bgColors?.[0]) {
+    ctx.fillStyle = bgColors[0];
+  } else if (backgroundMode === 'gradient' && bgColors?.length >= 2) {
+    const gradient = ctx.createLinearGradient(0, 0, w, h);
+    gradient.addColorStop(0, bgColors[0]);
+    gradient.addColorStop(1, bgColors[1]);
+    ctx.fillStyle = gradient;
+  } else {
+    ctx.fillStyle = `hsl(${hue} 20% 90%)`;
+  }
   ctx.fillRect(0, 0, w, h);
 
-  if (backgroundType !== 'flat') {
+  if (backgroundMode === 'ai') {
     ctx.strokeStyle = `hsl(${hue} 20% 78%)`;
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 8]);
@@ -136,24 +145,27 @@ function stripDataUriPrefix(value = '') {
 
 // background 값 mock — 실제로는 draft 응답에 실려 오고, refine 요청 때 그대로
 // echo해야 동일 배경이 재현된다(서버 무상태). type은 'gradient'(flat) 또는 'ai'.
-function mockBackground(seed, backgroundType) {
-  if (backgroundType === 'flat') {
+function mockBackground(seed, backgroundMode, bgColors, gradientDirection) {
+  if (backgroundMode !== 'ai') {
     const hue = (seed * 47) % 360;
-    return { type: 'gradient', colors: [`hsl(${hue} 30% 92%)`, `hsl(${hue} 30% 78%)`] };
+    const colors = bgColors?.length ? bgColors : [`hsl(${hue} 30% 92%)`, `hsl(${hue} 30% 78%)`];
+    return { mode: backgroundMode, colors: backgroundMode === 'solid' ? colors.slice(0, 1) : colors.slice(0, 2), direction: backgroundMode === 'gradient' ? (gradientDirection || 'vertical') : null };
   }
-  return { type: 'ai' };
+  return null;
 }
 
 /**
  * POST /generate/drafts 목 함수. 화면 A에서 저장한 mode/image/ratio를 그대로 넘겨받는다.
- * backgroundType: 'ai' | 'flat' — 화면 C에서 고른 배경 종류(3:4에서는 항상 'flat'로 강제됨).
+ * backgroundMode: 'ai' | 'solid' | 'gradient' — 화면 C에서 확정한 배경 종류.
  */
 export async function mockGenerateDrafts({
   mode = 'text2img',
   image = null,
   prompt = '',
   ratio = '1:1',
-  backgroundType = 'ai',
+  backgroundMode = 'ai',
+  bgColors,
+  gradientDirection,
   num_images = 3,
 } = {}) {
   await delay();
@@ -164,9 +176,9 @@ export async function mockGenerateDrafts({
   // 다시 감싸야 하고, refine에 넘길 땐 이 순수 base64를 그대로 재전송하면 된다.
   const drafts = SEEDS.slice(0, num_images).map((seed, idx) => ({
     id: `d${idx + 1}`,
-    image: stripDataUriPrefix(placeholderImage(seed, `시안 ${idx + 1}`, ratio, backgroundType)),
+    image: stripDataUriPrefix(placeholderImage(seed, `시안 ${idx + 1}`, ratio, backgroundMode, bgColors)),
     seed,
-    background: mockBackground(seed, backgroundType),
+    background: mockBackground(seed, backgroundMode, bgColors, gradientDirection),
   }));
 
   return {
@@ -177,7 +189,7 @@ export async function mockGenerateDrafts({
       mode,
       prompt,
       ratio,
-      backgroundType,
+      backgroundMode,
       usedProductImage: Boolean(image),
     },
   };
@@ -299,10 +311,8 @@ async function postJSON(path, body, key, signal) {
  * StrictMode 이중 마운트로 먼저 나간 요청을 실제로 abort시켜 중복 호출을 막는다.
  * 프론트 필드명 → 서버 필드명 매핑:
  *   ratio(문자열)          → aspect_ratio
- *   backgroundType('ai'|'flat') → background_mode('ai'|'gradient')
- *     ('flat'을 'gradient'로 매핑 — mock의 mockBackground()가 flat일 때
- *      type:'gradient'로 흉내내던 것과 동일한 선택. bg_colors를 생략하면
- *      서버가 category 기본 팔레트를 쓴다.)
+ *   backgroundMode('ai'|'solid'|'gradient') → background_mode
+ *   bgColors → bg_colors (직접 선택일 때만 전달, 생략하면 서버 기본 팔레트)
  * image는 data: prefix가 있어도 서버가 알아서 떼어내므로 그대로 보낸다.
  *
  * 응답 DraftItem({id, image, seed, background})은 mock의 drafts[] 항목과
@@ -321,7 +331,9 @@ async function realGenerateDrafts({
   image = null,
   prompt = '',
   ratio = '1:1',
-  backgroundType = 'ai',
+  backgroundMode = 'ai',
+  bgColors,
+  gradientDirection,
   num_images = 3,
   signal,
 } = {}) {
@@ -330,7 +342,9 @@ async function realGenerateDrafts({
     image: image || undefined,
     prompt: prompt || undefined,
     num_images,
-    background_mode: backgroundType === 'flat' ? 'gradient' : 'ai',
+    background_mode: backgroundMode,
+    bg_colors: bgColors?.length ? bgColors : undefined,
+    gradient_direction: backgroundMode === 'gradient' ? gradientDirection : undefined,
     aspect_ratio: ratio,
   };
   const res = await postJSON('/generate/drafts', body, 'drafts', signal);
