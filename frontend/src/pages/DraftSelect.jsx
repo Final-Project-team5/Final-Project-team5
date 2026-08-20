@@ -27,15 +27,15 @@ function ArrowIcon({ back = false }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={back ? 'm15 18-6-6 6-6' : 'm9 6 6 6-6 6'} /></svg>;
 }
 
-function ChoiceCard({ icon, title, description, preview, onClick }) {
-  return <button type="button" className="draft-select__choice-card" onClick={onClick}>
+function ChoiceCard({ icon, title, description, preview, onClick, selected = false, compact = false }) {
+  return <button type="button" aria-pressed={selected} className={`draft-select__choice-card${selected ? ' draft-select__choice-card--selected' : ''}${compact ? ' draft-select__choice-card--compact' : ''}`} onClick={onClick}>
     <span className="draft-select__choice-icon"><Icon name={icon} /></span>
     <span className="draft-select__choice-copy"><strong>{title}</strong><span>{description}</span></span>
     <span className={`draft-select__choice-preview draft-select__choice-preview--${preview}`}>
       {preview === 'ai' && <img src={aiBackgroundThumbnail} alt="AI 배경 예시" />}
       {preview === 'palette' && <span className="draft-select__mini-palette">{PALETTE.slice(0, 4).map((color) => <i key={color} style={{ background: color }} />)}</span>}
     </span>
-    <span className="draft-select__choice-arrow"><ArrowIcon /></span>
+    <span className="draft-select__choice-arrow">{selected ? '✓' : <ArrowIcon />}</span>
   </button>;
 }
 
@@ -71,9 +71,10 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const supported = useMemo(() => getSupportedBackgroundModes(spec?.business_type, ratio), [spec?.business_type, ratio]);
   const needsModeChoice = supported.length > 1;
   const onlyMode = needsModeChoice ? null : supported[0];
-  const initialPhase = onlyMode === BACKGROUND_MODES.SIMPLE ? 'simple-type' : onlyMode === BACKGROUND_MODES.AI ? 'drafts' : 'background-mode';
+  const initialPhase = onlyMode === BACKGROUND_MODES.SIMPLE ? 'simple-settings' : onlyMode === BACKGROUND_MODES.AI ? 'drafts' : 'background-mode';
   const [phase, setPhase] = useState(initialPhase);
   const [simpleType, setSimpleType] = useState(null);
+  const [colorMethod, setColorMethod] = useState(null);
   const [color, setColor] = useState(PALETTE[0]);
   const [gradientStart, setGradientStart] = useState(PALETTE[0]);
   const [gradientEnd, setGradientEnd] = useState(PALETTE[1]);
@@ -95,38 +96,48 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   }, [config, mode, phase, posterCategory, productImage, ratio, retry, spec]);
 
   const beginAi = () => { setConfig({ backgroundMode: 'ai' }); setPhase('drafts'); };
-  const beginSimple = () => setPhase('simple-type');
-  const chooseSimpleType = (value) => { setSimpleType(value); setPhase('simple-color-method'); };
-  const useRecommended = () => { setConfig({ backgroundMode: simpleType, gradientDirection: simpleType === 'gradient' ? 'diagonal' : undefined }); setPhase('drafts'); };
-  const openPicker = () => setPhase('simple-color-picker');
-  const startManual = () => { setConfig({ backgroundMode: simpleType, bgColors: simpleType === 'solid' ? [color] : [gradientStart, gradientEnd], gradientDirection: simpleType === 'gradient' ? 'diagonal' : undefined }); setPhase('drafts'); };
-  const backFromType = () => needsModeChoice ? setPhase('background-mode') : onBack();
+  const beginSimple = () => setPhase('simple-settings');
+  const startSimple = () => {
+    const manual = colorMethod === 'manual';
+    setConfig({
+      backgroundMode: simpleType,
+      bgColors: manual ? (simpleType === 'solid' ? [color] : [gradientStart, gradientEnd]) : undefined,
+      gradientDirection: simpleType === 'gradient' ? 'diagonal' : undefined,
+    });
+    setPhase('drafts');
+  };
+  const backFromSimple = () => needsModeChoice ? setPhase('background-mode') : onBack();
   const selectedDraft = drafts?.find((draft) => draft.id === selectedId) || null;
   const aspectRatio = ratio.replace(':', ' / ');
 
   if (phase === 'background-mode') return <SetupPage title="어떤 배경으로 시안을 만들어볼까요?" description="제품과 광고 분위기에 맞는 방식을 먼저 골라주세요." onBack={onBack}>
     <ChoiceCard icon="sparkles" title="AI 배경" description={<>제품과 분위기에 어울리는 배경을<br />AI가 자연스럽게 만들어드려요.</>} preview="ai" onClick={beginAi} />
-    <ChoiceCard icon="palette" title="심플 배경" description={<>원하는 색상의 단색 또는<br />그라데이션 배경으로 만들어요.</>} preview="simple" onClick={beginSimple} />
+    <ChoiceCard icon="palette" title="심플 배경" description={<>원하는 색상의 단색 또는<br />그라데이션 배경으로 만들어요.</>} preview="brand-simple" onClick={beginSimple} />
   </SetupPage>;
 
-  if (phase === 'simple-type') return <SetupPage title="어떤 배경으로 만들까요?" description="원하는 배경 형태를 선택해주세요." onBack={backFromType}>
-    <ChoiceCard icon="square" title="단색 배경" description={<>하나의 색으로<br />깔끔하게 만들어요.</>} preview="solid" onClick={() => chooseSimpleType('solid')} />
-    <ChoiceCard icon="blend" title="그라데이션 배경" description={<>두 색을 자연스럽게<br />연결해 만들어요.</>} preview="simple" onClick={() => chooseSimpleType('gradient')} />
-  </SetupPage>;
-
-  if (phase === 'simple-color-method') return <SetupPage title="색상은 어떻게 정할까요?" description="원하는 색상 선택 방법을 골라주세요." onBack={() => setPhase('simple-type')}>
-    <ChoiceCard icon="wand" title="알아서 추천" description={<>입력한 광고 분위기에 맞춰<br />어울리는 색감으로 만들어드려요.</>} preview="recommend" onClick={useRecommended} />
-    <ChoiceCard icon="pipette" title="직접 선택" description={<>추천 색상이나 컬러피커에서<br />원하는 색상을 직접 고를 수 있어요.</>} preview="palette" onClick={openPicker} />
-  </SetupPage>;
-
-  if (phase === 'simple-color-picker') return <div className="draft-select draft-select--setup">
-    <h1 className="draft-select__title">{simpleType === 'solid' ? '배경 색상을 골라주세요.' : '그라데이션 색상을 골라주세요.'}</h1>
-    <p className="draft-select__description">추천 색상을 선택하거나 직접 원하는 색을 지정할 수 있어요.</p>
-    <section className="draft-select__picker-panel">
+  if (phase === 'simple-settings') return <div className="draft-select draft-select--setup">
+    <h1 className="draft-select__title">심플 배경을 설정해주세요</h1>
+    <p className="draft-select__description">원하는 항목을 위에서부터 차례로 선택해주세요.</p>
+    <section className="draft-select__progressive-section">
+      <h2 className="draft-select__section-title">1. 배경 형태</h2>
+      <div className="draft-select__choice-list draft-select__choice-list--compact">
+        <ChoiceCard compact selected={simpleType === 'solid'} icon="square" title="단색 배경" description="하나의 색으로 깔끔하게 만들어요." preview="solid" onClick={() => setSimpleType('solid')} />
+        <ChoiceCard compact selected={simpleType === 'gradient'} icon="blend" title="그라데이션 배경" description="두 색을 자연스럽게 연결해 만들어요." preview="simple" onClick={() => setSimpleType('gradient')} />
+      </div>
+    </section>
+    {simpleType && <section className="draft-select__progressive-section draft-select__progressive-section--revealed">
+      <h2 className="draft-select__section-title">2. 색상 선택</h2>
+      <div className="draft-select__choice-list draft-select__choice-list--compact">
+        <ChoiceCard compact selected={colorMethod === 'recommended'} icon="wand" title="알아서 추천" description="광고 분위기에 어울리는 색감으로 만들어요." preview="recommend" onClick={() => setColorMethod('recommended')} />
+        <ChoiceCard compact selected={colorMethod === 'manual'} icon="pipette" title="직접 선택" description="추천 색상이나 컬러피커에서 직접 골라요." preview="palette" onClick={() => setColorMethod('manual')} />
+      </div>
+    </section>}
+    {simpleType && colorMethod === 'manual' && <section className="draft-select__picker-panel draft-select__progressive-section--revealed">
+      <h2 className="draft-select__section-title">3. 색상 설정</h2>
       {simpleType === 'solid' ? <ColorField label="추천 색상" value={color} onChange={setColor} /> : <><ColorField label="시작 색상" value={gradientStart} onChange={setGradientStart} /><ColorField label="끝 색상" value={gradientEnd} onChange={setGradientEnd} /></>}
       <div className={`draft-select__large-preview${simpleType === 'solid' ? ' draft-select__large-preview--solid' : ''}`} style={{ background: simpleType === 'solid' ? color : `linear-gradient(135deg, ${gradientStart}, ${gradientEnd})` }} aria-label="선택한 배경 미리보기" />
-    </section>
-    <div className="draft-select__actions"><BackButton onClick={() => setPhase('simple-color-method')} /><button type="button" className="draft-select__primary" onClick={startManual}>시안 만들기</button></div>
+    </section>}
+    <div className="draft-select__actions"><BackButton onClick={backFromSimple} /><button type="button" className="draft-select__primary" disabled={!simpleType || !colorMethod} onClick={startSimple}>시안 만들기</button></div>
   </div>;
 
   return <div className="draft-select"><h1 className="draft-select__title">마음에 드는 시안을 골라주세요</h1><p className="draft-select__description">가벼운 모델로 빠르게 만든 초안이에요. 하나를 고르면 다음 단계에서 고품질로 다듬어드려요.</p>
