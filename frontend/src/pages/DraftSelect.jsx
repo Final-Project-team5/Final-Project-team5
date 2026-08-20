@@ -126,9 +126,9 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   </div>;
 
   return <div className="draft-select"><h1 className="draft-select__title">마음에 드는 시안을 골라주세요</h1><p className="draft-select__description">가벼운 모델로 빠르게 만든 초안이에요. 하나를 고르면 다음 단계에서 고품질로 다듬어드려요.</p>
-    {!drafts && !error && <LoadingChecklist variant="draft" title="배경 시안을 만들고 있어요" caption="가벼운 모델로 3장을 빠르게 그려드릴게요" steps={LOADING_STEPS} stepDurationMs={1000} />}{error && <ErrorNotice message={error} onRetry={() => setRetry((value) => value + 1)} />}
+    {!drafts && !error && <LoadingChecklist variant="draft" title="배경 시안을 만들고 있어요" caption={spec?.business_type === 'service' ? '서비스 광고에 어울리는 AI 시안 3장을 만들고 있어요' : '가벼운 모델로 3장을 빠르게 그려드릴게요'} steps={LOADING_STEPS} stepDurationMs={1000} />}{error && <ErrorNotice message={error} onRetry={() => setRetry((value) => value + 1)} />}
     {drafts && <><div className="draft-select__grid" style={{ '--draft-ratio': aspectRatio }}>{drafts.map((draft, index) => <button key={draft.id} type="button" className={`draft-select__card${draft.id === selectedId ? ' draft-select__card--active' : ''}`} onClick={() => setSelectedId(draft.id)}><img src={toImageSrc(draft.image)} alt={`시안 ${index + 1}`} />{draft.id === selectedId && <span className="draft-select__check">✓</span>}</button>)}</div>{selectedDraft && <div className="draft-select__preview" style={{ '--draft-ratio': aspectRatio }}><img src={toImageSrc(selectedDraft.image)} alt="선택한 시안 확대 보기" /></div>}</>}
-    <div className="draft-select__actions"><BackButton onClick={onBack} /><button type="button" className="draft-select__primary" disabled={!selectedDraft} onClick={() => onConfirm(selectedDraft)}>이 배경으로 꾸미러 가기</button></div></div>;
+    <div className="draft-select__actions"><button type="button" className="draft-select__secondary" onClick={onBack}><ArrowIcon back />문구 선택으로 돌아가기</button><button type="button" className="draft-select__primary" disabled={!selectedDraft} onClick={() => onConfirm(selectedDraft)}>이 배경으로 꾸미러 가기</button></div></div>;
 }
 
 export default DraftSelect;
