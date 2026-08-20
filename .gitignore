@@ -242,6 +242,7 @@ outputs/
 *.jpeg
 !frontend/src/assets/**/*.png
 !frontend/src/assets/**/*.jpg
+!poster_model/tests/_assets/**/*.png
 
 # 가상환경 (템플릿에 있지만 명시)
 venv/
