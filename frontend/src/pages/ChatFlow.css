@@ -297,8 +297,7 @@
   margin: 0;
 }
 
-/* 배경 참고 이미지(선택, 8/18 신규) 섹션 — 제품 사진과 역할이 다르다는 걸
-   시각적으로도 구분하기 위해 점선 구분선 아래 별도 섹션으로 둔다. */
+/* 제품 confirm 뒤 같은 4/7 안에서 노출되는 배경 선택 sub-flow. */
 .chat-photo__section {
   display: flex;
   flex-direction: column;
@@ -306,6 +305,13 @@
   margin-top: 4px;
   padding-top: 14px;
   border-top: 1px dashed var(--color-border);
+}
+
+.chat-photo__confirmed {
+  margin: 0 0 4px;
+  color: var(--color-primary-text);
+  font-size: 13.5px;
+  font-weight: 700;
 }
 
 .chat-photo__section-header {

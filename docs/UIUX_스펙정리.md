@@ -270,19 +270,28 @@ service는 3단계(사진 업로드)가 렌더 자체가 안 되므로 0단계+1
   - Design Planner는 사용자에게 질문을 하나 더 추가하는 단계가 아니라 **내부 LLM 처리 단계**이므로, 사용자 진행률은 기존과 동일하게 **product 7단계 / service 6단계**를 유지한다.
 - Design Planner의 최종 출력물을 poster 모델에 어떤 필드명/요청 구조로 전달할지는 **지우님 poster API 계약 확정 후 연결**한다. 프론트에서 임의로 필드명을 확정하지 않는다.
 
-**현재 구현 상태 (프론트, 8/18)**:
+**현재 구현 상태 (프론트, 2026-08-19)**:
 - `productImage` / `backgroundReference` state 및 업로드 UI는 **분리 구현 완료**.
-- 제품 사진 1장 필수 + 배경 참고 이미지 1장 선택을 **같은 사진 질문 카드 안에서 별도 섹션**으로 제공한다.
-- 배경 이미지는 현재 **Vision / copy / poster API body에 아직 포함하지 않음**.
+- 제품 사진 1장 필수 + 배경 참고 이미지 1장 선택을 **같은 4/7 질문 카드의 순차 sub-flow**로 제공한다.
+- 제품 confirm 이후에만 선택 배경을 `POST /vision/background`로 분석하며, usable한 결과의 `background_context`만 최신 spec에 병합한다.
+- 배경 원본 이미지는 copy/poster API body에 직접 포함하지 않는다.
 - `planDesignPrompt(spec)` 연동 지점만 미리 준비되어 있고, 현재는 기존 `buildPrompt(spec)`를 그대로 반환하는 **pass-through** 상태다.
-- 실제 `/vision/background` 연동 및 `background_context` 전달은 **백엔드 endpoint 확정/구현 후 후속 작업**으로 진행한다.
+- 실제 Design Planner 및 poster 전달 스키마 연결은 **백엔드 계약 확정 후 후속 작업**으로 진행한다.
 
 **상태 구분**:
 - 제품/배경 이미지 역할 분리: **확정 / 프론트 구현 완료**
 - 배경 특징 추출 필요성 및 `background_context` 분리 방향: **8/18 팀 논의 기준 채택 방향**
-- `POST /vision/background`: **도혁님 제안 / 백엔드 구현 전**
+- `POST /vision/background`: **백엔드 구현 및 프론트 연동 완료**
 - Design Planner 실제 endpoint·스키마: **미확정 / 미구현**
 - poster 모델 전달 필드: **지우님 API 계약 대기**
+
+**UI/UX 확정 (2026-08-19)**:
+- product **4/7 내부 sub-flow**는 `제품 이미지 업로드 → 제품 Vision → 제품 확인/수정 → 제품 confirm → 배경 선택` 순서로 진행한다.
+- 제품 confirm 직후 5/7 tone으로 자동 이동하지 않는다. 같은 4/7 안에서 배경 참고 이미지 선택 화면으로 전환한다.
+- 배경은 optional이지만 사용자는 **[이미지 업로드] / [배경 없이 진행]** 중 하나를 명시적으로 선택해야 다음 단계로 진행한다.
+- 배경 이미지를 선택하면 FileReader 완료 후 `POST /vision/background`를 호출하고, 배경 없이 진행하면 해당 API를 호출하지 않는다.
+- 이 흐름은 새 챗봇 단계가 아닌 4/7 내부 처리이므로 진행률은 계속 **product 7단계 / service 6단계**를 유지한다.
+- 제품과 배경의 역할은 각 섹션 제목으로 구분하고, 두 업로드 버튼 문구는 모두 **[이미지 업로드]**로 통일한다.
 
 
 ---
@@ -567,7 +576,8 @@ POST /suggest/options
 
 ---
 
-*최종 업데이트: 8/18. 배경 레퍼런스 처리 방향 추가 — 제품 이미지와 배경 이미지를 역할별로 분리하고, 배경이 있을 때만 별도 Vision으로 색감/조명/질감/분위기/구도 특징을 추출해 `spec.background_context`로 관리하는 방향을 반영. `spec.product`는 사용자 확정 제품명 전용으로 유지하며 배경 정보와 섞지 않음. `background_context`는 AI Design Planner의 Visual Prompt 입력으로 활용하고, 사용자 질문 단계가 아닌 내부 처리이므로 product 7단계/service 6단계 진행률은 유지. 프론트는 productImage/backgroundReference 분리 UI/state 구현 완료, `/vision/background` 실제 연동 및 poster 전달 필드는 백엔드/지우님 API 계약 확정 후 후속 작업으로 남김.*
+*최종 업데이트: 2026-08-19. product 4/7 내부 sub-flow를 제품 업로드·Vision·confirm 후 배경 선택 순서로 확정. 배경은 선택 사항이지만 [이미지 업로드] 또는 [배경 없이 진행]을 명시적으로 선택한 뒤에만 5/7 tone으로 이동하며, 제품/배경 업로드 버튼 문구는 [이미지 업로드]로 통일. 진행률은 product 7단계/service 6단계를 유지.*
+*8/18. 배경 레퍼런스 처리 방향 추가 — 제품 이미지와 배경 이미지를 역할별로 분리하고, 배경이 있을 때만 별도 Vision으로 색감/조명/질감/분위기/구도 특징을 추출해 `spec.background_context`로 관리하는 방향을 반영. `spec.product`는 사용자 확정 제품명 전용 슬롯으로 유지하며 배경 정보와 섞지 않음. `background_context`는 AI Design Planner의 Visual Prompt 입력으로 활용하고, 사용자 질문 단계가 아닌 내부 처리이므로 product 7단계/service 6단계 진행률은 유지.*
 *8/14. 챗봇 흐름 대폭 개편 확정(3-4장 신설, 팀 회의) — product는 img2img 고정(사진 필수, "없음" 선택지 제거)으로 전환, 기존 3단계(제품명 텍스트 질문) 제거하고 사진 업로드 자리로 교체, 업로드 즉시 Vision LLM(gpt-5.4-mini)이 제품 인식해 spec.product 자동 생성. 2단계(용도) 완전 하드코딩 확정(product는 SNS/배너/상세 3종, service는 SNS만, 기타 없음). 제품 사진 업로드 안내 문구("깨끗한 배경에 제품 1개만") 추가 확정. business_type×비율×배경 조합표 8/14 기준 갱신(product 쪽 "사진 없음" 케이스 소멸). 비용 검토 — Vision 인식은 회당 약 2~3원으로 저비용 확인, GPT-Image로 직접 생성하는 방안은 장당 과금(로컬 대비 고비용)으로 기각. 지우님 정리 흐름도 중 "규제 검증 시점"에 대한 이견 확인 요청 중. 무형 서비스업(service) 지원 자체의 실익 대비 복잡도에 대한 미해결 논의 기록.*
 *8/13. 문구 모델 실API 연동 완료(copyApi.js, VITE_USE_REAL_COPY_API로 mock/실제 전환, 필드명 매핑 어댑터 처리 — 3-2장 관련 캐럿 해소). PR #52(규제 LLM 하이브리드 2차 검증) 리뷰 및 도혁님 답변 반영 — `/validate/copy`에만 하이브리드 적용(의도된 설계, 비대칭 신뢰로 상향만), 응답 필드는 `escalated`/`escalation_reason` 평탄화 확정, 화면 B 안내 문구 추가 필요성 확인. 챗봇 흐름 확장 신설(3-3장) — 무형 서비스업 지원을 위한 방식 B(0단계 business_type 분기) 확정, spec.business_type 필드 추가, 서비스형 업종 학원/체육관·도장 최종 확정. 포스터 모델 GPU 배정 이슈 확인 및 반영, posterApi.js 실API 어댑터 코드 준비 완료(테스트는 서버 확보 전까지 보류). 챗봇 0단계/사진업로드 처리 방식 도혁님 확인 완료 — 0단계는 프론트 하드코딩(서버가 내려줄 게 없음), 사진 업로드 스킵도 프론트 판단(서버는 사진 존재를 모름). business_type × 비율 × 배경 조합 최종 확정(진우님·지우님 확인 완료).*
 *8/12. 로딩 A/B가 실제 진행 상태가 아니라 시간 기반 연출임을 명시, 지우님 확인 결과 1차 연동에서는 실제 `elapsed` 평균에 맞춰 타이밍만 조정하기로 결정(3-2장 신설). 화면 C 로딩 시 스켈레톤 카드 3장 미리보기 제거. 마스코트 위치/크기 조정(홈 화면 좌상단 방향, 로딩 화면 확대).*

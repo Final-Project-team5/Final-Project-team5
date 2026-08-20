@@ -187,7 +187,7 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
   "question": "만드신 이미지를 주로 어디에 쓰실 건가요?",
   "options": ["SNS 카드뉴스 (정사각 1:1)", "배너 (가로로 긴 3:1)", "상세페이지 (세로로 긴 3:4)"],
   "allow_multiple": false,
-  "confirm_message": "'푸드' 업종으로 설정했어요. 왼쪽 화면에서 확인해보세요!",
+  "confirm_message": "'푸드' 업종으로 설정했어요.",
   "meta": { "elapsed": 1.1, "model": "gpt-5.4-mini" }
 }
 ```
@@ -198,10 +198,10 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
 - `step` / `total_steps`로 진행률 표시 (제품형 x/6, 서비스형 x/5 — 응답의 total_steps를 그대로 사용)
 - `options` 아래에 항상 **"기타(직접 입력)"** 칸을 노출 (자유 입력도 그대로 `message`로 보내면 됨)
 - `allow_multiple: true`면 복수 선택 UI로 전환
-- `spec.keywords` → 메인 화면 키워드 칩에 그대로 매핑
-- `confirm_message` → 칩 자동 추가 + 하이라이트 연출과 함께 챗봇 말풍선으로 표시.
+- `spec.keywords` → 챗봇의 정식 강조점 단계에서 확정한 값
+- `confirm_message` → 현재 단계에서 확정한 값을 챗봇 말풍선으로 표시.
   슬롯 종류에 맞는 표현으로 내려감 (업종/제품 → "설정했어요·정했어요",
-  느낌 → "분위기를 잡았어요", 강조점 → "키워드로 추가했어요").
+  느낌 → "분위기를 잡았어요", 강조점 → "강조 포인트로 확인했어요").
   빈 문자열이면 표시 안 함 / 프론트 고정 문구를 쓰고 무시해도 무방
 - `done: true`가 되면 `spec`을 그대로 `/generate/copy` 요청 바디로 사용
   → 이때 "제공해주신 정보를 바탕으로 제작 중입니다" 로딩 화면 진입
@@ -224,7 +224,7 @@ UI는 프론트 파트 담당, 이 엔드포인트는 LLM 로직만 제공.
   "spec": { "category": "food", "product": "떡볶이", "tone": "energetic" },
   "done": true,
   "step": 1, "next_step": null, "total_steps": 1,
-  "confirm_message": "'활기찬 분식집 느낌'으로 분위기를 잡았어요. 왼쪽 화면에서 확인해보세요!"
+  "confirm_message": "'활기찬 분식집 느낌'으로 분위기를 잡았어요."
 }
 ```
 
