@@ -88,6 +88,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
   const canvasRef = useRef(null);
   const textGroupRef = useRef(null);
   const draggingRef = useRef(false);
+  const submitLockRef = useRef(false);
   const [pos, setPos] = useState({ x: 0.5, y: 0.5 });
   const [preset, setPreset] = useState('medium');
   const [fontId, setFontId] = useState(FONT_OPTIONS[0].id);
@@ -171,6 +172,8 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
   const handlePresetChange = (key) => setPreset(key);
 
   const handleComplete = async () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -202,6 +205,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
       });
     } catch (err) {
       setSubmitting(false);
+      submitLockRef.current = false;
       setSubmitError(toFriendlyMessage(err, 'refine'));
     }
   };
@@ -295,7 +299,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
 
       <div className="poster-editor__font-section">
         <label className="poster-editor__font-label" htmlFor="poster-font-select">
-          서체 <span className="poster-editor__font-note">(실제 웹폰트 적용은 곧 붙일 예정)</span>
+          서체
         </label>
         <select
           id="poster-font-select"

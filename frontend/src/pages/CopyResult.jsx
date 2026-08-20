@@ -49,7 +49,10 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
   // block 여부는 status를 다시 훑지 않고 safe 필드로 바로 판단한다 — 실제 API가
   // safe를 내려주면(copy_model/regulation.py ValidateResponse.safe와 동일 규칙)
   // 이 부분은 손댈 필요 없이 그대로 붙는다.
-  const canProceed = Boolean(current?.safe);
+  const matchesValidatedCopy = Boolean(
+    current && draftHeadline === current.headline && draftSub === current.sub,
+  );
+  const canProceed = Boolean(current?.safe && matchesValidatedCopy && !validating);
   const badge = current ? BADGE_INFO[current.status] || BADGE_INFO.pass : null;
 
   const selectCopy = (copy) => {
@@ -110,6 +113,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
               onClick={() => selectCopy(copy)}
             >
               <span className={`copy-result__badge ${copyBadge.className}`}>{copyBadge.label}</span>
+              {active && <span className="copy-result__candidate-check" aria-label="선택됨">✓</span>}
               <div className="copy-result__candidate-headline">{copy.headline}</div>
               <div className="copy-result__candidate-sub">{copy.sub}</div>
               {disabled && (
@@ -123,7 +127,7 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
       {current && (
         <>
           <div className="copy-result__card">
-            <div className="copy-result__card-label">선택한 문구</div>
+            <div className="copy-result__card-label">선택한 문구 편집 및 검증</div>
             <span className={`copy-result__badge ${badge.className}`}>{badge.label}</span>
             <div className="copy-result__headline">{current.headline}</div>
             <div className="copy-result__sub">{current.sub}</div>
@@ -150,7 +154,12 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
           </div>
 
           <div className="copy-result__edit">
-            <div className="copy-result__edit-title">문구 직접 수정하기</div>
+            <div className="copy-result__edit-head">
+              <div className="copy-result__edit-title">문구 직접 수정하기</div>
+              <span className={`copy-result__verification-state ${matchesValidatedCopy ? 'copy-result__verification-state--done' : 'copy-result__verification-state--pending'}`}>
+                {matchesValidatedCopy ? '✓ 검증 완료' : '재검증 필요'}
+              </span>
+            </div>
             <label className="copy-result__field">
               <span>헤드라인</span>
               <input value={draftHeadline} onChange={(e) => setDraftHeadline(e.target.value)} maxLength={40} />
@@ -162,6 +171,9 @@ function CopyResult({ result, spec, onConfirm, onRestart }) {
             <button type="button" className="copy-result__validate-btn" disabled={validating} onClick={handleRevalidate}>
               {validating ? '확인하는 중…' : '수정한 문구 다시 확인하기'}
             </button>
+            {!matchesValidatedCopy && !validating && (
+              <p className="copy-result__verification-note">수정한 문구를 다시 확인해야 포스터 제작을 진행할 수 있어요.</p>
+            )}
             {validateError && (
               <div className="copy-result__validate-error">
                 <ErrorNotice message={validateError} onRetry={handleRevalidate} retrying={validating} compact />

@@ -173,3 +173,22 @@
   text-align: right;
   margin: 10px 0 0;
 }
+
+@media (max-width: 1200px) {
+  .final-result__mascot-wrap {
+    position: static;
+    display: flex;
+    justify-content: flex-end;
+    height: 150px;
+    margin: -58px 4px 8px 0;
+  }
+
+  .final-result__mascot {
+    width: 150px !important;
+    height: 150px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .final-result__actions { flex-wrap: wrap; }
+}

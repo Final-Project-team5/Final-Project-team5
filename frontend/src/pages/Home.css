@@ -68,3 +68,37 @@
   box-shadow: var(--shadow-btn);
   filter: brightness(0.98);
 }
+
+@media (max-width: 1400px) {
+  .home { gap: 32px; padding-right: 24px; }
+  .home__intro { flex-basis: 380px; }
+  .home__ticker { transform: none; }
+}
+
+@media (max-width: 1100px) {
+  .home {
+    flex-direction: column;
+    gap: 24px;
+    padding: 48px 24px;
+  }
+
+  .home__intro {
+    flex: none;
+    width: min(100%, 480px);
+  }
+
+  .home__ticker {
+    width: min(100%, 480px);
+    transform: none;
+  }
+
+  .home__ticker .ticker-preview {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .home__headline { font-size: 34px; }
+  .home__ticker .ticker-preview { height: 540px; }
+  .home__ticker .ticker-preview__card { width: min(400px, calc(100% - 32px)); height: 440px; }
+}

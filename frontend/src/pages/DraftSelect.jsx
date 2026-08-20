@@ -1,205 +1,149 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { generateDrafts, planDesignPrompt, toImageSrc } from '../api/posterApi';
+import { BACKGROUND_MODES, getSupportedBackgroundModes } from '../constants/backgroundModes';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
+import aiBackgroundThumbnail from '../assets/faq/draft-grid.png';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
 import './DraftSelect.css';
 
-// 로딩 A — 화면 C 진입 시 /generate/drafts 호출 중 보여주는 체크리스트
-// (docs/UIUX_스펙정리.md 3장). 실제 서버 진행률이 아니라 체감 대기시간을
-// 줄이기 위한 연출용 순서다.
-const DRAFT_LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
-// mock 응답이 이보다 빨리 와도 체크리스트 3단계가 순서대로 다 보일 때까지는
-// 화면을 넘기지 않는다. 항목별로 균등하게 배분(3초 ÷ 3단계 = 1초씩).
-const DRAFT_LOADING_MIN_MS = 3000;
+const LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
+const PALETTE = ['#F4E7DC', '#DFA48E', '#CFE7DE', '#D9E7F5', '#DED7F5'];
+const POSTER_PRODUCT_CATEGORIES = new Set(['food', 'beauty', 'goods']);
 
-// 배경 종류 선택지 — AI 배경(diffusion 모델)과 flat 배경(단색/그라데이션).
-// 3:4(상세페이지)는 투명 제품 continuation 문제로 AI 배경이 아직 production
-// 차단 상태라 '준비 중'으로 비활성화하고 flat만 고를 수 있게 한다. (8/10 확정)
-const BACKGROUND_TYPE_OPTIONS = [
-  { id: 'ai', label: 'AI 배경' },
-  { id: 'flat', label: '단색·그라데이션 배경' },
-];
+function Icon({ name }) {
+  const paths = {
+    sparkles: <><path d="m12 3 1.1 3.1L16 7.3l-2.9 1.1L12 12l-1.1-3.6L8 7.3l2.9-1.2L12 3Z"/><path d="m5.5 12 .8 2.2 2.2.8-2.2.8L5.5 18l-.8-2.2-2.2-.8 2.2-.8.8-2.2ZM18 13l.7 1.8 1.8.7-1.8.7L18 18l-.7-1.8-1.8-.7 1.8-.7L18 13Z"/></>,
+    palette: <><path d="M12 3a9 9 0 0 0 0 18h1.2a1.8 1.8 0 0 0 1.3-3.1 1.8 1.8 0 0 1 1.3-3.1H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z"/><path d="M7.5 10h.01M9.5 6.5h.01M14 6h.01M17 9h.01"/></>,
+    square: <rect x="4" y="4" width="16" height="16" rx="3"/>,
+    blend: <><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></>,
+    wand: <><path d="m4 20 11-11"/><path d="m14 4 .7 2.1L17 7l-2.3.9L14 10l-.7-2.1L11 7l2.3-.9L14 4ZM19 12l.5 1.5L21 14l-1.5.5L19 16l-.5-1.5L17 14l1.5-.5L19 12Z"/></>,
+    pipette: <><path d="m19 3 2 2-9 9-3-3 9-9Z"/><path d="m11 13-5.5 5.5L3 21l2.5-2.5"/></>,
+  };
+  return <svg className="draft-select__icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
 
-/**
- * 화면 C — 이미지 초안 선택
- * /generate/drafts(mock)로 받은 시안 3장을 그리드로 보여주고, 클릭한 시안을
- * 하단에 크게 확대해서 보여준다. (docs/UIUX_스펙정리.md 4장 참고)
- *
- * 로딩 A(초안 생성 중)는 LoadingChecklist + 스켈레톤 카드로 보여주고, 실패하면
- * ErrorNotice로 친절한 메시지와 "다시 시도" 버튼을 노출한다(같은 요청 재전송).
- *
- * ⚠ draft.image는 prefix 없는 순수 base64(8/8 리뷰 반영) — 화면에 <img src>로 보여줄
- * 때는 toImageSrc()로 감싸고, 선택한 시안을 다음 화면(refine 호출)에 넘길 땐 원본
- * base64를 그대로 App 상태로 들고 있다가 draft_image/background로 재사용한다
- * (서버 stateless 구조).
- */
+function ArrowIcon({ back = false }) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={back ? 'm15 18-6-6 6-6' : 'm9 6 6 6-6 6'} /></svg>;
+}
+
+function ChoiceCard({ icon, title, description, preview, onClick, selected = false, compact = false }) {
+  return <button type="button" aria-pressed={selected} className={`draft-select__choice-card${selected ? ' draft-select__choice-card--selected' : ''}${compact ? ' draft-select__choice-card--compact' : ''}`} onClick={onClick}>
+    <span className="draft-select__choice-icon"><Icon name={icon} /></span>
+    <span className="draft-select__choice-copy"><strong>{title}</strong><span>{description}</span></span>
+    <span className={`draft-select__choice-preview draft-select__choice-preview--${preview}`}>
+      {preview === 'ai' && <img src={aiBackgroundThumbnail} alt="AI 배경 예시" />}
+      {preview === 'palette' && <span className="draft-select__mini-palette">{PALETTE.slice(0, 4).map((color) => <i key={color} style={{ background: color }} />)}</span>}
+    </span>
+    <span className="draft-select__choice-arrow">{selected ? '✓' : <ArrowIcon />}</span>
+  </button>;
+}
+
+function BackButton({ onClick }) {
+  return <button type="button" className="draft-select__secondary" onClick={onClick}><ArrowIcon back />이전으로</button>;
+}
+
+function SetupPage({ title, description, children, onBack }) {
+  return <div className="draft-select draft-select--setup">
+    <h1 className="draft-select__title">{title}</h1>
+    {description && <p className="draft-select__description">{description}</p>}
+    <div className="draft-select__choice-list">{children}</div>
+    <div className="draft-select__actions draft-select__actions--back"><BackButton onClick={onBack} /></div>
+  </div>;
+}
+
+function ColorField({ label, value, onChange }) {
+  return <div className="draft-select__color-field">
+    <span className="draft-select__color-label">{label}</span>
+    <div className="draft-select__palette">
+      {PALETTE.map((chip) => <button key={chip} type="button" title={chip} aria-label={`${chip} 선택`} className={`draft-select__color-chip${value === chip ? ' draft-select__color-chip--active' : ''}`} style={{ backgroundColor: chip }} onClick={() => onChange(chip)}>{value === chip && '✓'}</button>)}
+      <label className="draft-select__picker"><input type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} /><Icon name="palette" /><span>직접 선택</span></label>
+    </div>
+    <code className="draft-select__hex">{value}</code>
+  </div>;
+}
+
 function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const ratio = spec?.aspect_ratio || '1:1';
-  const aiDisabled = ratio === '3:4';
-  // service는 사진이 없어 flat(단색·그라데이션) 배경을 만들 제품 마스크 자체가
-  // 없다 — AI 배경만 제공한다(docs/UIUX_스펙정리.md 5장 business_type×비율×배경
-  // 표, 8/14 갱신). product는 기존대로 flat/AI 둘 다 노출.
-  const isService = spec?.business_type === 'service';
-  const backgroundTypeOptions = isService
-    ? BACKGROUND_TYPE_OPTIONS.filter((opt) => opt.id === 'ai')
-    : BACKGROUND_TYPE_OPTIONS;
-  const [backgroundType, setBackgroundType] = useState(aiDisabled ? 'flat' : 'ai');
+  const posterCategory = spec?.business_type === 'product' && POSTER_PRODUCT_CATEGORIES.has(spec?.category)
+    ? spec.category
+    : undefined;
+  const supported = useMemo(() => getSupportedBackgroundModes(spec?.business_type, ratio), [spec?.business_type, ratio]);
+  const needsModeChoice = supported.length > 1;
+  const onlyMode = needsModeChoice ? null : supported[0];
+  const initialPhase = onlyMode === BACKGROUND_MODES.SIMPLE ? 'simple-settings' : onlyMode === BACKGROUND_MODES.AI ? 'drafts' : 'background-mode';
+  const [phase, setPhase] = useState(initialPhase);
+  const [simpleType, setSimpleType] = useState(null);
+  const [colorMethod, setColorMethod] = useState(null);
+  const [color, setColor] = useState(PALETTE[0]);
+  const [gradientStart, setGradientStart] = useState(PALETTE[0]);
+  const [gradientEnd, setGradientEnd] = useState(PALETTE[1]);
+  const [config, setConfig] = useState(onlyMode === BACKGROUND_MODES.AI ? { backgroundMode: 'ai' } : null);
   const [drafts, setDrafts] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
-  const [loadError, setLoadError] = useState(null);
-  // backgroundType이 바뀌지 않아도 "다시 시도"를 누르면 같은 요청을 다시 보내야
-  // 하므로, 재시도 전용 카운터를 따로 둬서 effect를 다시 트리거한다.
-  const [retryToken, setRetryToken] = useState(0);
+  const [error, setError] = useState(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    if (phase !== 'drafts' || !config) return undefined;
     let cancelled = false;
-    // StrictMode(개발 모드)는 이 effect를 마운트마다 두 번(마운트→cleanup→재마운트)
-    // 실행한다. cancelled 플래그는 "먼저 나간 요청의 결과를 화면에 반영하지 않는
-    // 것"만 보장할 뿐 실제 fetch 자체는 막지 못해서, real API에서는 매번 진짜 서버
-    // 요청이 2번 나가는 문제가 있었다(8/13 확인). AbortController로 cleanup 시점에
-    // 실제 요청을 취소해서 진짜로 1번만 나가게 한다 — mock 쪽은 fetch를 안 쓰므로
-    // signal을 받아도 조용히 무시한다(동작 영향 없음).
     const controller = new AbortController();
-    setDrafts(null);
-    setLoadError(null);
-    withMinDuration(
-      generateDrafts({
-        mode,
-        image: productImage,
-        prompt: planDesignPrompt(spec),
-        ratio,
-        backgroundType,
-        num_images: 3,
-        signal: controller.signal,
-      }),
-      DRAFT_LOADING_MIN_MS,
-    )
-      .then((res) => {
-        if (cancelled) return;
-        setDrafts(res.drafts);
-        setSelectedId(res.drafts[0]?.id ?? null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setLoadError(toFriendlyMessage(err, 'drafts'));
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-    // mode/productImage/spec은 화면 A에서 이미 확정되어 이 화면 안에서는 바뀌지
-    // 않는다 — backgroundType이 바뀌거나 재시도 버튼을 누를 때만 다시 요청한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backgroundType, retryToken]);
+    setDrafts(null); setError(null);
+    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
+      .then((result) => { if (!cancelled) { setDrafts(result.drafts); setSelectedId(result.drafts[0]?.id ?? null); } })
+      .catch((reason) => { if (!cancelled) setError(toFriendlyMessage(reason, 'drafts')); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [config, mode, phase, posterCategory, productImage, ratio, retry, spec]);
 
-  const handleRetryDrafts = () => setRetryToken((t) => t + 1);
-
-  // /generate/drafts 응답을 기다리는 중인지 — LoadingChecklist를 보여주는 조건과 동일.
-  // 로딩 중에 배경 스타일 칩을 다시 누르면(특히 real API에서는 진짜 GPU 요청이라
-  // 비용이 든다) 중복 요청이 나갈 수 있어 그동안 칩을 비활성화해 막는다.
-  const isLoadingDrafts = !drafts && !loadError;
-
-  const selectedDraft = drafts?.find((d) => d.id === selectedId) || null;
+  const beginAi = () => { setConfig({ backgroundMode: 'ai' }); setPhase('drafts'); };
+  const beginSimple = () => setPhase('simple-settings');
+  const startSimple = () => {
+    const manual = colorMethod === 'manual';
+    setConfig({
+      backgroundMode: simpleType,
+      bgColors: manual ? (simpleType === 'solid' ? [color] : [gradientStart, gradientEnd]) : undefined,
+      gradientDirection: simpleType === 'gradient' ? 'diagonal' : undefined,
+    });
+    setPhase('drafts');
+  };
+  const backFromSimple = () => needsModeChoice ? setPhase('background-mode') : onBack();
+  const selectedDraft = drafts?.find((draft) => draft.id === selectedId) || null;
   const aspectRatio = ratio.replace(':', ' / ');
 
-  return (
-    <div className="draft-select">
-      <h1 className="draft-select__title">마음에 드는 시안을 골라주세요</h1>
-      <p className="draft-select__description">
-        가벼운 모델로 빠르게 만든 초안이에요. 하나를 고르면 다음 단계에서 고품질로 다듬어드려요.
-      </p>
+  if (phase === 'background-mode') return <SetupPage title="어떤 배경으로 시안을 만들어볼까요?" description="제품과 광고 분위기에 맞는 방식을 먼저 골라주세요." onBack={onBack}>
+    <ChoiceCard icon="sparkles" title="AI 배경" description={<>제품과 분위기에 어울리는 배경을<br />AI가 자연스럽게 만들어드려요.</>} preview="ai" onClick={beginAi} />
+    <ChoiceCard icon="palette" title="심플 배경" description={<>원하는 색상의 단색 또는<br />그라데이션 배경으로 만들어요.</>} preview="brand-simple" onClick={beginSimple} />
+  </SetupPage>;
 
-      <div className="draft-select__bg-type">
-        <div className="draft-select__bg-type-label">배경 스타일</div>
-        <div className="draft-select__bg-type-options">
-          {backgroundTypeOptions.map((opt) => {
-            const permanentlyDisabled = opt.id === 'ai' && aiDisabled;
-            const disabled = permanentlyDisabled || isLoadingDrafts;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={disabled}
-                className={
-                  'draft-select__bg-type-chip' +
-                  (backgroundType === opt.id ? ' draft-select__bg-type-chip--active' : '') +
-                  (disabled ? ' draft-select__bg-type-chip--disabled' : '')
-                }
-                onClick={() => {
-                  // disabled 버튼은 브라우저가 클릭 자체를 무시하지만, 방어적으로 한 번 더 막는다.
-                  if (isLoadingDrafts) return;
-                  setBackgroundType(opt.id);
-                }}
-              >
-                {opt.label}
-                {permanentlyDisabled && <span className="draft-select__bg-type-soon">준비 중</span>}
-              </button>
-            );
-          })}
-        </div>
-        {aiDisabled && (
-          <p className="draft-select__bg-type-note">
-            상세페이지(3:4) 비율은 AI 배경이 아직 준비 중이라, 단색·그라데이션 배경으로 만들어드려요.
-          </p>
-        )}
+  if (phase === 'simple-settings') return <div className="draft-select draft-select--setup">
+    <h1 className="draft-select__title">심플 배경을 설정해주세요</h1>
+    <p className="draft-select__description">원하는 항목을 위에서부터 차례로 선택해주세요.</p>
+    <section className="draft-select__progressive-section">
+      <h2 className="draft-select__section-title">1. 배경 형태</h2>
+      <div className="draft-select__choice-list draft-select__choice-list--compact">
+        <ChoiceCard compact selected={simpleType === 'solid'} icon="square" title="단색 배경" description="하나의 색으로 깔끔하게 만들어요." preview="solid" onClick={() => setSimpleType('solid')} />
+        <ChoiceCard compact selected={simpleType === 'gradient'} icon="blend" title="그라데이션 배경" description="두 색을 자연스럽게 연결해 만들어요." preview="simple" onClick={() => setSimpleType('gradient')} />
       </div>
-
-      {!drafts && !loadError && (
-        <LoadingChecklist
-          variant="draft"
-          title="배경 시안을 만들고 있어요"
-          caption="가벼운 모델로 3장을 빠르게 그려드릴게요"
-          steps={DRAFT_LOADING_STEPS}
-          stepDurationMs={DRAFT_LOADING_MIN_MS / DRAFT_LOADING_STEPS.length}
-        />
-      )}
-
-      {loadError && (
-        <ErrorNotice message={loadError} onRetry={handleRetryDrafts} />
-      )}
-
-      {drafts && (
-        <>
-          <div className="draft-select__grid" style={{ '--draft-ratio': aspectRatio }}>
-            {drafts.map((draft, idx) => (
-              <button
-                key={draft.id}
-                type="button"
-                className={
-                  'draft-select__card' + (draft.id === selectedId ? ' draft-select__card--active' : '')
-                }
-                onClick={() => setSelectedId(draft.id)}
-              >
-                <img src={toImageSrc(draft.image)} alt={`시안 ${idx + 1}`} />
-                {draft.id === selectedId && <span className="draft-select__check">✓</span>}
-              </button>
-            ))}
-          </div>
-
-          {selectedDraft && (
-            <div className="draft-select__preview" style={{ '--draft-ratio': aspectRatio }}>
-              <img src={toImageSrc(selectedDraft.image)} alt="선택한 시안 확대 보기" />
-            </div>
-          )}
-        </>
-      )}
-
-      <div className="draft-select__actions">
-        <button type="button" className="draft-select__secondary" onClick={onBack}>
-          이전으로
-        </button>
-        <button
-          type="button"
-          className="draft-select__primary"
-          disabled={!selectedDraft}
-          onClick={() => onConfirm(selectedDraft)}
-        >
-          이 배경으로 꾸미러 가기
-        </button>
+    </section>
+    {simpleType && <section className="draft-select__progressive-section draft-select__progressive-section--revealed">
+      <h2 className="draft-select__section-title">2. 색상 선택</h2>
+      <div className="draft-select__choice-list draft-select__choice-list--compact">
+        <ChoiceCard compact selected={colorMethod === 'recommended'} icon="wand" title="알아서 추천" description="광고 분위기에 어울리는 색감으로 만들어요." preview="recommend" onClick={() => setColorMethod('recommended')} />
+        <ChoiceCard compact selected={colorMethod === 'manual'} icon="pipette" title="직접 선택" description="추천 색상이나 컬러피커에서 직접 골라요." preview="palette" onClick={() => setColorMethod('manual')} />
       </div>
-    </div>
-  );
+    </section>}
+    {simpleType && colorMethod === 'manual' && <section className="draft-select__picker-panel draft-select__progressive-section--revealed">
+      <h2 className="draft-select__section-title">3. 색상 설정</h2>
+      {simpleType === 'solid' ? <ColorField label="추천 색상" value={color} onChange={setColor} /> : <><ColorField label="시작 색상" value={gradientStart} onChange={setGradientStart} /><ColorField label="끝 색상" value={gradientEnd} onChange={setGradientEnd} /></>}
+      <div className={`draft-select__large-preview${simpleType === 'solid' ? ' draft-select__large-preview--solid' : ''}`} style={{ background: simpleType === 'solid' ? color : `linear-gradient(135deg, ${gradientStart}, ${gradientEnd})` }} aria-label="선택한 배경 미리보기" />
+    </section>}
+    <div className="draft-select__actions"><BackButton onClick={backFromSimple} /><button type="button" className="draft-select__primary" disabled={!simpleType || !colorMethod} onClick={startSimple}>시안 만들기</button></div>
+  </div>;
+
+  return <div className="draft-select"><h1 className="draft-select__title">마음에 드는 시안을 골라주세요</h1><p className="draft-select__description">가벼운 모델로 빠르게 만든 초안이에요. 하나를 고르면 다음 단계에서 고품질로 다듬어드려요.</p>
+    {!drafts && !error && <LoadingChecklist variant="draft" title="배경 시안을 만들고 있어요" caption={spec?.business_type === 'service' ? '서비스 광고에 어울리는 AI 시안 3장을 만들고 있어요' : '가벼운 모델로 3장을 빠르게 그려드릴게요'} steps={LOADING_STEPS} stepDurationMs={1000} />}{error && <ErrorNotice message={error} onRetry={() => setRetry((value) => value + 1)} />}
+    {drafts && <><div className="draft-select__grid" style={{ '--draft-ratio': aspectRatio }}>{drafts.map((draft, index) => <button key={draft.id} type="button" className={`draft-select__card${draft.id === selectedId ? ' draft-select__card--active' : ''}`} onClick={() => setSelectedId(draft.id)}><img src={toImageSrc(draft.image)} alt={`시안 ${index + 1}`} />{draft.id === selectedId && <span className="draft-select__check">✓</span>}</button>)}</div>{selectedDraft && <div className="draft-select__preview" style={{ '--draft-ratio': aspectRatio }}><img src={toImageSrc(selectedDraft.image)} alt="선택한 시안 확대 보기" /></div>}</>}
+    <div className="draft-select__actions"><button type="button" className="draft-select__secondary" onClick={onBack}><ArrowIcon back />문구 선택으로 돌아가기</button><button type="button" className="draft-select__primary" disabled={!selectedDraft} onClick={() => onConfirm(selectedDraft)}>이 배경으로 꾸미러 가기</button></div></div>;
 }
 
 export default DraftSelect;
