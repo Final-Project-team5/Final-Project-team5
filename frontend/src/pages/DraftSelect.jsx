@@ -9,6 +9,7 @@ import './DraftSelect.css';
 
 const LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
 const PALETTE = ['#F4E7DC', '#DFA48E', '#CFE7DE', '#D9E7F5', '#DED7F5'];
+const POSTER_PRODUCT_CATEGORIES = new Set(['food', 'beauty', 'goods']);
 
 function Icon({ name }) {
   const paths = {
@@ -64,6 +65,9 @@ function ColorField({ label, value, onChange }) {
 
 function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const ratio = spec?.aspect_ratio || '1:1';
+  const posterCategory = spec?.business_type === 'product' && POSTER_PRODUCT_CATEGORIES.has(spec?.category)
+    ? spec.category
+    : undefined;
   const supported = useMemo(() => getSupportedBackgroundModes(spec?.business_type, ratio), [spec?.business_type, ratio]);
   const needsModeChoice = supported.length > 1;
   const onlyMode = needsModeChoice ? null : supported[0];
@@ -84,11 +88,11 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
     let cancelled = false;
     const controller = new AbortController();
     setDrafts(null); setError(null);
-    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
+    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
       .then((result) => { if (!cancelled) { setDrafts(result.drafts); setSelectedId(result.drafts[0]?.id ?? null); } })
       .catch((reason) => { if (!cancelled) setError(toFriendlyMessage(reason, 'drafts')); });
     return () => { cancelled = true; controller.abort(); };
-  }, [config, mode, phase, productImage, ratio, retry, spec]);
+  }, [config, mode, phase, posterCategory, productImage, ratio, retry, spec]);
 
   const beginAi = () => { setConfig({ backgroundMode: 'ai' }); setPhase('drafts'); };
   const beginSimple = () => setPhase('simple-type');

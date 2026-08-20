@@ -2,7 +2,7 @@
  * 포스터 이미지 생성 API.
  * (docs/UIUX_스펙정리.md 5장 "포스터 모델" 참고, 8/10 용도→비율 매핑 반영)
  *
- *   POST /generate/drafts  { mode, image?, prompt, ratio, backgroundMode?, bgColors?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
+ *   POST /generate/drafts  { mode, image?, prompt, category?, ratio, backgroundMode?, bgColors?, num_images } → DraftSelect.jsx (화면 C, 로딩 A)
  *   POST /generate/refine  { draft_image, original_image, background, prompt, text } → PosterEditor.jsx (화면 D, 로딩 B)
  *
  * copyApi.js와 동일한 패턴: 아래는 크게 두 갈래로 나뉜다(컴포넌트는 둘 중 뭐가
@@ -162,6 +162,7 @@ export async function mockGenerateDrafts({
   mode = 'text2img',
   image = null,
   prompt = '',
+  category,
   ratio = '1:1',
   backgroundMode = 'ai',
   bgColors,
@@ -188,6 +189,7 @@ export async function mockGenerateDrafts({
       model: mode === 'inpaint' ? 'sd15-inpaint' : 'sd15',
       mode,
       prompt,
+      category,
       ratio,
       backgroundMode,
       usedProductImage: Boolean(image),
@@ -310,6 +312,7 @@ async function postJSON(path, body, key, signal) {
  * signal(AbortSignal, 선택): DraftSelect.jsx의 useEffect cleanup에서 넘겨준다 —
  * StrictMode 이중 마운트로 먼저 나간 요청을 실제로 abort시켜 중복 호출을 막는다.
  * 프론트 필드명 → 서버 필드명 매핑:
+ *   category(food|beauty|goods) → category
  *   ratio(문자열)          → aspect_ratio
  *   backgroundMode('ai'|'solid'|'gradient') → background_mode
  *   bgColors → bg_colors (직접 선택일 때만 전달, 생략하면 서버 기본 팔레트)
@@ -330,6 +333,7 @@ async function realGenerateDrafts({
   mode = 'text2img',
   image = null,
   prompt = '',
+  category,
   ratio = '1:1',
   backgroundMode = 'ai',
   bgColors,
@@ -341,6 +345,7 @@ async function realGenerateDrafts({
     mode,
     image: image || undefined,
     prompt: prompt || undefined,
+    category: category || undefined,
     num_images,
     background_mode: backgroundMode,
     bg_colors: bgColors?.length ? bgColors : undefined,
