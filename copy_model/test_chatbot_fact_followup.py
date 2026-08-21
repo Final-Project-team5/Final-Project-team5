@@ -30,6 +30,26 @@ def test_detect_fact_priority():
     assert _detect_fact_type(None) is None
 
 
+def test_detect_fact_no_false_positive_single_char():
+    # 한 글자 토큰 오탐 방지(소원님 #100 리뷰): 원/역/분이 일반 키워드에
+    # 부분일치해도 후속질문이 뜨면 안 된다.
+    for kw in ["전문 지원", "역동적인 느낌", "천연 성분", "밝은 분위기",
+               "응원 메시지", "고급 원단", "충분한 구성"]:
+        assert _detect_fact_type([kw]) is None, kw
+
+
+def test_detect_fact_numeric_fact_value():
+    # 실제 사실값(숫자+단위)은 정규식으로 정확히 잡는다.
+    assert _detect_fact_type(["3900원 특가"]) == "price"   # 숫자+원
+    assert _detect_fact_type(["20% 할인"]) == "price"       # 숫자+%
+    assert _detect_fact_type(["50 퍼센트"]) == "price"
+    assert _detect_fact_type(["강남역 5분"]) == "place"      # 숫자+분(역만으론 안 잡힘)
+    assert _detect_fact_type(["2번 출구"]) == "place"
+    # 다글자 단어 토큰은 그대로 유지
+    assert _detect_fact_type(["역세권 위치"]) == "place"
+    assert _detect_fact_type(["가격"]) == "price"
+
+
 def test_regulation_of_text():
     # 위반 표현
     reg = _regulation_of_text("100% 효과 보장", "food")

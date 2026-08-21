@@ -61,11 +61,17 @@ def _business_type(spec: dict) -> str:
 #   판정은 서버 상수 매핑으로 결정적(LLM 아님) — 재현성/mock 예측성 확보.
 #   여러 개 골라도 통합하지 않고 priority 최상위 하나만 묻는다(가격/할인 우선).
 #   못 담은 나머지 사실값은 마지막 추가요청 자유입력이 catch-all로 받는다.
-#   (fact_type, priority, 트리거 토큰들) — priority 작을수록 우선.
+#   (fact_type, priority, 단어토큰(부분일치), 사실값 정규식) — priority 작을수록 우선.
+#   한 글자 토큰(원/역/분)을 부분일치로 두면 지원·역동적·성분 같은 일반 키워드에도
+#   오탐이 난다(소원님 #100 리뷰). 금액/시간처럼 숫자를 동반하는 사실값은
+#   "숫자+단위" 정규식으로만 판정하고, 단어 토큰은 오탐 없는 다글자만 남긴다.
 FACT_KEYWORD_RULES = [
-    ("price", 1, ("가격", "할인", "혜택", "특가", "세일", "프로모션",
-                  "원", "％", "%", "퍼센트", "무료", "이벤트")),
-    ("place", 2, ("위치", "거리", "시간", "접근", "역", "분", "영업")),
+    ("price", 1,
+     ("가격", "할인", "혜택", "특가", "세일", "프로모션", "퍼센트", "무료", "이벤트"),
+     (r"\d+\s*원", r"\d+\s*%", r"\d+\s*％", r"\d+\s*퍼센트")),
+    ("place", 2,
+     ("위치", "거리", "시간", "접근", "영업", "역세권"),
+     (r"\d+\s*분", r"\d+\s*번\s*출구")),
 ]
 FACT_QUESTION = {
     "price": "강조하고 싶은 가격이나 할인이 있으면 알려주세요. (예: 3900원, 20% 할인)",
@@ -83,14 +89,19 @@ def _detect_fact_type(keywords) -> Optional[str]:
     """강조점 키워드에서 사실값 후속질문 트리거를 결정적으로 판정.
 
     우선순위 최상위 하나만 반환(가격/할인 > 위치/시간). 트리거 없으면 None.
+    판정: 단어 토큰은 부분일치, 금액/시간 등은 숫자+단위 정규식으로만 잡는다.
+    (한 글자 토큰 오탐 방지 — 지원/역동적/성분 등. 소원님 #100 리뷰 반영.)
     """
     kws = keywords or []
     if not isinstance(kws, list):
         return None
     hits = []
-    for ftype, prio, tokens in FACT_KEYWORD_RULES:
+    for ftype, prio, tokens, patterns in FACT_KEYWORD_RULES:
         for kw in kws:
-            if isinstance(kw, str) and any(tok in kw for tok in tokens):
+            if not isinstance(kw, str):
+                continue
+            if any(tok in kw for tok in tokens) or any(
+                    re.search(p, kw) for p in patterns):
                 hits.append((prio, ftype))
                 break
     if not hits:
