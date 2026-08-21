@@ -528,6 +528,21 @@ def _text_step_meta(t0: float) -> dict:
 _SKIP_TOKENS = ("", "없어요", "없음", "없습니다", "건너뛰기", "건너뛸게요",
                 "스킵", "skip", "패스", "pass")
 
+# 스킵(값 없음) 판정: 정확 토큰뿐 아니라 "딱히 없어요"처럼 부가어가 붙은 부정도
+# 스킵으로 본다(진우님 #100 리뷰). 단 앵커(^...$)로 문장 전체가 부정일 때만 스킵해,
+# "없는 게 매력" 처럼 부정어가 더 큰 의미의 일부인 실제 값은 저장되게 한다.
+_SKIP_RE = re.compile(
+    r"^(딱히|특별히|그냥|음+|뭐|아직|아뇨|아니요?)?\s*"
+    r"(없(어요?|음|습니다|네요?|을?까요)?|모르겠[어요]*|글쎄[요]*|"
+    r"생각\s*안\s*(나요?|남)|안\s*넣을게요?|스킵|skip|패스|pass|"
+    r"건너뛸?게?요?|건너뛰기)\s*$")
+
+
+def _is_skip(text: str) -> bool:
+    """사용자가 '값 없음'을 뜻하는 입력인지. 부가어 붙은 부정까지 잡는다."""
+    t = (text or "").strip().lower()
+    return t in _SKIP_TOKENS or bool(_SKIP_RE.match(t))
+
 
 def _slot_step(flow: list[dict], slot: str, default: int) -> int:
     return next((s["step"] for s in flow if s["slot"] == slot), default)
@@ -546,7 +561,7 @@ def _handle_fact_answer(req: SuggestRequest, t0: float,
     kw_step = _slot_step(flow, "keywords", total)
     req_step = _slot_step(flow, "request", total)
 
-    if text.lower() in _SKIP_TOKENS:
+    if _is_skip(text):
         return SuggestResponse(
             spec=spec, done=False, step=kw_step, next_step=req_step, total_steps=total,
             question=REQUEST_QUESTION, options=[], allow_multiple=False,
@@ -562,9 +577,12 @@ def _handle_fact_answer(req: SuggestRequest, t0: float,
             options=[], allow_multiple=False, input_type="text", max_length=FACT_MAX_LEN,
             regulation=reg, confirm_message="", meta=_text_step_meta(t0))
 
-    # 사용자 확정 사실값 → allowed_facts 태깅(type/value). warn이면 경고 동봉.
+    # 사용자 확정 사실값 → allowed_facts 태깅. warn이면 경고 동봉.
+    # source="user_input": 원장 사실의 출처가 LLM이 아님을 코드로 보장(Claim-Lock I1,
+    # 진우님 #100 리뷰). 후속질문 답은 사용자가 직접 타이핑한 값이다.
     spec["highlight_fact"] = {
-        "type": FACT_BLOCK_TYPE.get(pending, "extra"), "value": text}
+        "type": FACT_BLOCK_TYPE.get(pending, "extra"),
+        "value": text, "source": "user_input"}
     return SuggestResponse(
         spec=spec, done=False, step=kw_step, next_step=req_step, total_steps=total,
         question=REQUEST_QUESTION, options=[], allow_multiple=False,
@@ -581,7 +599,7 @@ def _handle_request_answer(req: SuggestRequest, t0: float,
     req_step = _slot_step(flow, "request", total)
     finish = "제공해주신 정보를 바탕으로 문구를 만들어드릴게요!"
 
-    if text.lower() in _SKIP_TOKENS:
+    if _is_skip(text):
         return SuggestResponse(
             spec=spec, done=True, step=req_step, next_step=None, total_steps=total,
             question=finish, options=[], allow_multiple=False,
