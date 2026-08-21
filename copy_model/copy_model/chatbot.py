@@ -56,6 +56,79 @@ def _business_type(spec: dict) -> str:
     return bt if bt in BUSINESS_TYPES else DEFAULT_BUSINESS_TYPE
 
 
+# ── 강조점 후속질문(사실값) 결정적 매핑 (8/21 팀 확정) ──────
+#   강조점(keywords)에서 사실값이 필요한 유형을 골랐을 때만 후속질문 1개를 낸다.
+#   판정은 서버 상수 매핑으로 결정적(LLM 아님) — 재현성/mock 예측성 확보.
+#   여러 개 골라도 통합하지 않고 priority 최상위 하나만 묻는다(가격/할인 우선).
+#   못 담은 나머지 사실값은 마지막 추가요청 자유입력이 catch-all로 받는다.
+#   (fact_type, priority, 단어토큰(부분일치), 사실값 정규식) — priority 작을수록 우선.
+#   한 글자 토큰(원/역/분)을 부분일치로 두면 지원·역동적·성분 같은 일반 키워드에도
+#   오탐이 난다(소원님 #100 리뷰). 금액/시간처럼 숫자를 동반하는 사실값은
+#   "숫자+단위" 정규식으로만 판정하고, 단어 토큰은 오탐 없는 다글자만 남긴다.
+FACT_KEYWORD_RULES = [
+    ("price", 1,
+     ("가격", "할인", "혜택", "특가", "세일", "프로모션", "퍼센트", "무료", "이벤트"),
+     (r"\d+\s*원", r"\d+\s*%", r"\d+\s*％", r"\d+\s*퍼센트")),
+    ("place", 2,
+     ("위치", "거리", "시간", "접근", "영업", "역세권"),
+     (r"\d+\s*분", r"\d+\s*번\s*출구")),
+]
+FACT_QUESTION = {
+    "price": "강조하고 싶은 가격이나 할인이 있으면 알려주세요. (예: 3900원, 20% 할인)",
+    "place": "위치나 이용 시간 정보가 있으면 알려주세요. (예: 강남역 5분, 오전 10시부터)",
+}
+# 사실 유형 → Planner 문구 블록 타입(Claim-Lock allowed_facts 태깅용).
+FACT_BLOCK_TYPE = {"price": "token", "place": "extra"}
+
+REQUEST_QUESTION = "마지막으로 꼭 넣고 싶은 내용이 있으면 한 줄로 적어주세요. (없으면 건너뛰기)"
+REQUEST_MAX_LEN = 40   # 추가요청 한 줄 제한
+FACT_MAX_LEN = 30      # 후속질문(사실값) 입력 제한
+
+
+def _detect_fact_type(keywords) -> Optional[str]:
+    """강조점 키워드에서 사실값 후속질문 트리거를 결정적으로 판정.
+
+    우선순위 최상위 하나만 반환(가격/할인 > 위치/시간). 트리거 없으면 None.
+    판정: 단어 토큰은 부분일치, 금액/시간 등은 숫자+단위 정규식으로만 잡는다.
+    (한 글자 토큰 오탐 방지 — 지원/역동적/성분 등. 소원님 #100 리뷰 반영.)
+    """
+    kws = keywords or []
+    if not isinstance(kws, list):
+        return None
+    hits = []
+    for ftype, prio, tokens, patterns in FACT_KEYWORD_RULES:
+        for kw in kws:
+            if not isinstance(kw, str):
+                continue
+            if any(tok in kw for tok in tokens) or any(
+                    re.search(p, kw) for p in patterns):
+                hits.append((prio, ftype))
+                break
+    if not hits:
+        return None
+    hits.sort()
+    return hits[0][1]
+
+
+def _regulation_of_text(text: str, category: str) -> Optional[dict]:
+    """자유 입력 텍스트를 규제 룰로 즉시 검증(비용 0). 위반 없으면 None.
+
+    후속질문/추가요청처럼 사용자가 직접 쓰는 자유 입력에 적용한다.
+    allowed_facts는 출처(사용자 확정)를 보장하지만, 표현의 위법성은 여기서 잡는다.
+    """
+    from .regulation import check_rules
+    flags = check_rules(text or "", category or "food")
+    if not flags:
+        return None
+    severity = "block" if any(f.severity == "block" for f in flags) else "warn"
+    suggestion = next((f.suggestion for f in flags if f.suggestion), "")
+    return {
+        "severity": severity,
+        "flags": [f.model_dump() for f in flags],
+        "suggestion_text": suggestion,
+    }
+
+
 def _apply_aspect_ratio(spec: dict) -> dict:
     """purpose 슬롯이 채워지면 비율(aspect_ratio)을 서버가 결정적으로 매핑.
 
@@ -269,6 +342,16 @@ class SuggestResponse(BaseModel):
     confirm_message: str = Field(
         default="",
         description="이번 턴에 현재 단계 값을 확정한 확인 멘트 (빈 문자열이면 표시 안 함)")
+    input_type: str = Field(
+        default="select",
+        description="다음 질문 입력 방식: select(선택지) | text(자유 입력). "
+                    "text면 프론트가 입력창을 띄우고 options는 빈 배열.")
+    max_length: Optional[int] = Field(
+        default=None, description="text 입력의 글자 수 제한 (select면 null)")
+    regulation: Optional[dict] = Field(
+        default=None,
+        description="사용자가 방금 제출한 자유 입력이 규제 룰에 걸렸을 때만 실림 "
+                    "{severity, flags, suggestion_text}. 프론트는 경고+대체표현 노출.")
     meta: dict
 
 
@@ -437,6 +520,121 @@ def _client_chat(messages: list[dict], temperature: float = 0.5) -> dict:
     return json.loads(resp.choices[0].message.content)
 
 
+def _text_step_meta(t0: float) -> dict:
+    return {"elapsed": round(time.time() - t0, 3),
+            "model": "rules", "mock": config.MOCK_MODE}
+
+
+_SKIP_TOKENS = ("", "없어요", "없음", "없습니다", "건너뛰기", "건너뛸게요",
+                "스킵", "skip", "패스", "pass")
+
+
+def _slot_step(flow: list[dict], slot: str, default: int) -> int:
+    return next((s["step"] for s in flow if s["slot"] == slot), default)
+
+
+def _handle_fact_answer(req: SuggestRequest, t0: float,
+                        flow: list[dict], total: int) -> SuggestResponse:
+    """후속질문(사실값) 답변 처리 — 저장 + 규제 검증 후 추가요청으로 진행.
+
+    결정적 처리(LLM 불필요). block이면 대체표현 안내 후 재입력, skip이면 스킵.
+    """
+    spec = dict(req.spec or {})
+    pending = spec.pop("_await_fact", None)
+    text = (req.message or "").strip()
+    category = spec.get("category")
+    kw_step = _slot_step(flow, "keywords", total)
+    req_step = _slot_step(flow, "request", total)
+
+    if text.lower() in _SKIP_TOKENS:
+        return SuggestResponse(
+            spec=spec, done=False, step=kw_step, next_step=req_step, total_steps=total,
+            question=REQUEST_QUESTION, options=[], allow_multiple=False,
+            input_type="text", max_length=REQUEST_MAX_LEN, regulation=None,
+            confirm_message="", meta=_text_step_meta(t0))
+
+    reg = _regulation_of_text(text, category)
+    if reg and reg["severity"] == "block":
+        spec["_await_fact"] = pending   # 재입력 대기
+        return SuggestResponse(
+            spec=spec, done=False, step=kw_step, next_step=kw_step, total_steps=total,
+            question="이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.",
+            options=[], allow_multiple=False, input_type="text", max_length=FACT_MAX_LEN,
+            regulation=reg, confirm_message="", meta=_text_step_meta(t0))
+
+    # 사용자 확정 사실값 → allowed_facts 태깅(type/value). warn이면 경고 동봉.
+    spec["highlight_fact"] = {
+        "type": FACT_BLOCK_TYPE.get(pending, "extra"), "value": text}
+    return SuggestResponse(
+        spec=spec, done=False, step=kw_step, next_step=req_step, total_steps=total,
+        question=REQUEST_QUESTION, options=[], allow_multiple=False,
+        input_type="text", max_length=REQUEST_MAX_LEN, regulation=reg,
+        confirm_message=f"'{text}'를 반영할게요.", meta=_text_step_meta(t0))
+
+
+def _handle_request_answer(req: SuggestRequest, t0: float,
+                           flow: list[dict], total: int) -> SuggestResponse:
+    """추가요청(자유 입력, 마지막 단계) 처리 — 규제 검증 후 종료."""
+    spec = dict(req.spec or {})
+    text = (req.message or "").strip()
+    category = spec.get("category")
+    req_step = _slot_step(flow, "request", total)
+    finish = "제공해주신 정보를 바탕으로 문구를 만들어드릴게요!"
+
+    if text.lower() in _SKIP_TOKENS:
+        return SuggestResponse(
+            spec=spec, done=True, step=req_step, next_step=None, total_steps=total,
+            question=finish, options=[], allow_multiple=False,
+            input_type="select", max_length=None, regulation=None,
+            confirm_message="", meta=_text_step_meta(t0))
+
+    reg = _regulation_of_text(text, category)
+    if reg and reg["severity"] == "block":
+        return SuggestResponse(
+            spec=spec, done=False, step=req_step, next_step=req_step, total_steps=total,
+            question="이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.",
+            options=[], allow_multiple=False, input_type="text", max_length=REQUEST_MAX_LEN,
+            regulation=reg, confirm_message="", meta=_text_step_meta(t0))
+
+    spec["request"] = text
+    return SuggestResponse(
+        spec=spec, done=True, step=req_step, next_step=None, total_steps=total,
+        question=finish, options=[], allow_multiple=False,
+        input_type="select", max_length=None, regulation=reg,
+        confirm_message=f"'{text}'를 반영할게요.", meta=_text_step_meta(t0))
+
+
+def _post_fixed(resp: SuggestResponse, req: SuggestRequest) -> SuggestResponse:
+    """select 단계 응답 후처리.
+
+    - keywords 확정 + 사실 키워드가 있으면 후속질문(text)으로 오버라이드.
+    - 다음 질문이 request면 자유 입력(text)으로 전환(프리셋 제거).
+    """
+    bt = _business_type(req.spec)
+    flow = _effective_flow(req.target_slots, bt)
+    total = len(flow)
+    step = min(req.step, total) if flow else req.step
+    cur_slot = flow[step - 1]["slot"] if flow and 1 <= step <= total else None
+
+    if cur_slot == "keywords" and not resp.done:
+        ftype = _detect_fact_type((resp.spec or {}).get("keywords"))
+        if ftype:
+            spec = dict(resp.spec or {})
+            spec["_await_fact"] = ftype
+            return resp.model_copy(update={
+                "spec": spec, "question": FACT_QUESTION[ftype], "options": [],
+                "input_type": "text", "max_length": FACT_MAX_LEN,
+                "allow_multiple": False, "next_step": step})
+
+    if (not resp.done and resp.next_step
+            and 1 <= resp.next_step <= total
+            and flow[resp.next_step - 1]["slot"] == "request"):
+        return resp.model_copy(update={
+            "question": REQUEST_QUESTION, "options": [], "input_type": "text",
+            "max_length": REQUEST_MAX_LEN, "allow_multiple": False})
+    return resp
+
+
 def suggest_options(req: SuggestRequest) -> SuggestResponse:
     t0 = time.time()
 
@@ -449,9 +647,22 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
             "auto 모드는 제품형에서만 사용하세요."
         )
 
+    # 고정 플로우의 자유 입력(text) 단계는 결정적으로 처리(LLM/mock 불필요).
+    if req.mode == "fixed":
+        bt_fixed = _business_type(req.spec)
+        flow_fixed = _effective_flow(req.target_slots, bt_fixed)
+        total_fixed = len(flow_fixed)
+        step_fixed = min(req.step, total_fixed) if flow_fixed else req.step
+        cur = (flow_fixed[step_fixed - 1]["slot"]
+               if flow_fixed and 1 <= step_fixed <= total_fixed else None)
+        if (req.spec or {}).get("_await_fact"):
+            return _handle_fact_answer(req, t0, flow_fixed, total_fixed)
+        if cur == "request":
+            return _handle_request_answer(req, t0, flow_fixed, total_fixed)
+
     if config.MOCK_MODE:
         if req.mode == "fixed":
-            return _mock_fixed(req, t0)
+            return _post_fixed(_mock_fixed(req, t0), req)
         return _mock_fixed(
             SuggestRequest(message=req.message, step=1, spec=req.spec), t0)
 
@@ -484,7 +695,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
         )
         _apply_aspect_ratio(spec)
 
-        return SuggestResponse(
+        resp = SuggestResponse(
             spec=spec, done=done, step=step,
             next_step=None if done else step + 1, total_steps=total,
             question=str(data.get("next_question", "")),
@@ -494,6 +705,7 @@ def suggest_options(req: SuggestRequest) -> SuggestResponse:
             meta={"elapsed": round(time.time() - t0, 3),
                   "model": config.MODEL_NAME, "mock": False},
         )
+        return _post_fixed(resp, req)
 
     # auto 모드
     system_auto = _AUTO_SYSTEM_PROMPT
