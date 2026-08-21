@@ -29,9 +29,8 @@
  * 사용자 확인을 /vision/product/confirm으로 보낸 뒤 느낌(tone)부터 실제
  * /suggest/options 호출이 시작된다(백엔드 기준 4=tone/5=keywords/6=request).
  *
- * service는 사진/제품명 단계 없이 프론트 고정 흐름(serviceAdvance)으로 진행한다.
- * category=academy|sports를 그대로 /generate/copy에 보내며 product를 임의로
- * 채우지 않는다(비어 있으면 서버가 업종별 기본값을 적용한다).
+ * service는 사진/제품명 단계 없이 진행하며, real 모드에서는 backend fixed flow,
+ * mock 모드에서는 같은 계약의 로컬 serviceAdvance를 사용한다.
  */
 
 import { MockApiError, maybeFail } from './mockUtils';
@@ -110,14 +109,14 @@ export const BACKGROUND_REFERENCE_GUIDE_TEXT =
 
 const TONE_OPTIONS = ['따뜻하고 아늑한', '깔끔하고 모던한', '화려하고 트렌디한', '자연스럽고 담백한'];
 const HIGHLIGHT_OPTIONS = ['신선한 재료', '합리적인 가격', '특별한 이벤트', '브랜드 스토리'];
-const EXTRA_OPTIONS = ['특별히 없어요', '이벤트를 강조해주세요', '가격을 강조해주세요', '심플하게 만들어주세요'];
+const FACT_MAX_LENGTH = 30;
+const REQUEST_MAX_LENGTH = 40;
+const SKIP_MESSAGE = '건너뛰기';
 
 // service 강조점 세트는 제품형과 결이 달라야 한다(docs 3-3장: 전문성·경력 /
-// 후기·평판 / 접근성 / 상담·가격 안내). service는 서버 호출이 아예 없어
-// (아래 serviceAdvance 참고) 느낌/강조점/추가요청 선택지를 여기서 고정해둔다.
+// 후기·평판 / 접근성 / 상담·가격 안내). mock service 선택지를 여기서 고정해둔다.
 const SERVICE_TONE_OPTIONS = ['신뢰감 있는 전문가 느낌', '활기찬 분위기', '차분하고 깔끔한 느낌', '따뜻하고 친근한 느낌'];
 const SERVICE_HIGHLIGHT_OPTIONS = ['전문성·경력', '후기·평판', '접근성(위치·시간)', '상담·가격 안내'];
-const SERVICE_REQUEST_OPTIONS = ['신규 개강', '무료 상담 이벤트', '수강료 할인', '특별히 없어요'];
 
 /** 문구 3개(시안) 생성 전, /generate/copy 바디의 category enum과 정합되는지 확인하는 헬퍼. */
 function categoryKey(category = '') {
@@ -143,7 +142,7 @@ function buildQuestion(step) {
         freeform: false,
       };
     case 6:
-      return { question: '추가로 요청하실 사항이 있나요?', options: EXTRA_OPTIONS, multiSelect: false, freeform: true };
+      return { question: '추가로 요청하실 사항이 있나요?', options: [], multiSelect: false, freeform: true, input_type: 'text', max_length: REQUEST_MAX_LENGTH };
     default:
       return { question: '', options: [], multiSelect: false, freeform: false };
   }
@@ -175,6 +174,20 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
   maybeFail('options');
 
   const nextSpec = { ...spec };
+  const text = message.trim();
+  const isSkip = !text || text === SKIP_MESSAGE;
+
+  if (nextSpec._await_fact) {
+    delete nextSpec._await_fact;
+    const regulation = mockTextRegulation(text);
+    if (regulation?.severity === 'block') {
+      nextSpec._await_fact = true;
+      return mockTextResponse({ step: 5, nextStep: 5, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: FACT_MAX_LENGTH, regulation, totalSteps: 6 });
+    }
+    if (!isSkip) nextSpec.highlight_fact = { type: 'price', value: text };
+    return mockTextResponse({ step: 5, nextStep: 6, spec: nextSpec, question: '추가로 요청하실 사항이 있나요?', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 6 });
+  }
+
   switch (step) {
     case 3:
       nextSpec.product = message;
@@ -184,10 +197,20 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
       break;
     case 5:
       nextSpec.keywords = message.split(',').map((s) => s.trim()).filter(Boolean);
+      if (nextSpec.keywords.some((keyword) => keyword.includes('가격') || keyword.includes('할인'))) {
+        nextSpec._await_fact = true;
+        return mockTextResponse({ step: 5, nextStep: 5, spec: nextSpec, question: '강조하고 싶은 가격이나 할인이 있으면 알려주세요.', maxLength: FACT_MAX_LENGTH, totalSteps: 6 });
+      }
       break;
     case 6:
-      nextSpec.request = message;
-      break;
+      {
+        const regulation = mockTextRegulation(text);
+        if (regulation?.severity === 'block') {
+          return mockTextResponse({ step: 6, nextStep: 6, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 6 });
+        }
+        if (!isSkip) nextSpec.request = text;
+        return { step: 6, next_step: null, total_steps: 6, question: null, options: [], multiSelect: false, freeform: false, input_type: 'select', max_length: null, regulation, spec: nextSpec, confirm_message: buildConfirmMessage(step, nextSpec), done: true };
+      }
     default:
       break;
   }
@@ -201,6 +224,9 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
       options: [],
       multiSelect: false,
       freeform: false,
+      input_type: 'select',
+      max_length: null,
+      regulation: null,
       spec: nextSpec,
       confirm_message: buildConfirmMessage(step, nextSpec),
       done: true,
@@ -208,7 +234,7 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
   }
 
   const nextStep = step + 1;
-  const { question, options, multiSelect, freeform } = buildQuestion(nextStep);
+  const { question, options, multiSelect, freeform, input_type, max_length } = buildQuestion(nextStep);
 
   return {
     step,
@@ -218,10 +244,27 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
     options,
     multiSelect,
     freeform,
+    input_type: input_type || 'select',
+    max_length: max_length ?? null,
+    regulation: null,
     spec: nextSpec,
     confirm_message: buildConfirmMessage(step, nextSpec),
     done: false,
   };
+}
+
+function mockTextRegulation(text) {
+  if (/100%|무조건|효과 보장/.test(text)) {
+    return { severity: 'block', flags: [{ reason: '확정적·절대적 표현은 광고 규제 대상이 될 수 있습니다.', suggestion: '도움이 될 수 있어요' }], suggestion_text: '단정 대신 “도움이 될 수 있어요”처럼 완화해보세요.' };
+  }
+  if (/최고|1위/.test(text)) {
+    return { severity: 'warn', flags: [{ reason: '비교·우월 표현은 근거 확인이 필요합니다.', suggestion: '만족도가 높은' }], suggestion_text: '객관적인 근거가 있는지 확인해주세요.' };
+  }
+  return null;
+}
+
+function mockTextResponse({ step, nextStep, spec, question, maxLength, totalSteps, regulation = null }) {
+  return { step, next_step: nextStep, total_steps: totalSteps, question, options: [], multiSelect: false, freeform: true, input_type: 'text', max_length: maxLength, regulation, spec, confirm_message: '', done: false };
 }
 
 /** mock POST /vision/product/confirm — 사용자 확정 후 product와 tone 질문을 반환. */
@@ -411,7 +454,7 @@ export const SERVICE_FLOW = [
     multiSelect: true,
     freeform: false,
   },
-  { slot: 'request', question: '추가로 요청하실 사항이 있나요?', options: SERVICE_REQUEST_OPTIONS, multiSelect: false, freeform: true },
+  { slot: 'request', question: '추가로 요청하실 사항이 있나요?', options: [], multiSelect: false, freeform: true, input_type: 'text', max_length: REQUEST_MAX_LENGTH },
 ];
 
 function serviceConfirmMessage(slot) {
@@ -428,46 +471,73 @@ function serviceConfirmMessage(slot) {
 }
 
 /**
- * service 전용 진행 함수. step 1=tone 답변, 2=keywords 답변, 3=request 답변
- * (SERVICE_FLOW 내부 인덱스 — 백엔드 FLOW_STEPS 번호와는 무관). 실제 네트워크
- * 호출은 없지만 suggestOptions와 동일한 응답 모양을 반환해 ChatFlow가 그대로
- * pushQuestion에 사용할 수 있게 한다.
+ * service mock 진행 함수. backend fixed 번호와 동일하게
+ * step 3=tone, 4=keywords, 5=request를 사용한다.
  */
-export async function serviceAdvance({ message, step = 1, spec = {} } = {}) {
+async function mockServiceAdvance({ message, step = 3, spec = {} } = {}) {
   await delay(150);
-  const cfg = SERVICE_FLOW[step - 1];
+  const flowIndex = step - 3;
+  const text = message.trim();
+  const isSkip = !text || text === SKIP_MESSAGE;
+  if (spec._await_fact) {
+    const nextSpec = { ...spec };
+    delete nextSpec._await_fact;
+    const regulation = mockTextRegulation(text);
+    if (regulation?.severity === 'block') {
+      nextSpec._await_fact = true;
+      return mockTextResponse({ step: 4, nextStep: 4, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: FACT_MAX_LENGTH, regulation, totalSteps: 5 });
+    }
+    if (!isSkip) nextSpec.highlight_fact = { type: 'price', value: text };
+    return mockTextResponse({ step: 4, nextStep: 5, spec: nextSpec, question: '추가로 요청하실 사항이 있나요?', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 5 });
+  }
+  const cfg = SERVICE_FLOW[flowIndex];
   const nextSpec = { ...spec };
   if (cfg.slot === 'keywords') {
     nextSpec.keywords = message.split(',').map((s) => s.trim()).filter(Boolean);
+    if (nextSpec.keywords.some((keyword) => keyword.includes('가격') || keyword.includes('할인'))) {
+      nextSpec._await_fact = true;
+      return mockTextResponse({ step: 4, nextStep: 4, spec: nextSpec, question: '강조하고 싶은 가격이나 할인이 있으면 알려주세요.', maxLength: FACT_MAX_LENGTH, totalSteps: 5 });
+    }
+  } else if (cfg.slot === 'request') {
+    const regulation = mockTextRegulation(text);
+    if (regulation?.severity === 'block') {
+      return mockTextResponse({ step: 5, nextStep: 5, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 5 });
+    }
+    if (!isSkip) nextSpec.request = text;
+    return { step: 5, next_step: null, total_steps: 5, question: null, options: [], multiSelect: false, freeform: false, input_type: 'select', max_length: null, regulation, spec: nextSpec, confirm_message: serviceConfirmMessage(cfg.slot), done: true };
   } else {
     nextSpec[cfg.slot] = message;
   }
 
-  const done = step >= SERVICE_FLOW.length;
+  const done = flowIndex >= SERVICE_FLOW.length - 1;
   if (done) {
     return {
       step,
       next_step: null,
-      total_steps: SERVICE_FLOW.length,
+      total_steps: 5,
       question: null,
       options: [],
       multiSelect: false,
       freeform: false,
+      input_type: 'select', max_length: null, regulation: null,
       spec: nextSpec,
       confirm_message: serviceConfirmMessage(cfg.slot),
       done: true,
     };
   }
 
-  const next = SERVICE_FLOW[step];
+  const next = SERVICE_FLOW[flowIndex + 1];
   return {
     step,
     next_step: step + 1,
-    total_steps: SERVICE_FLOW.length,
+    total_steps: 5,
     question: next.question,
     options: next.options,
     multiSelect: next.multiSelect,
     freeform: next.freeform,
+    input_type: next.input_type || 'select',
+    max_length: next.max_length ?? null,
+    regulation: null,
     spec: nextSpec,
     confirm_message: serviceConfirmMessage(cfg.slot),
     done: false,
@@ -485,8 +555,8 @@ const COMMON_RULES = [
     suggestion: '많은 분들이 찾는',
   },
   {
-    pattern: /100\s*%|백\s*퍼센트|완벽|완전\s*무결/,
-    severity: 'warn',
+    pattern: /100\s*%|백\s*퍼센트|무조건|완벽|완전\s*무결/,
+    severity: 'block',
     note: '표시광고법: 검증이 불가능한 확정적 표현이에요.',
     suggestion: '정성껏 준비한',
   },
@@ -498,7 +568,7 @@ const COMMON_RULES = [
   },
   {
     pattern: /보장|장담/,
-    severity: 'warn',
+    severity: 'block',
     note: '표시광고법: 효과·결과를 보장하는 표현은 주의가 필요해요.',
     suggestion: '기대하셔도 좋은',
   },
@@ -787,7 +857,10 @@ function mapSuggestRaw(res) {
     question: res.question,
     options: res.options || [],
     multiSelect: Boolean(res.allow_multiple),
-    freeform: !done && res.next_step === res.total_steps,
+    input_type: res.input_type,
+    max_length: res.max_length ?? null,
+    regulation: res.regulation ?? null,
+    freeform: res.input_type ? res.input_type === 'text' : !done && res.next_step === res.total_steps,
     spec: res.spec || {},
     confirm_message: res.confirm_message || '',
     done,
@@ -879,13 +952,17 @@ async function realValidateCopy({ headline = '', sub = '' } = {}, spec = {}) {
 
 // --- 컴포넌트가 실제로 import하는 진입점 -----------------------------------
 // ChatFlow.jsx/CopyResult.jsx는 아래 함수들만 알면 되고, mock/real 분기는
-// VITE_USE_REAL_COPY_API 값에 따라 여기서만 결정된다. business_type=service는
-// suggestOptions/visionProduct 대상이 아니다(위 SERVICE_FLOW 각주 참고) — 항상
-// serviceAdvance를 직접 호출한다.
+// VITE_USE_REAL_COPY_API 값에 따라 여기서만 결정된다. service도 serviceAdvance를
+// 통해 real/mock 분기를 타며 Vision은 product에서만 사용한다.
 
 /** POST /suggest/options — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
 export async function suggestOptions(args) {
   return USE_REAL_API ? realSuggestOptions(args) : mockSuggestOptions(args);
+}
+
+/** 서비스형도 real 모드에서는 backend fixed flow를 사용하고, mock 모드만 로컬 시나리오를 사용한다. */
+export async function serviceAdvance(args) {
+  return USE_REAL_API ? realSuggestOptions(args) : mockServiceAdvance(args);
 }
 
 /** POST /vision/product — product 전용. VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
