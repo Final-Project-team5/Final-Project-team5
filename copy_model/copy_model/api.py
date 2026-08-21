@@ -55,6 +55,10 @@ def _run(fn, req, fail_msg):
         return fn(req)
     except CopyInputError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        # 핸들러가 직접 던진 HTTPException은 상태코드를 보존해 그대로 전파한다
+        # (blanket except가 이를 502로 덮어쓰지 않도록. 소원님 #87 리뷰 반영).
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"{fail_msg}: {e}") from e
 

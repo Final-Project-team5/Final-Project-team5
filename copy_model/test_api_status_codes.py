@@ -94,6 +94,22 @@ def test_run_maps_input_error_directly():
         raise AssertionError("일반 예외는 502여야 한다")
 
 
+def test_run_passes_through_httpexception():
+    # 핸들러가 직접 던진 HTTPException은 상태코드 보존해 그대로 전파(502로 안 덮임).
+    from fastapi import HTTPException
+
+    def raise_http(_):
+        raise HTTPException(status_code=404, detail="not found")
+
+    try:
+        api._run(raise_http, None, "x")
+    except HTTPException as e:
+        assert e.status_code == 404
+        assert e.detail == "not found"
+    else:
+        raise AssertionError("HTTPException은 그대로 전파돼야 한다")
+
+
 if __name__ == "__main__":
     import sys
     import traceback
