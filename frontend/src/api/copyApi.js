@@ -179,7 +179,7 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
 
   if (nextSpec._await_fact) {
     delete nextSpec._await_fact;
-    const regulation = mockTextRegulation(text);
+    const regulation = mockTextRegulation(text, nextSpec);
     if (regulation?.severity === 'block') {
       nextSpec._await_fact = true;
       return mockTextResponse({ step: 5, nextStep: 5, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: FACT_MAX_LENGTH, regulation, totalSteps: 6 });
@@ -204,7 +204,7 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
       break;
     case 6:
       {
-        const regulation = mockTextRegulation(text);
+        const regulation = mockTextRegulation(text, nextSpec);
         if (regulation?.severity === 'block') {
           return mockTextResponse({ step: 6, nextStep: 6, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 6 });
         }
@@ -253,14 +253,14 @@ export async function mockSuggestOptions({ message, step = 3, spec = {} } = {}) 
   };
 }
 
-function mockTextRegulation(text) {
-  if (/100%|무조건|효과 보장/.test(text)) {
-    return { severity: 'block', flags: [{ reason: '확정적·절대적 표현은 광고 규제 대상이 될 수 있습니다.', suggestion: '도움이 될 수 있어요' }], suggestion_text: '단정 대신 “도움이 될 수 있어요”처럼 완화해보세요.' };
-  }
-  if (/최고|1위/.test(text)) {
-    return { severity: 'warn', flags: [{ reason: '비교·우월 표현은 근거 확인이 필요합니다.', suggestion: '만족도가 높은' }], suggestion_text: '객관적인 근거가 있는지 확인해주세요.' };
-  }
-  return null;
+function mockTextRegulation(text, spec = {}) {
+  const { status, flags } = scanRegulation(text, spec);
+  if (status === 'pass') return null;
+  return {
+    severity: status,
+    flags: flags.map((flag) => ({ reason: flag.note, suggestion: flag.suggestion })),
+    suggestion_text: flags[0]?.suggestion || '',
+  };
 }
 
 function mockTextResponse({ step, nextStep, spec, question, maxLength, totalSteps, regulation = null }) {
@@ -482,7 +482,7 @@ async function mockServiceAdvance({ message, step = 3, spec = {} } = {}) {
   if (spec._await_fact) {
     const nextSpec = { ...spec };
     delete nextSpec._await_fact;
-    const regulation = mockTextRegulation(text);
+    const regulation = mockTextRegulation(text, nextSpec);
     if (regulation?.severity === 'block') {
       nextSpec._await_fact = true;
       return mockTextResponse({ step: 4, nextStep: 4, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: FACT_MAX_LENGTH, regulation, totalSteps: 5 });
@@ -499,7 +499,7 @@ async function mockServiceAdvance({ message, step = 3, spec = {} } = {}) {
       return mockTextResponse({ step: 4, nextStep: 4, spec: nextSpec, question: '강조하고 싶은 가격이나 할인이 있으면 알려주세요.', maxLength: FACT_MAX_LENGTH, totalSteps: 5 });
     }
   } else if (cfg.slot === 'request') {
-    const regulation = mockTextRegulation(text);
+    const regulation = mockTextRegulation(text, nextSpec);
     if (regulation?.severity === 'block') {
       return mockTextResponse({ step: 5, nextStep: 5, spec: nextSpec, question: '이 표현은 광고 규제에 걸릴 수 있어요. 제안을 참고해 다시 입력해주세요.', maxLength: REQUEST_MAX_LENGTH, regulation, totalSteps: 5 });
     }
@@ -555,8 +555,8 @@ const COMMON_RULES = [
     suggestion: '많은 분들이 찾는',
   },
   {
-    pattern: /100\s*%|백\s*퍼센트|무조건|완벽|완전\s*무결/,
-    severity: 'block',
+    pattern: /100\s*%|백\s*퍼센트|완벽한?|완전\s*무결|절대/,
+    severity: 'warn',
     note: '표시광고법: 검증이 불가능한 확정적 표현이에요.',
     suggestion: '정성껏 준비한',
   },
@@ -568,7 +568,7 @@ const COMMON_RULES = [
   },
   {
     pattern: /보장|장담/,
-    severity: 'block',
+    severity: 'warn',
     note: '표시광고법: 효과·결과를 보장하는 표현은 주의가 필요해요.',
     suggestion: '기대하셔도 좋은',
   },
@@ -594,8 +594,8 @@ const FOOD_RULES = [
     suggestion: '가볍게 즐기는',
   },
   {
-    pattern: /면역력\s*(강화|증진)|디톡스|해독/,
-    severity: 'warn',
+    pattern: /면역력\s*(강화|증진|향상)|디톡스|해독|노폐물\s*(배출|비우|비워)|장\s*(청소|대청소)/,
+    severity: 'block',
     note: '식품표시광고법: 신체 기능 개선 표방은 기능성 인정이 필요해요.',
     suggestion: '든든하게 채우는',
   },
@@ -615,16 +615,10 @@ const BEAUTY_RULES = [
     suggestion: '편안하게 가꾸는',
   },
   {
-    pattern: /(아토피|여드름|습진|건선)\s*(치료|개선)/,
+    pattern: /아토피|여드름\s*(치료|제거|없애)|습진|건선|무좀|탈모\s*치료/,
     severity: 'block',
     note: '화장품법: 질환명과 함께 쓰인 개선 표현은 의약품 오인 광고예요.',
     suggestion: '산뜻하게 가꾸는',
-  },
-  {
-    pattern: /(아토피|여드름|습진|건선)(?!\s*(치료|개선))/,
-    severity: 'warn',
-    note: '화장품법: 특정 질환을 직접 언급하면 의약품으로 오인될 수 있어요.',
-    suggestion: '트러블 케어',
   },
   {
     pattern: /재생|세포\s*(재생|활성)|콜라겐\s*생성/,
