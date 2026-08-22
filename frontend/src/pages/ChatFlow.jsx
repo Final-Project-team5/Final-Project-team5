@@ -34,11 +34,10 @@ const CHAT_AVATAR_SIZE = 92;
 // business_type별로 다르지만 진행 순서는 같다).
 const FLOW_STAGE_ORDER = ['tone', 'keywords', 'request'];
 // stage → 실제 API 호출에 쓰는 step 번호. product는 백엔드 FLOW_STEPS 번호(3=Vision이
-// 이미 처리, 4/5/6), service는 serviceAdvance 내부 인덱스(1/2/3, 백엔드 번호와 무관 —
-// copyApi.js의 SERVICE_FLOW 각주 참고).
+// 이미 처리, 4/5/6), service는 product 단계가 빠진 백엔드 fixed 번호(3/4/5)를 쓴다.
 const API_STEP_BY_TYPE = {
   product: { tone: 4, keywords: 5, request: 6 },
-  service: { tone: 1, keywords: 2, request: 3 },
+  service: { tone: 3, keywords: 4, request: 5 },
 };
 // stage → 화면에 보여줄 진행 단계 번호(1부터). business_type이 정해지기 전(0단계)엔 1.
 const UI_STEP_BY_TYPE = {
@@ -94,6 +93,7 @@ function ChatFlow({ onComplete }) {
   // 순간 전환되는 UX라(기존 동작 유지), busy를 true로 두면 그 UX가 바뀐다.
   // 각 메시지 id는 한 번만 쓰이므로 별도로 풀어줄 필요가 없다.
   const answeredOnceRef = useRef(new Set());
+  const flowSubmissionRef = useRef(false);
   const answerOnce = (id) => {
     if (answeredOnceRef.current.has(id)) return false;
     answeredOnceRef.current.add(id);
@@ -148,6 +148,9 @@ function ChatFlow({ onComplete }) {
       options: res.options,
       multiSelect: res.multiSelect,
       freeform: res.freeform,
+      inputType: res.input_type,
+      maxLength: res.max_length,
+      regulation: res.regulation,
       answered: false,
     });
   };
@@ -242,24 +245,36 @@ function ChatFlow({ onComplete }) {
   };
 
   // --- 느낌/강조점/추가요청 공통 처리 (product는 실제 API, service는 고정 진행) --
-  const handleFlowAnswer = async (question, answerText) => {
-    markAnswered(question.id);
-    addUserBubble(answerText);
+  const handleFlowAnswer = async (question, answerText, isRetry = false) => {
+    if (flowSubmissionRef.current) return;
+    flowSubmissionRef.current = true;
+    if (!isRetry) {
+      markAnswered(question.id);
+      addUserBubble(answerText);
+    }
     setBusy(true);
     try {
       const advance = businessType === 'service' ? serviceAdvance : suggestOptions;
       const step = API_STEP_BY_TYPE[businessType][question.stage];
       const res = await advance({ message: answerText, step, spec });
+      flowSubmissionRef.current = false;
       setBusy(false);
       setSpec(res.spec);
+      if (res.done && res.regulation?.severity === 'warn') {
+        addMessage({ id: uid(), role: 'bot', kind: 'regulation', regulation: res.regulation });
+      }
       if (res.done) {
         await finishChat(res.spec);
         return;
       }
-      const nextStage = FLOW_STAGE_ORDER[FLOW_STAGE_ORDER.indexOf(question.stage) + 1];
-      setCurrentStep(UI_STEP_BY_TYPE[businessType][nextStage]);
+      const staysInStage = res.next_step === step;
+      const nextStage = staysInStage
+        ? question.stage
+        : FLOW_STAGE_ORDER[FLOW_STAGE_ORDER.indexOf(question.stage) + 1];
+      if (!staysInStage) setCurrentStep(UI_STEP_BY_TYPE[businessType][nextStage]);
       pushQuestion(res, nextStage);
     } catch (err) {
+      flowSubmissionRef.current = false;
       setBusy(false);
       const errId = uid();
       addMessage({
@@ -269,7 +284,7 @@ function ChatFlow({ onComplete }) {
         text: toFriendlyMessage(err, 'options'),
         retry: () => {
           setMessages((prev) => prev.filter((m) => m.id !== errId));
-          handleFlowAnswer(question, answerText);
+          handleFlowAnswer(question, answerText, true);
         },
       });
     }
@@ -336,6 +351,10 @@ function ChatMessage({ message, busy, spec, onBusinessType, onAnswer, onPhotoRes
     return <ErrorNotice message={message.text} onRetry={message.retry} retrying={busy} compact />;
   }
 
+  if (message.kind === 'regulation') {
+    return <RegulationNotice regulation={message.regulation} />;
+  }
+
   if (message.kind === 'business_type') {
     return (
       <div className="chat-row chat-row--bot">
@@ -370,6 +389,7 @@ function ChatMessage({ message, busy, spec, onBusinessType, onAnswer, onPhotoRes
         <div className="chat-bubble chat-bubble--bot">
           <div className="chat-bubble__text">{message.question}</div>
           {message.stage === 'category' && <p className="chat-flow__hint">{CATEGORY_HINT_TEXT}</p>}
+          {message.regulation && <RegulationNotice regulation={message.regulation} />}
           {!message.answered && <QuestionCard question={message} busy={busy} onAnswer={onAnswer} />}
         </div>
       </div>
@@ -413,6 +433,21 @@ function QuestionCard({ question, busy, onAnswer }) {
     return <FreeformQuestion question={question} busy={busy} onAnswer={onAnswer} />;
   }
   return <SingleSelectQuestion question={question} busy={busy} onAnswer={onAnswer} allowOther={!question.noOther} />;
+}
+
+function RegulationNotice({ regulation }) {
+  const flags = regulation?.flags || [];
+  return (
+    <div className={`chat-regulation chat-regulation--${regulation?.severity || 'warn'}`} role={regulation?.severity === 'block' ? 'alert' : 'status'}>
+      <strong>{regulation?.severity === 'block' ? '수정이 필요해요' : '확인해주세요'}</strong>
+      {regulation?.suggestion_text && <p>{regulation.suggestion_text}</p>}
+      {flags.map((flag, index) => (
+        <p key={`${flag.reason || flag.matched || 'flag'}-${index}`}>
+          {flag.reason}{flag.suggestion ? ` · 제안: ${flag.suggestion}` : ''}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 /** 단일 선택 질문(업종/용도/느낌) — 칩을 클릭하면 그 즉시 답변으로 제출된다. */
@@ -556,49 +591,40 @@ function MultiSelectQuestion({ question, busy, onAnswer }) {
 }
 
 /**
- * 자유 입력 질문(추가 요청) — 이 흐름의 마지막 질문. 선택지 칩은 눌러도 바로
- * 제출되지 않고 텍스트칸을 채우기만 한다 — 실제 제출은 [이 내용으로 완료]
- * 버튼을 눌러야만 일어난다.
+ * 서버 input_type=text 질문 — 조건부 후속질문과 마지막 추가요청이 공유한다.
  */
 function FreeformQuestion({ question, busy, onAnswer }) {
   const [freeText, setFreeText] = useState('');
 
   const submit = () => {
-    onAnswer(freeText.trim() || '특별히 없어요');
+    const value = freeText.trim();
+    if (value) onAnswer(value);
   };
+
+  const skip = () => onAnswer('건너뛰기');
 
   return (
     <div className="chat-question">
-      <div className="chat-question__options">
-        {question.options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            className={'chat-question__chip' + (freeText === opt ? ' chat-question__chip--active' : '')}
-            disabled={busy}
-            onClick={() => setFreeText(opt)}
-          >
-            {opt}
-          </button>
-        ))}
-      </div>
-
       <div className="chat-question__inline-form chat-question__inline-form--stacked">
-        <textarea
+        <input
+          type="text"
           value={freeText}
           onChange={(e) => setFreeText(e.target.value)}
-          placeholder="자유롭게 남겨주세요 (선택 사항)"
-          rows={2}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="짧게 입력해주세요 (선택 사항)"
+          maxLength={question.maxLength || undefined}
           disabled={busy}
         />
-        <button
-          type="button"
-          className="chat-question__submit chat-question__submit--block"
-          disabled={busy}
-          onClick={submit}
-        >
-          이 내용으로 완료
-        </button>
+        {question.maxLength && <div className="chat-question__counter">{freeText.length} / {question.maxLength}</div>}
+        <div className="chat-question__text-actions">
+          <button type="button" className="chat-question__skip" disabled={busy} onClick={skip}>건너뛰기</button>
+          <button type="button" className="chat-question__submit" disabled={busy || !freeText.trim()} onClick={submit}>제출</button>
+        </div>
       </div>
     </div>
   );

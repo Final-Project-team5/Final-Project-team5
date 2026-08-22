@@ -1,5 +1,6 @@
 .final-result {
-  max-width: 560px;
+  width: 100%;
+  max-width: 900px;
   margin: 0 auto;
   min-height: 100vh;
   padding: 48px 24px 40px;
@@ -28,6 +29,10 @@
    이미지·배지·텍스트)를 절대 침범하지 않는다. */
 .final-result__scene {
   position: relative;
+  width: 100%;
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .final-result__mascot-wrap {
@@ -122,6 +127,10 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  width: 100%;
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .final-result__restart {
@@ -172,9 +181,12 @@
   color: var(--color-text-muted);
   text-align: right;
   margin: 10px 0 0;
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1440px) {
   .final-result__mascot-wrap {
     position: static;
     display: flex;
