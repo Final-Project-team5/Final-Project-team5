@@ -90,7 +90,8 @@ def test_no_followup_goes_to_request_text():
 def test_fact_answer_stored_and_advances():
     spec = {"category": "food", "keywords": ["할인 행사"], "_await_fact": "price"}
     r = _run(5, spec, message="3900원")
-    assert r.spec["highlight_fact"] == {"type": "token", "value": "3900원"}
+    assert r.spec["highlight_fact"] == {
+        "type": "token", "value": "3900원", "source": "user_input"}
     assert "_await_fact" not in r.spec
     assert r.question == REQUEST_QUESTION    # 추가요청으로 진행
     assert r.regulation is None
@@ -113,6 +114,31 @@ def test_fact_answer_skip():
     assert r.question == REQUEST_QUESTION
 
 
+def test_fact_answer_has_user_source():
+    # Claim-Lock I1(진우님 #100): 저장되는 사실값엔 출처(user_input)가 붙는다.
+    spec = {"category": "food", "keywords": ["할인 행사"], "_await_fact": "price"}
+    r = _run(5, spec, message="20% 할인")
+    assert r.spec["highlight_fact"]["source"] == "user_input"
+
+
+def test_skip_with_filler_is_skipped():
+    # "딱히 없어요"처럼 부가어 붙은 부정도 스킵으로 처리(값 저장 안 함, 진우님 #100).
+    for msg in ["딱히 없어요", "특별히 없습니다", "그냥 없음", "모르겠어요",
+                "아직 없어요", "글쎄요"]:
+        spec = {"category": "food", "keywords": ["할인 행사"], "_await_fact": "price"}
+        r = _run(5, spec, message=msg)
+        assert "highlight_fact" not in r.spec, msg
+        assert r.question == REQUEST_QUESTION, msg
+
+
+def test_negation_inside_real_value_is_stored():
+    # 부정어가 더 큰 의미의 일부인 실제 값은 저장돼야 한다(과잉 스킵 방지).
+    spec = {"category": "food", "keywords": ["할인 행사"], "_await_fact": "price"}
+    r = _run(5, spec, message="없는 메뉴가 없어요")
+    assert "highlight_fact" in r.spec
+    assert r.spec["highlight_fact"]["value"] == "없는 메뉴가 없어요"
+
+
 # ── 추가요청(자유 입력) 처리 ───────────────────────────────
 def test_request_answer_done():
     spec = {"category": "food", "keywords": ["수제"]}
@@ -132,6 +158,14 @@ def test_request_answer_block_reasks():
 def test_request_answer_skip_done():
     spec = {"category": "food", "keywords": ["수제"]}
     r = _run(6, spec, message="없어요")
+    assert r.done is True
+    assert "request" not in r.spec
+
+
+def test_request_answer_skip_with_filler():
+    # 추가요청에서도 "딱히 없어요" 스킵 처리(포스터에 실릴 위험 차단, 진우님 #100).
+    spec = {"category": "food", "keywords": ["수제"]}
+    r = _run(6, spec, message="딱히 없어요")
     assert r.done is True
     assert "request" not in r.spec
 
