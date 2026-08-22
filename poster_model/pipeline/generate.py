@@ -8,6 +8,7 @@ from PIL import Image
 
 from . import config
 from . import layout
+from . import pipe_lock
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
                       make_masks, place_product_on_canvas, prepare_image,
                       render_flat_background, resolve_background, rotate_product)
@@ -332,15 +333,16 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     # 색 띠가 생기는 것이 seed 고정 A/B로 확인됐다(ON 19px / OFF 0px, ON 재현 일치).
     # 1:1은 같은 조건에서 재현되지 않아 기존 인스턴스를 그대로 쓴다.
     # 실험 기록: outputs/verification/api/ai_nonsquare_smoke/tilingab_*_summary.txt
-    pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
-    outs = pipe(prompt=prompt,
-                negative_prompt=config.NEGATIVE_PROMPT,
-                image=base_gen,
-                mask_image=masks_gen.inpaint,
-                height=gen[1], width=gen[0],
-                num_inference_steps=config.DRAFT_STEPS,
-                num_images_per_prompt=num_images,
-                generator=gens).images
+    with pipe_lock.pipe_guard("nonsquare_drafts"):
+        pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
+        outs = pipe(prompt=prompt,
+                    negative_prompt=config.NEGATIVE_PROMPT,
+                    image=base_gen,
+                    mask_image=masks_gen.inpaint,
+                    height=gen[1], width=gen[0],
+                    num_inference_steps=config.DRAFT_STEPS,
+                    num_images_per_prompt=num_images,
+                    generator=gens).images
     if tuple(gen) != tuple(canvas):
         outs = [o.resize(canvas, Image.LANCZOS) for o in outs]
     # 그림자·합성은 항상 최종 캔버스 해상도에서 (1:1 경로와 같은 순서)
@@ -392,14 +394,15 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
         base, masks, canvas, gen, aspect_ratio)
 
     draft_in = draft.convert("RGB").resize(gen, Image.LANCZOS)
-    pipe = _load(config.REFINE_MODEL, "inpaint")
-    out = pipe(prompt=prompt,
-               negative_prompt=config.NEGATIVE_PROMPT,
-               image=draft_in,
-               mask_image=masks_gen.inpaint,
-               height=gen[1], width=gen[0],
-               num_inference_steps=config.REFINE_STEPS,
-               strength=strength).images[0]
+    with pipe_lock.pipe_guard("nonsquare_refine"):
+        pipe = _load(config.REFINE_MODEL, "inpaint")
+        out = pipe(prompt=prompt,
+                   negative_prompt=config.NEGATIVE_PROMPT,
+                   image=draft_in,
+                   mask_image=masks_gen.inpaint,
+                   height=gen[1], width=gen[0],
+                   num_inference_steps=config.REFINE_STEPS,
+                   strength=strength).images[0]
     if tuple(gen) != tuple(canvas):
         out = out.resize(canvas, Image.LANCZOS)
     out = add_ground_shadow(out, masks_cv.product, rotation_deg=rotation_deg)
@@ -471,15 +474,16 @@ def generate_drafts(image=None,
         # 커지지 않도록 여기서 원래 캔버스로 되돌린다(중심 유지).
         base, masks, mode = _prepare(image, size, rotation_deg=rotation_deg,
                                      fit_canvas=(size, size))
-        pipe = _load(config.DRAFT_MODEL, "inpaint")
-        outs = pipe(prompt=prompt,
-                    negative_prompt=config.NEGATIVE_PROMPT,
-                    image=base,
-                    mask_image=masks.inpaint,
-                    height=size, width=size,
-                    num_inference_steps=config.DRAFT_STEPS,
-                    num_images_per_prompt=num_images,
-                    generator=gens).images
+        with pipe_lock.pipe_guard("drafts_inpaint"):
+            pipe = _load(config.DRAFT_MODEL, "inpaint")
+            outs = pipe(prompt=prompt,
+                        negative_prompt=config.NEGATIVE_PROMPT,
+                        image=base,
+                        mask_image=masks.inpaint,
+                        height=size, width=size,
+                        num_inference_steps=config.DRAFT_STEPS,
+                        num_images_per_prompt=num_images,
+                        generator=gens).images
         # 접지 그림자 후처리는 원본 제품을 덮어씌우기(composite_product) 전에 적용해야
         # 제품 바로 아래로 삐져나온 그림자가 최종 결과에 남는다.
         shadowed = [add_ground_shadow(o, masks.product,
@@ -488,13 +492,14 @@ def generate_drafts(image=None,
         meta_extra = {"mode": mode, "area_ratio": round(masks.area_ratio, 3),
                      "layout": describe_product_bbox(masks.product)}
     else:
-        pipe = _load(config.DRAFT_MODEL, "text2img")
-        images = pipe(prompt=prompt,
-                      negative_prompt=config.NEGATIVE_PROMPT,
-                      height=size, width=size,
-                      num_inference_steps=config.DRAFT_STEPS,
-                      num_images_per_prompt=num_images,
-                      generator=gens).images
+        with pipe_lock.pipe_guard("drafts_text2img"):
+            pipe = _load(config.DRAFT_MODEL, "text2img")
+            images = pipe(prompt=prompt,
+                          negative_prompt=config.NEGATIVE_PROMPT,
+                          height=size, width=size,
+                          num_inference_steps=config.DRAFT_STEPS,
+                          num_images_per_prompt=num_images,
+                          generator=gens).images
         meta_extra = {"mode": "text2img"}
 
     return {
@@ -602,14 +607,15 @@ def refine(draft: Image.Image,
     if original is not None:
         base, masks, _ = _prepare(original, size, rotation_deg=rotation_deg,
                                   fit_canvas=(size, size))
-        pipe = _load(config.REFINE_MODEL, "inpaint")
-        out = pipe(prompt=prompt,
-                   negative_prompt=config.NEGATIVE_PROMPT,
-                   image=draft,
-                   mask_image=masks.inpaint,
-                   height=size, width=size,
-                   num_inference_steps=config.REFINE_STEPS,
-                   strength=strength).images[0]
+        with pipe_lock.pipe_guard("refine_inpaint"):
+            pipe = _load(config.REFINE_MODEL, "inpaint")
+            out = pipe(prompt=prompt,
+                       negative_prompt=config.NEGATIVE_PROMPT,
+                       image=draft,
+                       mask_image=masks.inpaint,
+                       height=size, width=size,
+                       num_inference_steps=config.REFINE_STEPS,
+                       strength=strength).images[0]
         out = add_ground_shadow(out, masks.product, rotation_deg=rotation_deg)
         pre_product = out           # 제품 합성 직전 상태 (z_order="behind"용, 아래 반환 참고)
         product_mask = masks.product
@@ -617,22 +623,25 @@ def refine(draft: Image.Image,
     else:
         from diffusers import StableDiffusionXLImg2ImgPipeline
         key = f"{config.REFINE_MODEL}_img2img"
-        if key not in _pipes:
-            spec = config.MODELS[config.REFINE_MODEL]
-            pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                spec["text2img"], torch_dtype=torch.float16,
-                variant=spec["variant"])
-            if config.USE_CPU_OFFLOAD:
-                pipe.enable_model_cpu_offload()
-                pipe.vae.enable_slicing()
-                pipe.vae.enable_tiling()
-            else:
-                pipe.to("cuda")
-            _pipes[key] = pipe
-        # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
-        out = _pipes[key](prompt=prompt, image=draft,
-                          strength=min(strength, 0.35),
-                          num_inference_steps=config.REFINE_STEPS).images[0]
+        # 인스턴스 생성부터 호출까지 한 구간이다. 생성을 밖에 두면 두 스레드가
+        # 같은 key의 pipeline을 중복 생성해 불필요한 VRAM 사용이 발생할 수 있다.
+        with pipe_lock.pipe_guard("refine_img2img"):
+            if key not in _pipes:
+                spec = config.MODELS[config.REFINE_MODEL]
+                pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                    spec["text2img"], torch_dtype=torch.float16,
+                    variant=spec["variant"])
+                if config.USE_CPU_OFFLOAD:
+                    pipe.enable_model_cpu_offload()
+                    pipe.vae.enable_slicing()
+                    pipe.vae.enable_tiling()
+                else:
+                    pipe.to("cuda")
+                _pipes[key] = pipe
+            # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
+            out = _pipes[key](prompt=prompt, image=draft,
+                              strength=min(strength, 0.35),
+                              num_inference_steps=config.REFINE_STEPS).images[0]
         # img2img 폴백 경로는 원본/마스크가 없어 제품을 따로 합성하지 않는다.
         # 따라서 "제품 뒤" 레이어라는 개념 자체가 성립하지 않으므로 None을 준다
         # (호출자가 z_order="behind" 요청을 명시적으로 거부할 수 있게 하기 위함).
