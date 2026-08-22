@@ -1,7 +1,7 @@
 {
   "_meta": {
     "설명": "규제 룰 회귀 테스트용 골드셋. expected = 사람이 판정한 정답 라벨.",
-    "버전": "v2 (2026-08-08) — PM 리뷰 반영: 케이스 확충 + holdout warn 균형 보강",
+    "버전": "v3 (2026-08-22) — 신규 룰 축 편입(전부 train): sports 의료법, goods 의약품/의료기기 오인, academy 수강료 환불, 사실-100% 오탐(진우님 #102 요청). holdout(unseen)은 원본 유지.",
     "라벨 기준": {
       "block": "명백한 위반 — 의학적 효능·질병 치료/예방 단정, 식약처 미인정 기능성 단정, 확정적 미백/주름제거 등 (사용 불가)",
       "warn": "맥락 확인 필요 — 최상급·확정 표현, 인증 없는 환경성·천연 주장, 기능성 경계 표현 (근거 있으면 사용 가능)",
@@ -1075,6 +1075,87 @@
       "sub": "실패는 없습니다",
       "expected": "block",
       "note": "[레드팀] 합격 보장을 우회 표현"
+    },
+    {
+      "id": "SP-B3",
+      "split": "train",
+      "category": "sports",
+      "headline": "도수치료 전문 헬스장",
+      "sub": "재활치료도 함께 받으세요",
+      "expected": "block",
+      "note": "의료법: 체육시설의 의료행위(도수/재활치료) 표방 오인"
+    },
+    {
+      "id": "SP-W6",
+      "split": "train",
+      "category": "sports",
+      "headline": "통증 완화 스트레칭 클래스",
+      "sub": "뭉친 근육을 풀어요",
+      "expected": "warn",
+      "note": "치료로 오인될 표현(치료 아닌 운동임을 명확히)"
+    },
+    {
+      "id": "SP-S6",
+      "split": "train",
+      "category": "sports",
+      "headline": "운동 능력 향상 컨디셔닝",
+      "sub": "움직임을 개선해요",
+      "expected": "safe",
+      "note": "비의료 운동 표현 — 통과"
+    },
+    {
+      "id": "G-B1",
+      "split": "train",
+      "category": "goods",
+      "headline": "고혈압 치료 게르마늄 팔찌",
+      "sub": "혈압을 낮춰줍니다",
+      "expected": "block",
+      "note": "약사법·의료기기법: 상품의 질병 치료 표방 금지"
+    },
+    {
+      "id": "G-W7",
+      "split": "train",
+      "category": "goods",
+      "headline": "혈액순환 개선 자석 목걸이",
+      "sub": "매일 착용하세요",
+      "expected": "warn",
+      "note": "의료·건강 효능 오인(인증·실증 없으면 과장)"
+    },
+    {
+      "id": "G-S6",
+      "split": "train",
+      "category": "goods",
+      "headline": "가벼운 알루미늄 텀블러",
+      "sub": "매일 들고 다니기 좋아요",
+      "expected": "safe",
+      "note": "비의료 일반 상품 표현 — 통과"
+    },
+    {
+      "id": "AC-B4",
+      "split": "train",
+      "category": "academy",
+      "headline": "수강료 환불 불가 원칙",
+      "sub": "중도 환불은 안 됩니다",
+      "expected": "block",
+      "note": "학원법 시행령: 수강료 반환 기준 보장 — '환불 불가'는 위법"
+    },
+    {
+      "id": "G-S7",
+      "split": "train",
+      "category": "goods",
+      "headline": "100% 순면 데일리 티셔츠",
+      "sub": "부드럽게 입어요",
+      "expected": "safe",
+      "note": "사실-100%(검증 가능한 성분) — 오탐 통과"
+    },
+    {
+      "id": "G-S8",
+      "split": "train",
+      "category": "goods",
+      "headline": "100% 국내산 원목 도마",
+      "sub": "튼튼하게 오래 써요",
+      "expected": "safe",
+      "note": "사실-100%(원산지) — 오탐 통과"
     }
   ]
 }
