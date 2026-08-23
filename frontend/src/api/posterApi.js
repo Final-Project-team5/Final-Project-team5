@@ -63,7 +63,17 @@ function delay(ms = MOCK_DELAY_MS) {
  */
 export function buildPrompt(spec = {}) {
   const keywords = Array.isArray(spec.keywords) ? spec.keywords.join(', ') : spec.keywords;
-  return [spec.tone, spec.product, keywords, spec.request].filter(Boolean).join(', ') || '포스터 배경';
+  // 순서는 "중요도가 높은 것부터"다. 백엔드 prompt_budget이 CLIP 77-token
+  // 예산을 넘을 때 ", " 단위로 **뒤쪽 segment부터** 버리므로, 뒤에 둔 것이
+  // 먼저 사라진다. 예전 순서(tone → product → keywords → request)에서는
+  // 사용자가 직접 입력한 request가 가장 먼저 버려졌다.
+  //
+  //   버려지는 순서: tone → keywords → product → request(마지막까지 보존)
+  //
+  // 이건 무해한 정렬 변경이 아니라 의도적인 prompt-priority 변경이다.
+  // prompt 순서가 바뀌면 token position과 conditioning sequence가 달라지므로,
+  // 예산 초과가 없는 짧은 입력에서도 생성 결과가 달라질 수 있다.
+  return [spec.request, spec.product, keywords, spec.tone].filter(Boolean).join(', ') || '포스터 배경';
 }
 
 /**

@@ -9,6 +9,7 @@ from PIL import Image
 from . import config
 from . import layout
 from . import pipe_lock
+from . import prompt_budget
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
                       make_masks, place_product_on_canvas, prepare_image,
                       render_flat_background, resolve_background, rotate_product)
@@ -216,12 +217,65 @@ def unload(kind: str = None):
     torch.cuda.empty_cache()
 
 
-def resolve_prompt(prompt: str = None, category: str = None) -> str:
-    base = prompt or config.PROMPT_TEMPLATES[category or config.DEFAULT_CATEGORY]
-    # 그림자/단일 제품 유도 문구를 붙인다. 실험 중 SHADOW_PROMPT_SUFFIX=""처럼
-    # 비워서 끌 수 있도록, 빈 문자열은 건너뛰고 값이 있는 것만 이어붙인다.
-    extras = [s for s in (config.SHADOW_PROMPT_SUFFIX, config.ISOLATION_PROMPT_SUFFIX) if s]
-    return ", ".join([base, *extras])
+def resolve_prompt(prompt: str = None, category: str = None,
+                   subject_kind: str = "product",
+                   model_kind: str = None) -> str:
+    """품질 baseline + 사용자 prompt + 경로별 suffix를 이어붙인다.
+
+    이전에는 `prompt or PROMPT_TEMPLATES[category]` 였다. 사용자 prompt가
+    있으면 카테고리 품질 지시가 통째로 사라졌다. 이제는 대체하지 않고
+    baseline 뒤에 붙인다.
+
+    subject_kind
+        "product"  카테고리 품질 baseline + 제품 유도 접미사
+        "service"  서비스 품질 baseline  + 제품 접미사 없음
+
+        서비스형에 "single product only" / "shadow under product"가 붙던
+        문제를 여기서 닫는다. category=None -> goods fallback 경로도 타지
+        않는다. 기본값이 "product"라 subject_kind를 안 보내는 기존 호출은
+        분기 기준에서 종전과 같은 경로를 탄다.
+
+    model_kind
+        "sd15" / "sdxl" — 이 모델의 CLIP tokenizer 기준으로 토큰 예산을 맞춘다.
+        baseline과 제품 constraint는 보호하고, 넘치면 사용자 prompt의 뒤쪽부터
+        버린다. None이면 종전과 같이 그대로 이어붙인다(하위호환).
+
+        이전에는 길어지면 맨 뒤의 SHADOW/ISOLATION 접미사가 먼저 잘렸다.
+        실서버 로그(95 > 77)에서 실제로 그 부분이 truncation 됐다. 이제 그
+        자리는 보호 영역이라 잘리지 않는다.
+
+        SDXL은 text encoder가 둘이라 tokenizer/tokenizer_2 중 큰 값을 쓴다.
+    """
+    if subject_kind == "service":
+        base = config.SERVICE_QUALITY_BASELINE
+        extras = []                      # 제품 전제 접미사를 붙이지 않는다
+    else:
+        base = config.PROMPT_TEMPLATES[category or config.DEFAULT_CATEGORY]
+        # 그림자/단일 제품 유도 문구를 붙인다. 실험 중 SHADOW_PROMPT_SUFFIX=""처럼
+        # 비워서 끌 수 있도록, 빈 문자열은 건너뛰고 값이 있는 것만 이어붙인다.
+        extras = [s for s in (config.SHADOW_PROMPT_SUFFIX,
+                              config.ISOLATION_PROMPT_SUFFIX) if s]
+
+    user = (prompt or "").strip()
+
+    if model_kind is not None:
+        try:
+            fitted = prompt_budget.fit_prompt(
+                base, user, extras,
+                count=prompt_budget.counter_for(model_kind))
+        except Exception as e:
+            # 예산 계산 실패가 생성을 막지 않는다. 종전 동작으로 내려간다.
+            print(f"[prompt_budget] skipped: {type(e).__name__}: {e}")
+        else:
+            r = fitted["report"]
+            if r["dropped_segments"] or not r["within_budget"]:
+                print(f"[prompt_budget] {subject_kind}/{model_kind} "
+                      f"tokens={fitted['tokens']} kept={r['kept_segments']} "
+                      f"dropped={r['dropped_segments']} {r['dropped']}")
+            return fitted["prompt"]
+
+    parts = [base] + ([user] if user else []) + extras
+    return ", ".join(parts)
 
 
 def _flat_background_drafts(image, category, num_images,
@@ -302,7 +356,8 @@ def _place_both(base, masks, canvas_wh, gen_wh, ratio):
 
 
 def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0,
+                         subject_kind: str = "product") -> dict:
     """비정사각 AI draft (현재 3:1만).
 
     기존 1:1 경로는 건드리지 않고 별도 함수로 둔다. AI는 GPU가 필요해 픽셀 단위
@@ -317,7 +372,7 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     size = config.MODELS[config.DRAFT_MODEL]["size"]
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     gen = layout.resolve_ai_gen_size(aspect_ratio, "draft", canvas)
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.DRAFT_MODEL)
 
     if seeds is None:
         seeds = torch.randint(0, 2**31 - 1, (num_images,)).tolist()
@@ -369,7 +424,8 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
 
 
 def _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0,
+                         subject_kind: str = "product") -> dict:
     """비정사각 AI refine (현재 3:1만).
 
     입력은 **사용자가 고른 실제 draft**다. draft를 못 찾았을 때의 대체 배경 같은
@@ -383,7 +439,7 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
     size = config.MODELS[config.REFINE_MODEL]["size"]
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     gen = layout.resolve_ai_gen_size(aspect_ratio, "refine", canvas)
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.REFINE_MODEL)
     strength = config.REFINE_STRENGTH if strength is None else strength
     started = time.time()
 
@@ -437,7 +493,8 @@ def generate_drafts(image=None,
                     gradient_direction: str = None,
                     aspect_ratio: str = None,
                     placement_override: dict = None,
-                    rotation_deg: float = 0.0) -> dict:
+                    rotation_deg: float = 0.0,
+                    subject_kind: str = "product") -> dict:
     """1단계: 시안 여러 장 생성.
 
     image가 있으면 inpaint(제품 보존), 없으면 text2img.
@@ -458,9 +515,10 @@ def generate_drafts(image=None,
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                                    aspect_ratio, rotation_deg=rotation_deg)
+                                    aspect_ratio, rotation_deg=rotation_deg,
+                                    subject_kind=subject_kind)
 
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.DRAFT_MODEL)
     size = config.MODELS[config.DRAFT_MODEL]["size"]
 
     if seeds is None:
@@ -575,7 +633,8 @@ def refine(draft: Image.Image,
            background: dict = None,
            aspect_ratio: str = None,
            placement_override: dict = None,
-           rotation_deg: float = 0.0) -> dict:
+           rotation_deg: float = 0.0,
+           subject_kind: str = "product") -> dict:
     """2단계: 선택한 시안을 고품질로 다시 렌더링.
 
     original(사용자 원본 사진)이 주어지면 제품 영역을 다시 보존한다.
@@ -595,9 +654,10 @@ def refine(draft: Image.Image,
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                                    aspect_ratio, rotation_deg=rotation_deg)
+                                    aspect_ratio, rotation_deg=rotation_deg,
+                                    subject_kind=subject_kind)
 
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.REFINE_MODEL)
     strength = config.REFINE_STRENGTH if strength is None else strength
     size = config.MODELS[config.REFINE_MODEL]["size"]
 

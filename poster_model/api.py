@@ -152,6 +152,10 @@ class DraftRequest(BaseModel):
     # solid/gradient 배경에서만 지원한다(AI 비정사각 생성은 미지원).
     aspect_ratio: Optional[Literal["1:1", "3:1", "3:4"]] = None
     placement: Optional[PlacementSpec] = None
+    # 업종 성격. category(food/beauty/goods)와 다른 축이다 — 서비스형을
+    # category=None / goods fallback으로 간접 추론하지 않는다.
+    # 기본값이 "product"라 이 필드를 안 보내면 기존 동작과 완전히 동일하다.
+    subject_kind: Literal["product", "service"] = "product"
 
 
 class DraftItem(BaseModel):
@@ -182,6 +186,9 @@ class RefineRequest(BaseModel):
     aspect_ratio: Optional[Literal["1:1", "3:1", "3:4"]] = None
     # drafts 응답 meta.placement의 scale_factor / x / y만 담아 보낸다.
     placement: Optional[PlacementSpec] = None
+    # drafts에서 service였으면 refine에서도 service를 유지해야 한다. 안 그러면
+    # refine 단계에서 product baseline/suffix가 다시 들어간다.
+    subject_kind: Literal["product", "service"] = "product"
 
 
 class RefineResponse(BaseModel):
@@ -505,6 +512,7 @@ def generate_drafts(req: DraftRequest):
             gradient_direction=req.gradient_direction,
             aspect_ratio=req.aspect_ratio,
             placement_override=override,
+            subject_kind=req.subject_kind,
         )
     except pipeline.LayoutRejection as e:
         # 캔버스 이탈·확대 상한 초과 등. 보정하지 않고 거부하며, 복구용
@@ -575,7 +583,8 @@ def generate_refine(req: RefineRequest):
                                  prompt=req.prompt, category=req.category,
                                  background=background,
                                  aspect_ratio=ratio,
-                                 placement_override=override)
+                                 placement_override=override,
+                                 subject_kind=req.subject_kind)
     except pipeline.LayoutRejection as e:
         raise HTTPException(400, detail=e.payload)
     img = result["image"]
