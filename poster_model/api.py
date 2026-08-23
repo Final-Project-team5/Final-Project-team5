@@ -100,6 +100,23 @@ class TextSpec(BaseModel):
     # 여기서는 어떤 폰트가 왜 안 되는지 구분된 400을 내려야 한다.
     # 실제 허용값 검사는 _validate_font_id에서 한다.
     font_id: Optional[str] = None
+    # 타이포 스타일 프리셋. config.TONE_PRESETS의 키를 이름으로 받는다.
+    #
+    # 지금까지 API는 프리셋 5개 값 중 headline_size / sub_size **두 개만**
+    # 전달해서, 두 톤을 실제로 가르는 stroke_width / fill_color /
+    # headline_font_role이 렌더러까지 넘어가지 않았다. tone을 받아 서버가
+    # 다섯 값을 모두 푼다(verification 스크립트는 TONE_PRESETS를 직접 읽어
+    # 프리셋대로 그리는데, 실제 API 경로에서만 그 효과가 빠져 있었다).
+    #
+    # 개별 필드(headline_size 등)를 함께 보내면 **그쪽이 이긴다** — 프론트가
+    # 미리보기에서 계산한 값이 있으면 그것과 어긋나면 안 되기 때문이다.
+    # 보내지 않으면 render_text 기본값이 그대로 쓰여 기존 렌더 동작이 유지된다.
+    #
+    # 챗봇 spec.tone(simple/warm/luxury/energetic)과는 다른 축이다. 그쪽은
+    # 배경 프롬프트로 가고, 이 tone은 문구 타이포에만 쓰인다.
+    #
+    # Literal이 아니라 str인 이유는 font_id와 같다(구분된 400을 내려야 한다).
+    tone: Optional[str] = None
 
 
 class BackgroundSpec(BaseModel):
@@ -307,6 +324,50 @@ def _validate_font_id(spec: "TextSpec | None"):
         raise HTTPException(400, detail=e.payload)
 
 
+def _validate_tone(spec: "TextSpec | None") -> None:
+    """text.tone을 실제 렌더링 전에 검사한다.
+
+    **diffusion을 돌기 전에** 부르는 것이 중요하다. 렌더링 시점에 터지면
+    수백 초짜리 생성을 다 돌고 나서 400이 나간다. _validate_font_id와
+    같은 이유·같은 자리에서 부른다.
+
+    폴백은 하지 않는다. 사용자가 고른 톤이 아닌 결과를 내보내면 프론트가
+    무엇이 잘못됐는지 알 수 없기 때문이다.
+    """
+    if spec is None or not spec.tone:
+        return
+    if spec.tone not in pipeline.config.TONE_PRESETS:
+        raise HTTPException(400, detail={
+            "code": "unknown_tone",
+            "message": f"지원하지 않는 tone입니다: {spec.tone!r}",
+            "supported": sorted(pipeline.config.TONE_PRESETS),
+        })
+
+
+def _tone_kwargs(spec: "TextSpec") -> dict:
+    """tone 프리셋을 render_text 인자로 푼다.
+
+    tone을 안 주면 프리셋이 비어 있어 headline_font_role="headline",
+    stroke_width=None, fill_color=None이 되는데, 이는 render_text의 현재
+    기본값과 같다. 즉 tone 미지정 요청은 기존 렌더 동작이 그대로 유지된다.
+
+    개별 필드가 프리셋을 이긴다 — 프론트 미리보기가 계산한 headline_size가
+    있는데 서버가 프리셋 값으로 덮으면 미리보기와 결과가 어긋난다.
+    font_id도 마찬가지로 headline_font_role보다 우선하며, 그 우선순위는
+    render_text 안에 이미 있다.
+    """
+    preset = pipeline.config.TONE_PRESETS.get(spec.tone or "", {})
+    return {
+        "headline_size": (spec.headline_size if spec.headline_size is not None
+                          else preset.get("headline_size")),
+        "sub_size": (spec.sub_size if spec.sub_size is not None
+                     else preset.get("sub_size")),
+        "headline_font_role": preset.get("headline_font_role", "headline"),
+        "stroke_width": preset.get("stroke_width"),
+        "fill_color": preset.get("fill_color"),
+    }
+
+
 def _ignored_fields(spec: "TextSpec") -> list:
     """요청에는 들어왔지만 실제 렌더링에 쓰이지 않은 필드 이름.
 
@@ -352,9 +413,8 @@ def _render_text_layers(spec: "TextSpec", result: dict):
             position=spec.position,
             align=spec.align,
             style=spec.style,
-            headline_size=spec.headline_size,
-            sub_size=spec.sub_size,
             font_id=spec.font_id,
+            **_tone_kwargs(spec),
             return_meta=True)
 
     # 두 문구의 z_order가 같으면(또는 한쪽만 있으면) 한 번에 그린다 — 기존 동작 그대로.
@@ -532,6 +592,7 @@ def generate_refine(req: RefineRequest):
     # 폰트는 diffusion 전에 확인한다. 렌더링 직전에 터지면 생성을 다 돌고 나서
     # 400이 나가 GPU 시간을 통째로 버린다.
     _validate_font_id(req.text)
+    _validate_tone(req.text)
     # draft 크기에서 **항상** 비율을 추론하고, 명시값이 있으면 교차 검증한다.
     # aspect_ratio를 보낼 때만 추론하면, 3:1 시안을 고른 프론트가 필드를
     # 빠뜨렸을 때 조용히 1:1로 떨어진다. 그 실패를 막는 것이 목적이다.
@@ -618,6 +679,7 @@ def compose_text(req: TextComposeRequest):
                        "이 경로에는 없습니다. /generate/refine을 사용하세요.",
             "supported": ["front"]})
     _validate_font_id(spec)
+    _validate_tone(spec)
 
     base = b64_to_image(req.base_image)
     started = time.time()
@@ -628,9 +690,8 @@ def compose_text(req: TextComposeRequest):
         position=spec.position,
         align=spec.align,
         style=spec.style,
-        headline_size=spec.headline_size,
-        sub_size=spec.sub_size,
         font_id=spec.font_id,
+        **_tone_kwargs(spec),
         return_meta=True)
 
     layers = {}

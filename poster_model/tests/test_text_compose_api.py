@@ -266,10 +266,10 @@ fields = {l.strip().split(":")[0] for l in block.splitlines()
           and not l.strip().startswith("#")}
 # font_id는 A6에서 의도적으로 추가한 필드다(프론트가 폰트를 하나 골라 headline·sub에
 # 공통 적용). 가드 자체는 유지한다 — 이후 무단 필드 추가를 계속 막기 위해서다.
-check("TextSpec 필드 목록 = 기존 13개 + font_id",
+check("TextSpec 필드 목록 = 기존 13개 + font_id + tone",
       fields == {"headline", "sub", "x", "y", "position", "align", "style",
                  "headline_size", "sub_size", "headline_z_order", "sub_z_order",
-                 "sub_x", "sub_y", "font_id"}, f"{sorted(fields)}")
+                 "sub_x", "sub_y", "font_id", "tone"}, f"{sorted(fields)}")
 check("refine 핸들러가 _render_text_layers를 계속 사용",
       "_render_text_layers(req.text, result)" in src)
 check("compose는 _render_text_layers를 쓰지 않음",
