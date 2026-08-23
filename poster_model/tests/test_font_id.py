@@ -329,8 +329,10 @@ A2_ROTATION = {"ROTATION_MAX_ABS_DEG",              # 허용 회전 범위 ±20
                "SHADOW_CONTACT_PCT",                # band 내 x 백분위수
                "SHADOW_CONTACT_MIN_WIDTH_RATIO",    # 접지 폭 하한
                "SHADOW_CONTACT_MAX_SHIFT_RATIO"}    # 접지 중심 이동 상한
-check("추가된 것은 font_id(A6) / rotation(A2) 관련뿐",
-      set(cdefs) - set(bdefs) == A6_FONT_ID | A2_ROTATION,
+STABILIZATION = {"SERVICE_QUALITY_BASELINE"}
+
+check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 관련뿐",
+      set(cdefs) - set(bdefs) == A6_FONT_ID | A2_ROTATION | STABILIZATION,
       f"{sorted(set(cdefs) - set(bdefs))}")
 
 
