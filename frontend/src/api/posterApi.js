@@ -143,6 +143,93 @@ function stripDataUriPrefix(value = '') {
   return value.startsWith('data:') && commaIdx >= 0 ? value.slice(commaIdx + 1) : value;
 }
 
+const MOCK_FONT_FAMILIES = {
+  pretendard: 'Pretendard, sans-serif',
+  nanummyeongjo: '"Nanum Myeongjo", serif',
+  gmarketsans: '"Gmarket Sans", sans-serif',
+  galmuri11: 'Galmuri11, monospace',
+  nanumpen: '"Nanum Pen Script", cursive',
+};
+
+function wrapMockText(text, maxChars) {
+  if (!text) return [];
+  const lines = [];
+  for (const paragraph of text.split('\n')) {
+    const words = paragraph.split(' ');
+    let current = '';
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length <= maxChars) {
+        current = candidate;
+        continue;
+      }
+      if (current) lines.push(current);
+      let rest = word;
+      while (rest.length > maxChars) {
+        lines.push(rest.slice(0, maxChars));
+        rest = rest.slice(maxChars);
+      }
+      current = rest;
+    }
+    if (current) lines.push(current);
+  }
+  return lines;
+}
+
+function loadMockImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('mock refine image load failed'));
+    image.src = toImageSrc(src);
+  });
+}
+
+async function composeMockRefineImage(draftImage, text) {
+  const image = await loadMockImage(draftImage);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+
+  const shortSide = Math.min(canvas.width, canvas.height);
+  const headlineSize = (text.headline_size ?? 0.065) * shortSide;
+  const subSize = (text.sub_size ?? 0.038) * shortSide;
+  const headlineLines = wrapMockText(text.headline, 10);
+  const subLines = wrapMockText(text.sub, 15);
+  const headlineLineHeight = headlineSize * 1.25;
+  const subLineHeight = subSize * 1.3;
+  const gap = Math.max(4, shortSide * 0.008);
+  const totalHeight = headlineLines.length * headlineLineHeight
+    + (headlineLines.length && subLines.length ? gap : 0)
+    + subLines.length * subLineHeight;
+  const x = (text.x ?? 0.5) * canvas.width;
+  let y = (text.y ?? 0.5) * canvas.height - totalHeight / 2;
+  const family = MOCK_FONT_FAMILIES[text.font_id] || MOCK_FONT_FAMILIES.pretendard;
+
+  ctx.textAlign = text.align || 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = text.color || '#fff';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = Math.max(2, shortSide * 0.006);
+  ctx.shadowOffsetY = Math.max(1, shortSide * 0.002);
+
+  ctx.font = `800 ${headlineSize}px ${family}`;
+  for (const line of headlineLines) {
+    ctx.fillText(line, x, y);
+    y += headlineLineHeight;
+  }
+  if (headlineLines.length && subLines.length) y += gap;
+  ctx.font = `600 ${subSize}px ${family}`;
+  for (const line of subLines) {
+    ctx.fillText(line, x, y);
+    y += subLineHeight;
+  }
+
+  return stripDataUriPrefix(canvas.toDataURL('image/png'));
+}
+
 // background 값 mock — 실제로는 draft 응답에 실려 오고, refine 요청 때 그대로
 // echo해야 동일 배경이 재현된다(서버 무상태). type은 'gradient'(flat) 또는 'ai'.
 function mockBackground(seed, backgroundMode, bgColors, gradientDirection) {
@@ -211,8 +298,8 @@ export function toImageSrc(base64) {
 
 /**
  * POST /generate/refine 목 함수. 화면 D에서 [완성하기] 클릭 시 딱 한 번 호출한다.
- * 실제 이미지 합성 모델이 없어 mock에서는 선택한 시안(draft_image)을 그대로
- * "완성 이미지"로 되돌려준다. 응답의 image는 실제 API와 동일하게 순수 base64로
+ * mock에서는 선택한 시안(draft_image)에 전달받은 text 설정을 캔버스로 합성한다.
+ * 응답의 image는 실제 API와 동일하게 순수 base64로
  * 내려보내므로 호출부에서 반드시 toImageSrc()로 감싸서 써야 한다.
  *
  * text는 그대로 받아 meta.layout.text로 echo한다 — text.font_id(화면 D 서체
@@ -228,8 +315,10 @@ export async function mockGenerateRefine({
   await delay(1100);
   maybeFail('refine');
 
+  const image = await composeMockRefineImage(draft_image, text);
+
   return {
-    image: stripDataUriPrefix(draft_image),
+    image,
     meta: {
       elapsed: 12.3,
       model: 'sdxl',
