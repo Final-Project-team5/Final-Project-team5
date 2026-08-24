@@ -8,6 +8,8 @@ from PIL import Image
 
 from . import config
 from . import layout
+from . import pipe_lock
+from . import prompt_budget
 from .masking import (add_ground_shadow, composite_product, describe_product_bbox,
                       make_masks, place_product_on_canvas, prepare_image,
                       render_flat_background, resolve_background, rotate_product)
@@ -215,12 +217,65 @@ def unload(kind: str = None):
     torch.cuda.empty_cache()
 
 
-def resolve_prompt(prompt: str = None, category: str = None) -> str:
-    base = prompt or config.PROMPT_TEMPLATES[category or config.DEFAULT_CATEGORY]
-    # 그림자/단일 제품 유도 문구를 붙인다. 실험 중 SHADOW_PROMPT_SUFFIX=""처럼
-    # 비워서 끌 수 있도록, 빈 문자열은 건너뛰고 값이 있는 것만 이어붙인다.
-    extras = [s for s in (config.SHADOW_PROMPT_SUFFIX, config.ISOLATION_PROMPT_SUFFIX) if s]
-    return ", ".join([base, *extras])
+def resolve_prompt(prompt: str = None, category: str = None,
+                   subject_kind: str = "product",
+                   model_kind: str = None) -> str:
+    """품질 baseline + 사용자 prompt + 경로별 suffix를 이어붙인다.
+
+    이전에는 `prompt or PROMPT_TEMPLATES[category]` 였다. 사용자 prompt가
+    있으면 카테고리 품질 지시가 통째로 사라졌다. 이제는 대체하지 않고
+    baseline 뒤에 붙인다.
+
+    subject_kind
+        "product"  카테고리 품질 baseline + 제품 유도 접미사
+        "service"  서비스 품질 baseline  + 제품 접미사 없음
+
+        서비스형에 "single product only" / "shadow under product"가 붙던
+        문제를 여기서 닫는다. category=None -> goods fallback 경로도 타지
+        않는다. 기본값이 "product"라 subject_kind를 안 보내는 기존 호출은
+        분기 기준에서 종전과 같은 경로를 탄다.
+
+    model_kind
+        "sd15" / "sdxl" — 이 모델의 CLIP tokenizer 기준으로 토큰 예산을 맞춘다.
+        baseline과 제품 constraint는 보호하고, 넘치면 사용자 prompt의 뒤쪽부터
+        버린다. None이면 종전과 같이 그대로 이어붙인다(하위호환).
+
+        이전에는 길어지면 맨 뒤의 SHADOW/ISOLATION 접미사가 먼저 잘렸다.
+        실서버 로그(95 > 77)에서 실제로 그 부분이 truncation 됐다. 이제 그
+        자리는 보호 영역이라 잘리지 않는다.
+
+        SDXL은 text encoder가 둘이라 tokenizer/tokenizer_2 중 큰 값을 쓴다.
+    """
+    if subject_kind == "service":
+        base = config.SERVICE_QUALITY_BASELINE
+        extras = []                      # 제품 전제 접미사를 붙이지 않는다
+    else:
+        base = config.PROMPT_TEMPLATES[category or config.DEFAULT_CATEGORY]
+        # 그림자/단일 제품 유도 문구를 붙인다. 실험 중 SHADOW_PROMPT_SUFFIX=""처럼
+        # 비워서 끌 수 있도록, 빈 문자열은 건너뛰고 값이 있는 것만 이어붙인다.
+        extras = [s for s in (config.SHADOW_PROMPT_SUFFIX,
+                              config.ISOLATION_PROMPT_SUFFIX) if s]
+
+    user = (prompt or "").strip()
+
+    if model_kind is not None:
+        try:
+            fitted = prompt_budget.fit_prompt(
+                base, user, extras,
+                count=prompt_budget.counter_for(model_kind))
+        except Exception as e:
+            # 예산 계산 실패가 생성을 막지 않는다. 종전 동작으로 내려간다.
+            print(f"[prompt_budget] skipped: {type(e).__name__}: {e}")
+        else:
+            r = fitted["report"]
+            if r["dropped_segments"] or not r["within_budget"]:
+                print(f"[prompt_budget] {subject_kind}/{model_kind} "
+                      f"tokens={fitted['tokens']} kept={r['kept_segments']} "
+                      f"dropped={r['dropped_segments']} {r['dropped']}")
+            return fitted["prompt"]
+
+    parts = [base] + ([user] if user else []) + extras
+    return ", ".join(parts)
 
 
 def _flat_background_drafts(image, category, num_images,
@@ -301,7 +356,8 @@ def _place_both(base, masks, canvas_wh, gen_wh, ratio):
 
 
 def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0,
+                         subject_kind: str = "product") -> dict:
     """비정사각 AI draft (현재 3:1만).
 
     기존 1:1 경로는 건드리지 않고 별도 함수로 둔다. AI는 GPU가 필요해 픽셀 단위
@@ -316,7 +372,7 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     size = config.MODELS[config.DRAFT_MODEL]["size"]
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     gen = layout.resolve_ai_gen_size(aspect_ratio, "draft", canvas)
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.DRAFT_MODEL)
 
     if seeds is None:
         seeds = torch.randint(0, 2**31 - 1, (num_images,)).tolist()
@@ -332,15 +388,16 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     # 색 띠가 생기는 것이 seed 고정 A/B로 확인됐다(ON 19px / OFF 0px, ON 재현 일치).
     # 1:1은 같은 조건에서 재현되지 않아 기존 인스턴스를 그대로 쓴다.
     # 실험 기록: outputs/verification/api/ai_nonsquare_smoke/tilingab_*_summary.txt
-    pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
-    outs = pipe(prompt=prompt,
-                negative_prompt=config.NEGATIVE_PROMPT,
-                image=base_gen,
-                mask_image=masks_gen.inpaint,
-                height=gen[1], width=gen[0],
-                num_inference_steps=config.DRAFT_STEPS,
-                num_images_per_prompt=num_images,
-                generator=gens).images
+    with pipe_lock.pipe_guard("nonsquare_drafts"):
+        pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
+        outs = pipe(prompt=prompt,
+                    negative_prompt=config.NEGATIVE_PROMPT,
+                    image=base_gen,
+                    mask_image=masks_gen.inpaint,
+                    height=gen[1], width=gen[0],
+                    num_inference_steps=config.DRAFT_STEPS,
+                    num_images_per_prompt=num_images,
+                    generator=gens).images
     if tuple(gen) != tuple(canvas):
         outs = [o.resize(canvas, Image.LANCZOS) for o in outs]
     # 그림자·합성은 항상 최종 캔버스 해상도에서 (1:1 경로와 같은 순서)
@@ -367,7 +424,8 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
 
 
 def _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                         aspect_ratio, rotation_deg: float = 0.0) -> dict:
+                         aspect_ratio, rotation_deg: float = 0.0,
+                         subject_kind: str = "product") -> dict:
     """비정사각 AI refine (현재 3:1만).
 
     입력은 **사용자가 고른 실제 draft**다. draft를 못 찾았을 때의 대체 배경 같은
@@ -381,7 +439,7 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
     size = config.MODELS[config.REFINE_MODEL]["size"]
     canvas, use_margin = layout.plan_canvas(aspect_ratio, size)
     gen = layout.resolve_ai_gen_size(aspect_ratio, "refine", canvas)
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.REFINE_MODEL)
     strength = config.REFINE_STRENGTH if strength is None else strength
     started = time.time()
 
@@ -392,14 +450,15 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
         base, masks, canvas, gen, aspect_ratio)
 
     draft_in = draft.convert("RGB").resize(gen, Image.LANCZOS)
-    pipe = _load(config.REFINE_MODEL, "inpaint")
-    out = pipe(prompt=prompt,
-               negative_prompt=config.NEGATIVE_PROMPT,
-               image=draft_in,
-               mask_image=masks_gen.inpaint,
-               height=gen[1], width=gen[0],
-               num_inference_steps=config.REFINE_STEPS,
-               strength=strength).images[0]
+    with pipe_lock.pipe_guard("nonsquare_refine"):
+        pipe = _load(config.REFINE_MODEL, "inpaint")
+        out = pipe(prompt=prompt,
+                   negative_prompt=config.NEGATIVE_PROMPT,
+                   image=draft_in,
+                   mask_image=masks_gen.inpaint,
+                   height=gen[1], width=gen[0],
+                   num_inference_steps=config.REFINE_STEPS,
+                   strength=strength).images[0]
     if tuple(gen) != tuple(canvas):
         out = out.resize(canvas, Image.LANCZOS)
     out = add_ground_shadow(out, masks_cv.product, rotation_deg=rotation_deg)
@@ -434,7 +493,8 @@ def generate_drafts(image=None,
                     gradient_direction: str = None,
                     aspect_ratio: str = None,
                     placement_override: dict = None,
-                    rotation_deg: float = 0.0) -> dict:
+                    rotation_deg: float = 0.0,
+                    subject_kind: str = "product") -> dict:
     """1단계: 시안 여러 장 생성.
 
     image가 있으면 inpaint(제품 보존), 없으면 text2img.
@@ -455,9 +515,10 @@ def generate_drafts(image=None,
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
-                                    aspect_ratio, rotation_deg=rotation_deg)
+                                    aspect_ratio, rotation_deg=rotation_deg,
+                                    subject_kind=subject_kind)
 
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.DRAFT_MODEL)
     size = config.MODELS[config.DRAFT_MODEL]["size"]
 
     if seeds is None:
@@ -471,15 +532,16 @@ def generate_drafts(image=None,
         # 커지지 않도록 여기서 원래 캔버스로 되돌린다(중심 유지).
         base, masks, mode = _prepare(image, size, rotation_deg=rotation_deg,
                                      fit_canvas=(size, size))
-        pipe = _load(config.DRAFT_MODEL, "inpaint")
-        outs = pipe(prompt=prompt,
-                    negative_prompt=config.NEGATIVE_PROMPT,
-                    image=base,
-                    mask_image=masks.inpaint,
-                    height=size, width=size,
-                    num_inference_steps=config.DRAFT_STEPS,
-                    num_images_per_prompt=num_images,
-                    generator=gens).images
+        with pipe_lock.pipe_guard("drafts_inpaint"):
+            pipe = _load(config.DRAFT_MODEL, "inpaint")
+            outs = pipe(prompt=prompt,
+                        negative_prompt=config.NEGATIVE_PROMPT,
+                        image=base,
+                        mask_image=masks.inpaint,
+                        height=size, width=size,
+                        num_inference_steps=config.DRAFT_STEPS,
+                        num_images_per_prompt=num_images,
+                        generator=gens).images
         # 접지 그림자 후처리는 원본 제품을 덮어씌우기(composite_product) 전에 적용해야
         # 제품 바로 아래로 삐져나온 그림자가 최종 결과에 남는다.
         shadowed = [add_ground_shadow(o, masks.product,
@@ -488,13 +550,14 @@ def generate_drafts(image=None,
         meta_extra = {"mode": mode, "area_ratio": round(masks.area_ratio, 3),
                      "layout": describe_product_bbox(masks.product)}
     else:
-        pipe = _load(config.DRAFT_MODEL, "text2img")
-        images = pipe(prompt=prompt,
-                      negative_prompt=config.NEGATIVE_PROMPT,
-                      height=size, width=size,
-                      num_inference_steps=config.DRAFT_STEPS,
-                      num_images_per_prompt=num_images,
-                      generator=gens).images
+        with pipe_lock.pipe_guard("drafts_text2img"):
+            pipe = _load(config.DRAFT_MODEL, "text2img")
+            images = pipe(prompt=prompt,
+                          negative_prompt=config.NEGATIVE_PROMPT,
+                          height=size, width=size,
+                          num_inference_steps=config.DRAFT_STEPS,
+                          num_images_per_prompt=num_images,
+                          generator=gens).images
         meta_extra = {"mode": "text2img"}
 
     return {
@@ -570,7 +633,8 @@ def refine(draft: Image.Image,
            background: dict = None,
            aspect_ratio: str = None,
            placement_override: dict = None,
-           rotation_deg: float = 0.0) -> dict:
+           rotation_deg: float = 0.0,
+           subject_kind: str = "product") -> dict:
     """2단계: 선택한 시안을 고품질로 다시 렌더링.
 
     original(사용자 원본 사진)이 주어지면 제품 영역을 다시 보존한다.
@@ -590,9 +654,10 @@ def refine(draft: Image.Image,
     if aspect_ratio not in (None, "1:1"):
         # 비정사각 AI는 별도 경로. 아래 1:1 코드는 그대로 둔다.
         return _ai_nonsquare_refine(draft, original, prompt, category, strength,
-                                    aspect_ratio, rotation_deg=rotation_deg)
+                                    aspect_ratio, rotation_deg=rotation_deg,
+                                    subject_kind=subject_kind)
 
-    prompt = resolve_prompt(prompt, category)
+    prompt = resolve_prompt(prompt, category, subject_kind, config.REFINE_MODEL)
     strength = config.REFINE_STRENGTH if strength is None else strength
     size = config.MODELS[config.REFINE_MODEL]["size"]
 
@@ -602,14 +667,15 @@ def refine(draft: Image.Image,
     if original is not None:
         base, masks, _ = _prepare(original, size, rotation_deg=rotation_deg,
                                   fit_canvas=(size, size))
-        pipe = _load(config.REFINE_MODEL, "inpaint")
-        out = pipe(prompt=prompt,
-                   negative_prompt=config.NEGATIVE_PROMPT,
-                   image=draft,
-                   mask_image=masks.inpaint,
-                   height=size, width=size,
-                   num_inference_steps=config.REFINE_STEPS,
-                   strength=strength).images[0]
+        with pipe_lock.pipe_guard("refine_inpaint"):
+            pipe = _load(config.REFINE_MODEL, "inpaint")
+            out = pipe(prompt=prompt,
+                       negative_prompt=config.NEGATIVE_PROMPT,
+                       image=draft,
+                       mask_image=masks.inpaint,
+                       height=size, width=size,
+                       num_inference_steps=config.REFINE_STEPS,
+                       strength=strength).images[0]
         out = add_ground_shadow(out, masks.product, rotation_deg=rotation_deg)
         pre_product = out           # 제품 합성 직전 상태 (z_order="behind"용, 아래 반환 참고)
         product_mask = masks.product
@@ -617,22 +683,25 @@ def refine(draft: Image.Image,
     else:
         from diffusers import StableDiffusionXLImg2ImgPipeline
         key = f"{config.REFINE_MODEL}_img2img"
-        if key not in _pipes:
-            spec = config.MODELS[config.REFINE_MODEL]
-            pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                spec["text2img"], torch_dtype=torch.float16,
-                variant=spec["variant"])
-            if config.USE_CPU_OFFLOAD:
-                pipe.enable_model_cpu_offload()
-                pipe.vae.enable_slicing()
-                pipe.vae.enable_tiling()
-            else:
-                pipe.to("cuda")
-            _pipes[key] = pipe
-        # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
-        out = _pipes[key](prompt=prompt, image=draft,
-                          strength=min(strength, 0.35),
-                          num_inference_steps=config.REFINE_STEPS).images[0]
+        # 인스턴스 생성부터 호출까지 한 구간이다. 생성을 밖에 두면 두 스레드가
+        # 같은 key의 pipeline을 중복 생성해 불필요한 VRAM 사용이 발생할 수 있다.
+        with pipe_lock.pipe_guard("refine_img2img"):
+            if key not in _pipes:
+                spec = config.MODELS[config.REFINE_MODEL]
+                pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                    spec["text2img"], torch_dtype=torch.float16,
+                    variant=spec["variant"])
+                if config.USE_CPU_OFFLOAD:
+                    pipe.enable_model_cpu_offload()
+                    pipe.vae.enable_slicing()
+                    pipe.vae.enable_tiling()
+                else:
+                    pipe.to("cuda")
+                _pipes[key] = pipe
+            # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
+            out = _pipes[key](prompt=prompt, image=draft,
+                              strength=min(strength, 0.35),
+                              num_inference_steps=config.REFINE_STEPS).images[0]
         # img2img 폴백 경로는 원본/마스크가 없어 제품을 따로 합성하지 않는다.
         # 따라서 "제품 뒤" 레이어라는 개념 자체가 성립하지 않으므로 None을 준다
         # (호출자가 z_order="behind" 요청을 명시적으로 거부할 수 있게 하기 위함).

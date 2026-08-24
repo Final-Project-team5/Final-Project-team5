@@ -338,3 +338,13 @@ SHADOW_PROMPT_SUFFIX = "soft contact shadow under product, grounded, sitting on 
 # 참고 포스터들은 대부분 제품 하나만 단독으로 다룸(다른 사물 없음). SDXL이 "commercial
 # product photography" 같은 문구에서 소품을 임의로 만들어 넣는 환각이 있어 방지 문구 추가
 ISOLATION_PROMPT_SUFFIX = "single product only, isolated product shot, no other objects"
+
+# 서비스형(학원·체육관 등) 기본 품질 baseline.
+#
+# 업종별 템플릿을 만들지 않는다. academy/sports를 나누면 업종이 늘 때마다
+# 템플릿이 늘어난다. 업종별 차이는 사용자 prompt가 담당한다.
+# 제품 전제 어휘(product / product shot / shadow under product)를 쓰지 않는다.
+SERVICE_QUALITY_BASELINE = (
+    "professional commercial photography of an interior space, "
+    "natural lighting, clean composition, inviting atmosphere"
+)
