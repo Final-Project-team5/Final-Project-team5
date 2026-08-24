@@ -23,6 +23,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # 일반 생성은 mini, 필요 시 nano로 낮춰 비용 절약 (팀 한도 $30)
 MODEL_NAME = os.getenv("COPY_MODEL_NAME", "gpt-5.4-mini")
 
+# ── OpenAI 호출 안정화 (동시 요청 시 무한 pending / 레이트리밋 방어) ──
+# 한 문구 생성 요청은 내부에서 LLM 호출 여러 개로 순차 팬아웃된다(생성 + 다양성
+# 재시도 + 후보별 축약). 타임아웃이 없으면 느린 호출 하나가 요청 전체를 오래
+# pending으로 매달고, 동시 요청이 몰리면 레이트리밋(429)에 취약해진다.
+# 개별 호출 타임아웃(초). 느린 호출을 무한정 매달지 않고 끊는다.
+OPENAI_TIMEOUT = float(os.getenv("COPY_OPENAI_TIMEOUT", "30"))
+# 429 / 타임아웃 / 5xx 자동 재시도 횟수. 지수 백오프는 openai SDK 내장.
+OPENAI_MAX_RETRIES = int(os.getenv("COPY_OPENAI_MAX_RETRIES", "3"))
+
 # ── 글자 수 제한 (공백 포함 기준) ────────────────────────
 HEADLINE_MAX = int(os.getenv("COPY_HEADLINE_MAX", "20"))
 SUB_MAX = int(os.getenv("COPY_SUB_MAX", "30"))

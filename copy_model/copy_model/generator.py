@@ -53,7 +53,13 @@ def _count(text: str) -> int:
 
 def _client():
     from openai import OpenAI
-    return OpenAI(api_key=config.OPENAI_API_KEY)
+    # 타임아웃 + 재시도(429/타임아웃/5xx 지수 백오프)로 동시 요청 시
+    # 무한 pending / 레이트리밋 실패를 방어한다. 설정은 config에서 조절.
+    return OpenAI(
+        api_key=config.OPENAI_API_KEY,
+        timeout=config.OPENAI_TIMEOUT,
+        max_retries=config.OPENAI_MAX_RETRIES,
+    )
 
 
 def _chat_json(client, system: str, user: str) -> dict:
