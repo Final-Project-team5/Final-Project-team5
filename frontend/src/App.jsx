@@ -157,6 +157,9 @@ function App() {
             originalImage={chatOutcome.productImage}
             prompt={planDesignPrompt(chatOutcome.spec)}
             ratio={chatOutcome.spec?.aspect_ratio}
+            // PosterEditor는 spec을 통째로 받지 않으므로 여기서 변환해 넘긴다.
+            // refine도 서버에서 resolve_prompt()를 다시 타기 때문에 필요하다.
+            subjectKind={chatOutcome.spec?.business_type === 'service' ? 'service' : 'product'}
             headline={confirmedCopy.headline}
             sub={confirmedCopy.sub}
             onComplete={handlePosterComplete}
