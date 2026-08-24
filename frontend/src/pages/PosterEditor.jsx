@@ -84,7 +84,7 @@ function wrapTextByChars(text, maxChars) {
  * /generate/refine이 실패하면 편집 화면으로 돌아와 ErrorNotice와 "다시 시도"를
  * 보여준다(문구 위치·크기·서체 등 지금까지 정한 값은 그대로 유지된다).
  */
-function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '1:1', headline, sub, onComplete, onBack }) {
+function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '1:1', subjectKind = 'product', headline, sub, onComplete, onBack }) {
   const canvasRef = useRef(null);
   const textGroupRef = useRef(null);
   const draggingRef = useRef(false);
@@ -183,6 +183,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
           original_image: originalImage,
           background,
           prompt,
+          subject_kind: subjectKind,
           text: {
             headline,
             sub,

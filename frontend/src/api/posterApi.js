@@ -433,6 +433,10 @@ async function realGenerateDrafts({
   image = null,
   prompt = '',
   category,
+  // 제품형/서비스형 구분. 서버 resolve_prompt()가 이 값으로 baseline과 제품 접미사를
+  // 가른다("service"면 interior baseline + "single product only" 미부착).
+  // 서버 기본값도 "product"라 이 값을 안 보내던 종전 호출은 동작이 같다.
+  subject_kind = 'product',
   ratio = '1:1',
   backgroundMode = 'ai',
   bgColors,
@@ -445,6 +449,7 @@ async function realGenerateDrafts({
     image: image || undefined,
     prompt: prompt || undefined,
     category: category || undefined,
+    subject_kind,
     num_images,
     background_mode: backgroundMode,
     bg_colors: bgColors?.length ? bgColors : undefined,
@@ -473,6 +478,9 @@ async function realGenerateRefine({
   original_image,
   background,
   prompt = '',
+  // drafts와 같은 이유로 refine에도 보낸다. refine도 resolve_prompt()를 다시 타므로
+  // drafts만 고치면 초안은 공간인데 refine이 제품 baseline을 덮어쓴다.
+  subject_kind = 'product',
   text = {},
 } = {}) {
   const body = {
@@ -480,6 +488,7 @@ async function realGenerateRefine({
     original_image: original_image || undefined,
     background: background || undefined,
     prompt: prompt || undefined,
+    subject_kind,
     text,
   };
   const res = await postJSON('/generate/refine', body, 'refine');

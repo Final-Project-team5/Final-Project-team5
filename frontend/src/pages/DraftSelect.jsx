@@ -68,6 +68,10 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const posterCategory = spec?.business_type === 'product' && POSTER_PRODUCT_CATEGORIES.has(spec?.category)
     ? spec.category
     : undefined;
+  // business_type을 서버 계약(subject_kind)으로 옮긴다. 여기까지는 값이 있었는데
+  // 요청에 싣지 않아, 서비스형도 서버 기본값 "product"로 처리되어 goods baseline과
+  // "single product only" 접미사가 붙고 있었다.
+  const subjectKind = spec?.business_type === 'service' ? 'service' : 'product';
   const supported = useMemo(() => getSupportedBackgroundModes(spec?.business_type, ratio), [spec?.business_type, ratio]);
   const needsModeChoice = supported.length > 1;
   const onlyMode = needsModeChoice ? null : supported[0];
@@ -89,11 +93,11 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
     let cancelled = false;
     const controller = new AbortController();
     setDrafts(null); setError(null);
-    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
+    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, subject_kind: subjectKind, ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
       .then((result) => { if (!cancelled) { setDrafts(result.drafts); setSelectedId(result.drafts[0]?.id ?? null); } })
       .catch((reason) => { if (!cancelled) setError(toFriendlyMessage(reason, 'drafts')); });
     return () => { cancelled = true; controller.abort(); };
-  }, [config, mode, phase, posterCategory, productImage, ratio, retry, spec]);
+  }, [config, mode, phase, posterCategory, subjectKind, productImage, ratio, retry, spec]);
 
   const beginAi = () => { setConfig({ backgroundMode: 'ai' }); setPhase('drafts'); };
   const beginSimple = () => setPhase('simple-settings');
