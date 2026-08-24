@@ -343,10 +343,10 @@ block = asrc[i:asrc.index("class ", i + 10)]
 fields = {l.strip().split(":")[0] for l in block.splitlines()
           if l.startswith("    ") and ": " in l and "=" in l
           and not l.strip().startswith("#")}
-check("TextSpec = 기존 13개 + font_id",
+check("TextSpec = 기존 13개 + font_id + tone",
       fields == {"headline", "sub", "x", "y", "position", "align", "style",
                  "headline_size", "sub_size", "headline_z_order", "sub_z_order",
-                 "sub_x", "sub_y", "font_id"}, f"{sorted(fields)}")
+                 "sub_x", "sub_y", "font_id", "tone"}, f"{sorted(fields)}")
 check("font_id는 Optional[str]", "font_id: Optional[str] = None" in block)
 check("Literal로 막지 않음(400을 내려야 하므로)", "font_id: Literal" not in block)
 check("refine이 diffusion 전에 검증",
