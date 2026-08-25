@@ -403,9 +403,22 @@ BG_PALETTES = {
 BG_VARIANT_LIGHTNESS_DELTA = 0.12
 
 # 배경 생성 시 제외할 요소
+#
+# 인물 배제(person/people/...)를 여기에 두는 이유.
+#   제품형에서 인물이 나오지 않았던 것은 negative 덕분이 아니라, positive의
+#   ISOLATION_PROMPT_SUFFIX("single product only ... no other objects")가
+#   부수적으로 막고 있었기 때문이다. 서비스형은 그 접미사를 붙이지 않으므로
+#   (resolve_prompt의 subject_kind="service" 분기, extras=[]) 인물을 막는 장치가
+#   하나도 없는 상태였다. 실제로 학원/체육관 배경에 사람이 등장했다.
+#
+#   경로별로 나누지 않고 공용 negative에 둔다. 제품형에서는 isolation 접미사와
+#   중복될 뿐 상충하지 않고, 광고 배경에 임의의 인물이 생기는 것은 두 경로 모두
+#   원하지 않는 결과이기 때문이다. 초상권 측면에서도 배경에 사람을 만들지 않는
+#   편이 안전하다.
 NEGATIVE_PROMPT = (
     "text, watermark, logo, letters, blurry, distorted, low quality, "
-    "additional objects, extra props, multiple products, duplicate item, clutter"
+    "additional objects, extra props, multiple products, duplicate item, clutter, "
+    "person, people, human, face, crowd"
 )
 
 # 모든 카테고리 프롬프트에 공통으로 덧붙이는 그림자 유도 문구 (비용 0, generate.resolve_prompt에서 사용)
