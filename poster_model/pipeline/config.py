@@ -44,8 +44,29 @@ REFINE_MODEL = "sdxl"   # 2단계: 고품질 렌더링
 # slicing/tiling이 offload와 분리돼 있으므로 이 값만 바꾸면 된다.
 USE_CPU_OFFLOAD = False
 
-# 두 모델을 동시에 메모리에 올려둘지
-KEEP_BOTH_LOADED = True
+# warmup에서 SDXL까지 미리 올려둘지.
+#
+# False면 기동 시 SD1.5 계열만 적재하고, SDXL은 첫 refine에서 로드한다.
+# 첫 refine 한 번이 모델 로딩만큼 느려지고 그 뒤로는 캐시된다.
+#
+# 왜 False인가 — 상주 총량이 이 장비에 안 맞는다.
+#
+#   sd15_inpaint         2.1GB
+#   sd15_text2img        2.1GB
+#   sd15_inpaint_notile  2.1GB   inpaint와 같은 가중치를 한 번 더 로드한다
+#   sdxl_inpaint         7.0GB
+#   sdxl_img2img         7.0GB
+#   ─────────────────────────
+#                      ≈ 20.4GB
+#
+# 20.4GB는 RAM(15GB)에도 VRAM(23GB에서 추론 여유를 빼면)에도 넉넉히 들어가지
+# 않는다. 실제로 USE_CPU_OFFLOAD=False로 VRAM에 올렸더니 상주 20.4GB에 가용
+# 413MiB만 남아 refine의 512MiB 할당에서 CUDA OOM이 났다(2026-08-25 VM 실측).
+#
+# True로 두려면 아래 두 가지 중복부터 없애야 한다. 둘 다 다음 스프린트 과제다.
+#   - sd15_inpaint_notile이 inpaint와 컴포넌트를 공유하도록 (-2.1GB)
+#   - SDXL 두 변형이 text encoder/VAE를 공유하도록 (-1.6GB)
+KEEP_BOTH_LOADED = False
 
 # ---------------------------------------------------------------- 마스킹
 
