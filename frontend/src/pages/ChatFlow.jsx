@@ -117,12 +117,21 @@ function ChatFlow({ onComplete }) {
     setBusy(true);
     addMessage({ id: uid(), role: 'bot', kind: 'note', text: '제공해주신 정보를 바탕으로 문구를 만들고 있어요…' });
     try {
-      const result = await generateCopy(finalSpec);
-      // 이미지 모델에 보낼 영어 시각 프롬프트를 여기서 한 번만 만든다.
-      // 시안 생성과 refine이 같은 값을 재사용하므로 흐름당 1회 호출이다.
-      // 실패하면 null이고, 그 경우 planDesignPrompt()가 기존 조립으로 되돌아간다.
-      // 이미 로딩 상태(busy)가 켜져 있는 구간이라 체감 지연이 늘지 않는다.
-      const visualPrompt = await generateVisualPrompt(finalSpec);
+      // 문구 생성과 시각 프롬프트 생성을 병렬로 돌린다.
+      //
+      // 두 호출은 서로 의존하지 않는다. 순차로 두면 사용자가 문구 후보를 보기까지
+      // 시각 프롬프트 LLM 호출까지 기다리게 되는데, 그 값은 문구 화면에 쓰이지
+      // 않는다. 지연이 겹치면 대기가 그만큼 길어진다.
+      //
+      // generateVisualPrompt는 내부에서 실패를 흡수해 null을 돌려주므로
+      // Promise.all이 그 때문에 reject되지 않는다. generateCopy가 실패하는 경우만
+      // 아래 catch로 간다 — 기존 동작 그대로다.
+      //
+      // 시각 프롬프트는 흐름당 1회만 만든다. 시안 생성과 refine이 같은 값을 쓴다.
+      const [result, visualPrompt] = await Promise.all([
+        generateCopy(finalSpec),
+        generateVisualPrompt(finalSpec),
+      ]);
       setBusy(false);
       // backgroundReference는 다음 화면들에 state로 전달된다. 분석 결과인
       // background_context는 finalSpec에 남지만 poster API 스키마는 변경하지 않는다.

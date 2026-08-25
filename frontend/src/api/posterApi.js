@@ -77,36 +77,28 @@ export function buildPrompt(spec = {}) {
 }
 
 /**
- * AI Design Planner 연동 지점 (TODO — 백엔드 계약 미확정, 8/18).
+ * 이미지 모델에 넘길 prompt를 고른다.
  *
- * 지금 이미지 모델에 넘기는 prompt는 buildPrompt()가 만드는 단순 조합
- * (tone + product + keywords + request를 콤마로 이어붙인 문자열)이다. 최신
- * 기획에서는 이 조합을 그대로 넘기는 대신, 내부 LLM이 이를 구체적인 Visual
- * Prompt로 확장하는 "AI Design Planner" 단계를 이 자리에 끼워 넣기로 했다.
+ * 이미지 모델(SD1.5)의 텍스트 인코더는 영어 기준이라, buildPrompt()가 만드는
+ * 한국어 조합(tone + product + keywords + request)은 업종 정보가 거의 반영되지
+ * 않는다. 그래서 copy_model의 POST /generate/visual-prompt가 한국어 요구를
+ * 영어 시각 프롬프트로 옮기고, 그 결과를 여기서 쓴다.
  *
- * 호출부 (buildPrompt를 대신 이 함수로 호출):
+ * 값이 만들어지는 시점:
+ *   ChatFlow.finishChat()에서 챗봇 완료 시 1회 호출해 spec.visual_prompt에 담는다.
+ *   흐름당 1회이며 시안 생성과 refine이 같은 값을 재사용한다.
+ *
+ * 호출부:
  *   - DraftSelect.jsx  → generateDrafts({ prompt: planDesignPrompt(spec), ... })
  *   - App.jsx           → <PosterEditor prompt={planDesignPrompt(chatOutcome.spec)} />
  *     (PosterEditor.jsx가 그 prompt를 그대로 generateRefine 요청에 전달)
  *
- * 두 호출부 모두 지금은 prompt를 렌더링 시점에 동기적으로 얻는 구조라, 이
- * 함수도 당분간은 buildPrompt()의 단순 패스스루로만 동작한다 — 실제 Design
- * Planner API 계약(endpoint, request/response 스키마)이 아직 확정되지
- * 않았으므로 임의로 만들지 않는다.
- *
- * 계약이 확정되면:
- *   1. 이 함수 내부만 실제 LLM 호출(비동기)로 교체
- *   2. 위 두 호출부를 await 가능한 형태로 바꿔야 함 — 특히 App.jsx는 JSX
- *      렌더링 중 동기 호출이라, prompt를 미리 계산해 상태로 들고 있는 구조로
- *      바꿔야 할 가능성이 큼(예: 화면 B→C 전환 시점에 한 번 호출해 결과를
- *      chatOutcome과 함께 보관)
- * 이 두 가지 모두 계약 확정 전에는 착수하지 않는다.
+ * 이 함수를 동기로 유지하는 이유:
+ *   App.jsx가 JSX 렌더링 중에 호출한다. 비동기로 바꾸면 prompt를 미리 계산해
+ *   상태로 들고 있는 구조로 App을 함께 고쳐야 한다. spec에 미리 담아 두면
+ *   그 작업이 필요 없다.
  */
 export function planDesignPrompt(spec = {}) {
-  // 챗봇 완료 시점(ChatFlow.finishChat)에 만들어 둔 영어 시각 프롬프트가 있으면
-  // 그것을 쓴다. 이미지 모델의 텍스트 인코더가 영어 기준이라 한국어 조립본은
-  // 업종 정보가 거의 반영되지 않는다.
-  //
   // 없으면 기존 조립으로 되돌아간다 — 구체화 실패, mock 모드, 이전 세션에서
   // 넘어온 spec 등. buildPrompt는 지우지 않고 fallback으로 남긴다.
   return spec.visual_prompt || buildPrompt(spec);
