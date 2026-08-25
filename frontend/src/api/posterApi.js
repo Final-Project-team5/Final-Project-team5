@@ -103,7 +103,13 @@ export function buildPrompt(spec = {}) {
  * 이 두 가지 모두 계약 확정 전에는 착수하지 않는다.
  */
 export function planDesignPrompt(spec = {}) {
-  return buildPrompt(spec);
+  // 챗봇 완료 시점(ChatFlow.finishChat)에 만들어 둔 영어 시각 프롬프트가 있으면
+  // 그것을 쓴다. 이미지 모델의 텍스트 인코더가 영어 기준이라 한국어 조립본은
+  // 업종 정보가 거의 반영되지 않는다.
+  //
+  // 없으면 기존 조립으로 되돌아간다 — 구체화 실패, mock 모드, 이전 세션에서
+  // 넘어온 spec 등. buildPrompt는 지우지 않고 fallback으로 남긴다.
+  return spec.visual_prompt || buildPrompt(spec);
 }
 
 // 실제 이미지 모델이 아직 없어 캔버스로 그린 placeholder를 PNG data URI로 대신 만든다.

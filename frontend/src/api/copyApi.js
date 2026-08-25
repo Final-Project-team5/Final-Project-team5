@@ -930,6 +930,42 @@ async function realGenerateCopy(spec = {}) {
 }
 
 /**
+ * POST /generate/visual-prompt 실제 호출.
+ *
+ * 이미지 모델(SD1.5)의 텍스트 인코더가 영어 기준이라 한국어 요청은 업종 정보가
+ * 거의 반영되지 않는다. 서버가 그것을 영어 시각 프롬프트로 옮겨 준다.
+ *
+ * 서버는 **항상 200**이다. LLM이 실패해도 영어 기본값으로 내려가고
+ * source.origin("llm" | "fallback" | "mock")과 meta.error로 사실만 남긴다.
+ * 그래서 여기서도 실패를 흐름 중단으로 만들지 않는다 — 네트워크 오류가 나면
+ * null을 돌려주고, 호출부는 기존 방식(buildPrompt)으로 그대로 진행한다.
+ */
+async function realGenerateVisualPrompt(spec = {}) {
+  const subject_kind = spec?.business_type === 'service' ? 'service' : 'product';
+  try {
+    const res = await postJSON('/generate/visual-prompt', { spec, subject_kind }, 'visualPrompt');
+    return res?.visual_prompt || null;
+  } catch {
+    return null;                 // 구체화 실패가 포스터 제작을 막지 않는다
+  }
+}
+
+/**
+ * mock 모드에서는 호출하지 않는다.
+ *
+ * 프론트 mock 모드는 서버를 안 띄우는 상황이라 기존 buildPrompt로 돌아가는 것이
+ * 맞다. 서버가 떠 있으면서 COPY_MOCK=1인 경우는 서버 쪽 mock 분기가 처리한다.
+ */
+async function mockGenerateVisualPrompt() {
+  return null;
+}
+
+/** POST /generate/visual-prompt — VITE_USE_REAL_COPY_API=true면 실제 서버, 아니면 mock. */
+export async function generateVisualPrompt(spec) {
+  return USE_REAL_API ? realGenerateVisualPrompt(spec) : mockGenerateVisualPrompt(spec);
+}
+
+/**
  * POST /validate/copy 실제 호출.
  * { category, headline, sub, use_llm: false } 전송(룰 기반 검증만 — 비용 없음).
  * 응답 { safe, flags }를 mock validateCopy와 동일한 { status, flags, safe }로 맞춘다.
