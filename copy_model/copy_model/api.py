@@ -14,7 +14,9 @@ from .errors import CopyInputError
 from .chatbot import SuggestRequest, SuggestResponse, suggest_options
 from .generator import generate_copy
 from .regulation import ValidateRequest, ValidateResponse, validate_copy
-from .schemas import CopyRequest, CopyResponse
+from .schemas import (CopyRequest, CopyResponse,
+                      VisualPromptRequest, VisualPromptResponse)
+from .visual_prompt_service import concretize
 from .background import (
     BackgroundAdvanceRequest,
     BackgroundVisionResponse,
@@ -83,6 +85,33 @@ def post_generate_copy(req: CopyRequest) -> CopyResponse:
             detail="OPENAI_API_KEY가 설정되지 않았습니다. "
                    ".env 설정 또는 COPY_MOCK=1로 실행하세요.")
     return _run(generate_copy, req, "문구 생성 실패")
+
+
+def _visual_prompt(req: VisualPromptRequest) -> VisualPromptResponse:
+    """_run(fn, req, msg)이 fn(req)를 부르므로 인자 1개짜리 핸들러로 감싼다."""
+    return VisualPromptResponse(**concretize(req.spec, req.subject_kind))
+
+
+@app.post("/generate/visual-prompt", response_model=VisualPromptResponse)
+def post_generate_visual_prompt(req: VisualPromptRequest) -> VisualPromptResponse:
+    """사용자의 짧은 시각 요구를 이미지 생성용 시각 정보로 구체화한다.
+
+    이미지 모델(SD1.5)의 텍스트 인코더가 영어 기준이라 한국어 요청은 업종
+    정보가 거의 반영되지 않는다. 여기서 영어 시각 프롬프트로 옮긴다.
+
+    LLM이 실패해도 **200을 돌려준다.** 규칙 fallback으로 내려가고
+    source.origin과 meta.error로 그 사실을 남긴다. 구체화 실패가 포스터
+    제작을 막지 않는다.
+
+    전체 제작 흐름에서 **1회만** 부른다 — drafts와 refine은 같은
+    visual_prompt를 재사용한다.
+
+    다른 라우트와 달리 키 미설정 시 500을 내지 않는다. 다른 라우트는 키가
+    없으면 문구를 만들 수 없어 500이 맞지만, 이쪽은 키가 없어도 업종별 영어
+    기본값으로 내려가 정상 동작한다. 여기서 500을 내면 그 fallback 경로가
+    영영 도달하지 못한다.
+    """
+    return _run(_visual_prompt, req, "시각 프롬프트 생성 실패")
 
 
 @app.post("/suggest/options", response_model=SuggestResponse)
