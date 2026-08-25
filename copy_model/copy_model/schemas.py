@@ -99,3 +99,24 @@ class CopyMeta(BaseModel):
 class CopyResponse(BaseModel):
     candidates: list[CopyCandidate]
     meta: CopyMeta
+
+
+class VisualPromptRequest(BaseModel):
+    """챗봇이 완성한 spec으로 이미지 생성용 시각 정보를 만든다.
+
+    spec은 chatbot이 만든 그대로를 넘긴다 — 이 엔드포인트는 **읽기만** 한다.
+    background_context가 spec 안에 있으면 자동으로 보완에 쓰인다
+    (사용자가 명시하지 않은 축만, usable=False면 무시).
+    """
+
+    spec: dict = Field(default_factory=dict, description="챗봇이 완성한 spec")
+    subject_kind: Literal["product", "service"] = Field(
+        default="product",
+        description="업종 성격. category(food/beauty/goods)와 다른 축이다.")
+
+
+class VisualPromptResponse(BaseModel):
+    visual_prompt_spec: dict     # 8필드 구조화 결과
+    visual_prompt: str           # deterministic builder가 만든 문자열
+    source: dict                 # {origin, axes} — origin은 llm|fallback|mock
+    meta: dict
