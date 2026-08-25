@@ -139,13 +139,21 @@ def _load(kind: str, task: str, tiling: bool = True):
     repo = spec["text2img"] if task == "img2img" else spec[task]
     pipe = cls.from_pretrained(repo, **kwargs)
 
+    # 가중치를 어디에 둘지.
     if config.USE_CPU_OFFLOAD:
-        pipe.enable_model_cpu_offload()
-        pipe.vae.enable_slicing()
-        if tiling:
-            pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
+        pipe.enable_model_cpu_offload()   # 호스트 RAM 상주, 필요할 때만 GPU로
     else:
-        pipe.to("cuda")
+        pipe.to("cuda")                   # VRAM 상주
+
+    # VAE 메모리 대책은 위 선택과 **무관하다**. 디코딩 단계에서 큰 중간 텐서가
+    # 잡히는 것을 나눠 처리하는 것이라, 가중치가 어디 있든 필요하다.
+    #
+    # 이전에는 이 두 줄이 offload 분기 안에 있어서, offload를 끄면 slicing/tiling까지
+    # 같이 꺼졌다. 그러면 RAM 문제를 고치면서 VRAM 디코딩에서 새로 터진다.
+    # 관심사가 다르므로 분리해 둔다.
+    pipe.vae.enable_slicing()
+    if tiling:
+        pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
 
     _pipes[key] = pipe
     return pipe

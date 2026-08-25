@@ -23,8 +23,26 @@ MODELS = {
 DRAFT_MODEL = "sd15"    # 1단계: 시안 생성 (가벼움)
 REFINE_MODEL = "sdxl"   # 2단계: 고품질 렌더링
 
-# VRAM이 넉넉하면 False (속도 우선), 부족하면 True
-USE_CPU_OFFLOAD = True
+# 가중치를 호스트 RAM에 두고 필요할 때만 GPU로 올릴지(True) 아니면 VRAM에 상주시킬지(False).
+#
+# True는 VRAM이 부족할 때 쓰는 설정이다. VRAM은 아끼지만 그만큼 호스트 RAM을 쓴다.
+# 배포 VM은 반대 상황이라 False로 둔다.
+#
+#   VM  VRAM 24GB · RAM 16GB     넉넉한 쪽이 VRAM이다
+#
+# True였을 때 실측(2026-08-25, 배포 VM):
+#
+#   poster_model RSS   10.2GB / 15GB   시스템 RAM의 62%
+#   VRAM 사용          280MiB / 23GB   ★ 1.2%
+#
+# 가중치 10GB가 전부 RAM에 올라가 있고 GPU는 비어 있었다. 이 상태에서 refine이
+# 돌면 남은 4GB로 SDXL 추론 버퍼를 감당해야 해서 OOM Kill이 났다(진우님 실연동
+# 7회 중 refine 단계에서 발생). 단색/그라데이션 배경에서 재현되지 않은 것은 그
+# 경로가 diffusion을 타지 않기 때문이다.
+#
+# VRAM이 부족한 환경으로 옮기면 다시 True로 돌린다. 그때는 아래 _load()의
+# slicing/tiling이 offload와 분리돼 있으므로 이 값만 바꾸면 된다.
+USE_CPU_OFFLOAD = False
 
 # 두 모델을 동시에 메모리에 올려둘지
 KEEP_BOTH_LOADED = True
