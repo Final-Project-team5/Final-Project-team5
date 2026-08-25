@@ -91,6 +91,51 @@ def _prepare(src, size, apply_blur_margin: bool = True,
     return base, masks, mode
 
 
+def _evict_other_refine(new_key: str) -> None:
+    """REFINE_MODEL(SDXL)은 한 번에 한 변형만 상주시킨다.
+
+    왜 필요한가 — 다 올려두면 이 장비에서 넘친다.
+
+        sd15 3개              6.4GB
+        sdxl_inpaint          7.0GB   제품형 refine
+        sdxl_img2img          7.0GB   서비스형 refine
+        ────────────────────────────
+                             20.4GB / VRAM 23GB   → 추론 여유 부족
+
+    2026-08-25 VM 실측에서, 두 변형이 모두 올라간 상태(21.4GB)에서 제품형 →
+    서비스형으로 전환하자 CUDA OOM으로 500이 났다. 한 변형만 올라간
+    13.4GB에서는 refine이 반복해서 통과했다.
+
+    한 번에 하나만 쓰므로 상주도 하나면 된다.
+
+        제품형 refine   sdxl_inpaint 만 사용
+        서비스형 refine  sdxl_img2img 만 사용
+
+    대가 — 두 흐름을 번갈아 쓰면 전환할 때마다 모델을 다시 올린다(40초대).
+    죽는 것보다 느린 편이 낫다는 판단이다.
+
+    호출 위치 — `_load()` 안이고, `_load()`는 요청 경로에서 pipe_guard 안쪽에서
+    불린다. 그래서 이 축출은 다른 요청이 그 파이프를 쓰는 중에는 일어나지
+    않는다. guard 밖에서 부르면 사용 중인 객체를 내리게 되므로 옮기지 않는다.
+
+    DRAFT_MODEL(sd15)은 건드리지 않는다. 세 변형을 합쳐도 6.4GB이고
+    시안 생성은 매 요청마다 쓰이므로 상주가 맞다.
+    """
+    if not new_key.startswith(config.REFINE_MODEL):
+        return
+    stale = [k for k in _pipes
+             if k.startswith(config.REFINE_MODEL) and k != new_key]
+    if not stale:
+        return
+
+    import gc
+    for k in stale:
+        print(f"[pipe] {k} 내림 — {new_key} 적재를 위해 (VRAM 확보)")
+        del _pipes[k]
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def _load(kind: str, task: str, tiling: bool = True):
     """kind: 'sd15' | 'sdxl', task: 'inpaint' | 'text2img' | 'img2img'.
 
@@ -112,6 +157,8 @@ def _load(kind: str, task: str, tiling: bool = True):
     key = f"{kind}_{task}" if tiling else f"{kind}_{task}_notile"
     if key in _pipes:
         return _pipes[key]
+
+    _evict_other_refine(key)
 
     from diffusers import (StableDiffusionInpaintPipeline,
                            StableDiffusionPipeline,
@@ -139,13 +186,21 @@ def _load(kind: str, task: str, tiling: bool = True):
     repo = spec["text2img"] if task == "img2img" else spec[task]
     pipe = cls.from_pretrained(repo, **kwargs)
 
+    # 가중치를 어디에 둘지.
     if config.USE_CPU_OFFLOAD:
-        pipe.enable_model_cpu_offload()
-        pipe.vae.enable_slicing()
-        if tiling:
-            pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
+        pipe.enable_model_cpu_offload()   # 호스트 RAM 상주, 필요할 때만 GPU로
     else:
-        pipe.to("cuda")
+        pipe.to("cuda")                   # VRAM 상주
+
+    # VAE 메모리 대책은 위 선택과 **무관하다**. 디코딩 단계에서 큰 중간 텐서가
+    # 잡히는 것을 나눠 처리하는 것이라, 가중치가 어디 있든 필요하다.
+    #
+    # 이전에는 이 두 줄이 offload 분기 안에 있어서, offload를 끄면 slicing/tiling까지
+    # 같이 꺼졌다. 그러면 RAM 문제를 고치면서 VRAM 디코딩에서 새로 터진다.
+    # 관심사가 다르므로 분리해 둔다.
+    pipe.vae.enable_slicing()
+    if tiling:
+        pipe.vae.enable_tiling()   # SDXL inpaint 디코딩 단계 OOM 방지
 
     _pipes[key] = pipe
     return pipe
@@ -681,27 +736,19 @@ def refine(draft: Image.Image,
         product_mask = masks.product
         out = composite_product(base, out, masks.product)
     else:
-        from diffusers import StableDiffusionXLImg2ImgPipeline
-        key = f"{config.REFINE_MODEL}_img2img"
-        # 인스턴스 생성부터 호출까지 한 구간이다. 생성을 밖에 두면 두 스레드가
+        # 적재부터 호출까지 한 구간이다. 적재를 밖에 두면 두 스레드가
         # 같은 key의 pipeline을 중복 생성해 불필요한 VRAM 사용이 발생할 수 있다.
         with pipe_lock.pipe_guard("refine_img2img"):
-            if key not in _pipes:
-                spec = config.MODELS[config.REFINE_MODEL]
-                pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                    spec["text2img"], torch_dtype=torch.float16,
-                    variant=spec["variant"])
-                if config.USE_CPU_OFFLOAD:
-                    pipe.enable_model_cpu_offload()
-                    pipe.vae.enable_slicing()
-                    pipe.vae.enable_tiling()
-                else:
-                    pipe.to("cuda")
-                _pipes[key] = pipe
+            # 예전에는 여기서 파이프라인을 직접 만들었다. _load()와 키·repo·offload
+            # 처리가 모두 같은 코드였는데, 사본이라 한쪽만 고쳐지는 문제가 있었다.
+            # 실제로 VAE slicing/tiling을 offload와 분리하는 수정이 _load()에만
+            # 반영되고 여기는 빠져 있었다. _load()를 부르면 그 표류가 사라지고,
+            # SDXL 변형 축출(_evict_other_refine)도 이 경로에 함께 걸린다.
+            pipe = _load(config.REFINE_MODEL, "img2img")
             # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
-            out = _pipes[key](prompt=prompt, image=draft,
-                              strength=min(strength, 0.35),
-                              num_inference_steps=config.REFINE_STEPS).images[0]
+            out = pipe(prompt=prompt, image=draft,
+                       strength=min(strength, 0.35),
+                       num_inference_steps=config.REFINE_STEPS).images[0]
         # img2img 폴백 경로는 원본/마스크가 없어 제품을 따로 합성하지 않는다.
         # 따라서 "제품 뒤" 레이어라는 개념 자체가 성립하지 않으므로 None을 준다
         # (호출자가 z_order="behind" 요청을 명시적으로 거부할 수 있게 하기 위함).
