@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { generateDrafts, planDesignPrompt, toImageSrc } from '../api/posterApi';
+import { generateDrafts, getPosterCategory, planDesignPrompt, toImageSrc } from '../api/posterApi';
 import { BACKGROUND_MODES, getSupportedBackgroundModes } from '../constants/backgroundModes';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
 import aiBackgroundThumbnail from '../assets/faq/draft-grid.png';
@@ -9,8 +9,6 @@ import './DraftSelect.css';
 
 const LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
 const PALETTE = ['#F4E7DC', '#DFA48E', '#CFE7DE', '#D9E7F5', '#DED7F5'];
-const POSTER_PRODUCT_CATEGORIES = new Set(['food', 'beauty', 'goods']);
-
 function Icon({ name }) {
   const paths = {
     sparkles: <><path d="m12 3 1.1 3.1L16 7.3l-2.9 1.1L12 12l-1.1-3.6L8 7.3l2.9-1.2L12 3Z"/><path d="m5.5 12 .8 2.2 2.2.8-2.2.8L5.5 18l-.8-2.2-2.2-.8 2.2-.8.8-2.2ZM18 13l.7 1.8 1.8.7-1.8.7L18 18l-.7-1.8-1.8-.7 1.8-.7L18 13Z"/></>,
@@ -65,9 +63,7 @@ function ColorField({ label, value, onChange }) {
 
 function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   const ratio = spec?.aspect_ratio || '1:1';
-  const posterCategory = spec?.business_type === 'product' && POSTER_PRODUCT_CATEGORIES.has(spec?.category)
-    ? spec.category
-    : undefined;
+  const posterCategory = getPosterCategory(spec);
   // business_type을 서버 계약(subject_kind)으로 옮긴다. 여기까지는 값이 있었는데
   // 요청에 싣지 않아, 서비스형도 서버 기본값 "product"로 처리되어 goods baseline과
   // "single product only" 접미사가 붙고 있었다.
