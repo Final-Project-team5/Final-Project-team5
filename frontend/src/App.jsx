@@ -7,7 +7,7 @@ import DraftSelect from './pages/DraftSelect';
 import PosterEditor from './pages/PosterEditor';
 import FinalResult from './pages/FinalResult';
 import FaqPage from './pages/FaqPage';
-import { planDesignPrompt } from './api/posterApi';
+import { getPosterCategory, planDesignPrompt } from './api/posterApi';
 import { REG_TIPS } from './constants/regulationTips';
 import './App.css';
 
@@ -156,6 +156,7 @@ function App() {
             background={selectedDraft.background}
             originalImage={chatOutcome.productImage}
             prompt={planDesignPrompt(chatOutcome.spec)}
+            category={getPosterCategory(chatOutcome.spec)}
             ratio={chatOutcome.spec?.aspect_ratio}
             // PosterEditor는 spec을 통째로 받지 않으므로 여기서 변환해 넘긴다.
             // refine도 서버에서 resolve_prompt()를 다시 타기 때문에 필요하다.

@@ -32,7 +32,7 @@ const SUB_CHARS_PER_LINE = 15;
 
 // 확정 폰트 5종 (8/10, 진우님 완성형 검증 — 한글 음절 11,172자 전체 지원).
 // font_id는 백엔드 whitelist 매핑에 그대로 쓰이는 값이라 이름 그대로 유지해야 한다.
-// 실제 웹폰트 파일 로드는 아직 붙이지 않음(자리만) — family는 미리보기용 폴백 스택.
+// CSS @font-face가 백엔드 FONT_IDS와 같은 저장소 내 TTF 파일을 로드한다.
 const FONT_OPTIONS = [
   { id: 'pretendard', label: 'Pretendard', family: '"Pretendard", sans-serif' },
   { id: 'nanummyeongjo', label: '나눔명조 Bold', family: '"Nanum Myeongjo", serif' },
@@ -84,7 +84,7 @@ function wrapTextByChars(text, maxChars) {
  * /generate/refine이 실패하면 편집 화면으로 돌아와 ErrorNotice와 "다시 시도"를
  * 보여준다(문구 위치·크기·서체 등 지금까지 정한 값은 그대로 유지된다).
  */
-function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '1:1', subjectKind = 'product', headline, sub, onComplete, onBack }) {
+function PosterEditor({ draftImage, background, originalImage, prompt, category, ratio = '1:1', subjectKind = 'product', headline, sub, onComplete, onBack }) {
   const canvasRef = useRef(null);
   const textGroupRef = useRef(null);
   const draggingRef = useRef(false);
@@ -183,6 +183,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, ratio = '
           original_image: originalImage,
           background,
           prompt,
+          category,
           subject_kind: subjectKind,
           text: {
             headline,

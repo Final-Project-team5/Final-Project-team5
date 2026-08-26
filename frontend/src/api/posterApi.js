@@ -49,6 +49,15 @@ const RATIO_DIMENSIONS = {
   '3:4': { w: 384, h: 512 },
 };
 
+const POSTER_PRODUCT_CATEGORIES = new Set(['food', 'beauty', 'goods']);
+
+/** Poster API category는 제품형의 허용값만 전달한다. */
+export function getPosterCategory(spec = {}) {
+  return spec.business_type === 'product' && POSTER_PRODUCT_CATEGORIES.has(spec.category)
+    ? spec.category
+    : undefined;
+}
+
 function delay(ms = MOCK_DELAY_MS) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -318,6 +327,8 @@ export async function mockGenerateRefine({
   original_image,
   background,
   prompt = '',
+  category,
+  subject_kind = 'product',
   text = {},
 } = {}) {
   await delay(1100);
@@ -335,6 +346,8 @@ export async function mockGenerateRefine({
       usedOriginalImage: Boolean(original_image),
       background,
       prompt,
+      category,
+      subject_kind,
     },
   };
 }
@@ -476,6 +489,7 @@ async function realGenerateRefine({
   original_image,
   background,
   prompt = '',
+  category,
   // drafts와 같은 이유로 refine에도 보낸다. refine도 resolve_prompt()를 다시 타므로
   // drafts만 고치면 초안은 공간인데 refine이 제품 baseline을 덮어쓴다.
   subject_kind = 'product',
@@ -486,6 +500,7 @@ async function realGenerateRefine({
     original_image: original_image || undefined,
     background: background || undefined,
     prompt: prompt || undefined,
+    category: category || undefined,
     subject_kind,
     text,
   };

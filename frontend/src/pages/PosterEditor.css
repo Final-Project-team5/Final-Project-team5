@@ -1,3 +1,43 @@
+@font-face {
+  font-family: 'Pretendard';
+  src: url('../../../poster_model/assets/fonts/Pretendard/Pretendard-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Nanum Myeongjo';
+  src: url('../../../poster_model/assets/fonts/NanumMyeongjo/NanumMyeongjoBold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gmarket Sans';
+  src: url('../../../poster_model/assets/fonts/GmarketSans/GmarketSansTTFMedium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Galmuri11';
+  src: url('../../../poster_model/assets/fonts/Galmuri11/Galmuri11.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Nanum Pen Script';
+  src: url('../../../poster_model/assets/fonts/NanumPen/NanumPen.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 .poster-editor {
   width: 100%;
   max-width: 900px;
