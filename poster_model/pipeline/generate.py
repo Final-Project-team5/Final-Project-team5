@@ -574,7 +574,10 @@ def generate_drafts(image=None,
                                     subject_kind=subject_kind)
 
     prompt = resolve_prompt(prompt, category, subject_kind, config.DRAFT_MODEL)
-    size = config.MODELS[config.DRAFT_MODEL]["size"]
+    # 서비스형만 SD1.5 학습 해상도(512)로 뽑는다. 이유는 config 주석 참고.
+    # 제품형은 누끼가 구도를 잡아주므로 기존 768을 유지한다.
+    size = (config.SERVICE_DRAFT_SIZE if subject_kind == "service"
+            else config.MODELS[config.DRAFT_MODEL]["size"])
 
     if seeds is None:
         seeds = torch.randint(0, 2**31 - 1, (num_images,)).tolist()
@@ -713,7 +716,9 @@ def refine(draft: Image.Image,
                                     subject_kind=subject_kind)
 
     prompt = resolve_prompt(prompt, category, subject_kind, config.REFINE_MODEL)
-    strength = config.REFINE_STRENGTH if strength is None else strength
+    if strength is None:
+        strength = (config.SERVICE_REFINE_STRENGTH if subject_kind == "service"
+                    else config.REFINE_STRENGTH)
     size = config.MODELS[config.REFINE_MODEL]["size"]
 
     draft = draft.convert("RGB").resize((size, size), Image.LANCZOS)
@@ -745,9 +750,15 @@ def refine(draft: Image.Image,
             # 반영되고 여기는 빠져 있었다. _load()를 부르면 그 표류가 사라지고,
             # SDXL 변형 축출(_evict_other_refine)도 이 경로에 함께 걸린다.
             pipe = _load(config.REFINE_MODEL, "img2img")
-            # strength 0.35 부근이 구도 유지와 디테일 개선의 균형점 (실험 결과)
+            # 상한을 subject_kind로 가른다. 0.35는 제품이 변형되지 않게 원본을
+            # 붙잡아 두는 값이라 지킬 제품이 없는 서비스형에는 맞지 않았다.
+            # 이 상한 때문에 서비스형 refine이 해상도만 올리고 시안의 어색함은
+            # 그대로 남겼다. 근거는 config.SERVICE_REFINE_STRENGTH 주석 참고.
+            cap = (config.SERVICE_REFINE_STRENGTH if subject_kind == "service"
+                   else config.REFINE_STRENGTH)
+            strength = min(strength, cap)
             out = pipe(prompt=prompt, image=draft,
-                       strength=min(strength, 0.35),
+                       strength=strength,
                        num_inference_steps=config.REFINE_STEPS).images[0]
         # img2img 폴백 경로는 원본/마스크가 없어 제품을 따로 합성하지 않는다.
         # 따라서 "제품 뒤" 레이어라는 개념 자체가 성립하지 않으므로 None을 준다
