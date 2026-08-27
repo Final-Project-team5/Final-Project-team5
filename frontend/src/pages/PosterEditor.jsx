@@ -14,8 +14,8 @@ const REFINE_LOADING_STEPS = ['이미지 고품질화 중', '문구 배치 최�
 const REFINE_LOADING_MIN_MS = 3000;
 
 // ResizeObserver가 실제 폭을 알려주기 전까지 쓰는 초기값(px).
-// headline_size/sub_size와 외곽선 두께는 캔버스 폭에 비례하므로,
-// 첫 렌더 이후에는 이 상수가 아니라 측정된 canvasWidth를 쓴다.
+// headline_size/sub_size와 외곽선 두께는 캔버스 짧은 변에 비례하므로,
+// 첫 렌더 이후에는 이 상수가 아니라 측정된 캔버스 크기를 쓴다.
 const CANVAS_SIZE = 480;
 
 // 3단계 프리셋 → headline_size/sub_size(짧은 변 대비 비율) 매핑.
@@ -101,26 +101,30 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
   // 절반 크기" 중 더 큰 쪽. 텍스트 중심이 아니라 텍스트 박스 가장자리가 안전선을
   // 넘지 않도록 하기 위한 보정값이다.
   const [safeMargin, setSafeMargin] = useState({ x: 0.065, y: 0.065 });
-  // 실제로 렌더된 캔버스 폭(px). 캔버스는 width:100% / max-width:640px이라
+  // 실제로 렌더된 캔버스 크기(px). 캔버스는 width:100% / max-width:640px이라
   // 뷰포트에 따라 달라진다. headline_size·sub_size와 외곽선 두께는 모두
-  // "캔버스 대비 비율"이므로 고정 상수가 아니라 이 값을 곱해야 최종 출력과 맞는다.
-  const [canvasWidth, setCanvasWidth] = useState(CANVAS_SIZE);
+  // "짧은 변 대비 비율"이므로 고정 상수가 아니라 짧은 변을 곱해야 최종 출력과 맞는다.
+  const [canvasSize, setCanvasSize] = useState({ width: CANVAS_SIZE, height: CANVAS_SIZE });
 
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return undefined;
     const observer = new ResizeObserver(([entry]) => {
-      setCanvasWidth(entry.contentRect.width || CANVAS_SIZE);
+      setCanvasSize({
+        width: entry.contentRect.width || CANVAS_SIZE,
+        height: entry.contentRect.height || CANVAS_SIZE,
+      });
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
   const sizeInfo = SIZE_PRESETS[preset];
+  const canvasShortSide = Math.min(canvasSize.width, canvasSize.height);
   // 서버는 1024px 캔버스에 STROKE_WIDTH=3으로 글자 둘레를 두른다(비율 3/1024).
   // -webkit-text-stroke는 윤곽선 위에 안팎 절반씩 그리므로 바깥쪽 두께를 맞추려면
   // 2배를 준다. paint-order로 안쪽 절반은 글자에 덮인다.
-  const strokeWidth = (canvasWidth * 3 / 1024) * 2;
+  const strokeWidth = (canvasShortSide * 3 / 1024) * 2;
   const selectedFont = FONT_OPTIONS.find((f) => f.id === fontId) ?? FONT_OPTIONS[0];
 
   // headline/sub 자체가 바뀔 때만 다시 계산 — preset(폰트 크기)은 의도적으로
@@ -293,14 +297,14 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
         >
-          <div className="poster-editor__headline" style={{ fontSize: `${sizeInfo.headline_size * canvasWidth}px` }}>
+          <div className="poster-editor__headline" style={{ fontSize: `${sizeInfo.headline_size * canvasShortSide}px` }}>
             {headlineLines.map((line, idx) => (
               <div key={idx} className="poster-editor__line">
                 {line}
               </div>
             ))}
           </div>
-          <div className="poster-editor__sub" style={{ fontSize: `${sizeInfo.sub_size * canvasWidth}px` }}>
+          <div className="poster-editor__sub" style={{ fontSize: `${sizeInfo.sub_size * canvasShortSide}px` }}>
             {subLines.map((line, idx) => (
               <div key={idx} className="poster-editor__line">
                 {line}
