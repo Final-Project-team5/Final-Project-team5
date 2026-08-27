@@ -44,7 +44,13 @@ from .visual_prompt_spec import (VISUAL_PROMPT_SPEC_VERSION, VisualPromptSpec,
 #: 사람이 있어야 성립하는 표현을 냈고, 같은 응답의 `avoid` 에는 `people` 이
 #: 들어 있었다. 한 응답 안에서 서로 반대되는 말을 한 것이다.
 #: 실제로 이미지를 망치는 것은 positive 축이다 (`avoid` 는 조립기가 버린다).
-CONCRETIZE_VERSION = "c4"
+#: c5 — 업종 이름을 값에 남기지 않도록 고쳤다.
+#: 2026-08-26 실측에서 학원이 `academy interior space` 로 나왔고, 이미지 모델이
+#: 강의실을 그리지 않고 로비·라운지·거실 같은 일반적인 실내를 냈다. `gym` 은
+#: 단어 자체가 기구 있는 공간을 가리켜 정상이었고, 업종에 따라 결과가 갈렸다.
+#: 물건을 덧붙이는 것(`academy interior with desks and whiteboard`)만으로는
+#: 부족해 사무실 느낌이 남았고, 업종 이름을 빼야 `classroom` 이 나왔다.
+CONCRETIZE_VERSION = "c5"
 
 #: 구체화 호출의 temperature. generator 쪽(0.9)과 일부러 다르게 둔다.
 #:
@@ -149,6 +155,16 @@ CONCRETIZE_INSTRUCTION = """\
     ✓ training gym interior with exercise equipment
     ✓ tutoring classroom interior with desks and whiteboard
  광고 배경에는 사람을 만들지 않는다. 사람이 필요한 장면은 우리가 쓰지 못한다.
+
+- **업종 이름을 값에 남기지 마라. 그 공간에 실제로 있는 물건으로만 쓴다.**
+    ✗ academy interior space
+    ✗ academy interior with desks and whiteboard   ← academy 가 아직 남아 있다
+    ✓ classroom interior with desks and whiteboard
+    ✗ sports facility interior
+    ✓ gym interior with exercise equipment
+ 이미지 모델은 "academy" 를 학교 건물로 이해해서 로비를 그린다. 물건을
+ 덧붙이는 것만으로는 부족하고 업종 이름 자체를 빼야 한다. 이건 없는 걸
+ 지어내는 것이 아니라 **같은 뜻을 모델이 아는 말로 바꾸는 것**이다.
 
 - **"avoid" 에 넣은 것을 다른 축에서 전제하지 마라.**
   "avoid" 에 "people" 을 넣었으면 "subject_treatment" 나 "background" 에
