@@ -123,17 +123,19 @@
    서버는 STROKE_WIDTH=3 / STROKE_ALPHA=190으로 글자 둘레를 두르고, 미리보기는
    종전에 text-shadow(한 방향으로 번지는 그림자)를 써서 최종보다 흐려 보였다.
 
-   두께 환산 — 미리보기 캔버스 480px, 최종 1024px이므로 3 × (480/1024) ≈ 1.4px.
-   -webkit-text-stroke는 글자 윤곽선 위에 안팎 절반씩 그리므로, 바깥쪽 1.4px를
-   남기려면 2배인 2.8px를 준다. paint-order로 획을 먼저 깔고 글자를 덮어야
-   안쪽으로 파고든 절반이 가려져 글자가 가늘어지지 않는다.
+   두께는 PosterEditor.jsx가 --stroke-width로 넘긴다. 캔버스가 width:100% /
+   max-width:640px이라 실제 폭이 뷰포트마다 달라지므로, 고정 px을 쓰면 창 크기에
+   따라 최종 출력과 어긋난다. 계산식은 그쪽 주석 참고.
+
+   paint-order로 획을 먼저 깔고 글자를 덮어야 안쪽으로 파고든 절반이 가려져
+   글자가 가늘어지지 않는다.
 
    브라우저와 PIL의 래스터라이저가 달라 모서리 처리까지 같아지지는 않는다. */
 .poster-editor__headline {
   font-weight: 800;
   color: #fff;
   paint-order: stroke fill;
-  -webkit-text-stroke: 2.8px rgba(0, 0, 0, 0.75);
+  -webkit-text-stroke: var(--stroke-width, 2.8px) rgba(0, 0, 0, 0.75);
   line-height: 1.25;
 }
 
@@ -141,7 +143,7 @@
   font-weight: 600;
   color: #fff;
   paint-order: stroke fill;
-  -webkit-text-stroke: 2.8px rgba(0, 0, 0, 0.75);
+  -webkit-text-stroke: var(--stroke-width, 2.8px) rgba(0, 0, 0, 0.75);
   line-height: 1.3;
 }
 
