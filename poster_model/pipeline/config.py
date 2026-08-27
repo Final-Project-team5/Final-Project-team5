@@ -402,24 +402,46 @@ BG_PALETTES = {
 # 응답의 background.colors에 실제 적용된 색을 그대로 내려서 프론트가 확인할 수 있게 한다.
 BG_VARIANT_LIGHTNESS_DELTA = 0.12
 
-# 배경 생성 시 제외할 요소
+# 배경 생성 시 제외할 요소. 두 경로가 공통으로 쓴다.
+NEGATIVE_PROMPT = (
+    "text, watermark, logo, letters, blurry, distorted, low quality, "
+    "additional objects, extra props, multiple products, duplicate item, clutter"
+)
+
+# 인물 배제 — **서비스형에만** 덧붙인다 (generate.resolve_negative).
 #
-# 인물 배제(person/people/...)를 여기에 두는 이유.
+# 왜 필요한가.
 #   제품형에서 인물이 나오지 않았던 것은 negative 덕분이 아니라, positive의
 #   ISOLATION_PROMPT_SUFFIX("single product only ... no other objects")가
 #   부수적으로 막고 있었기 때문이다. 서비스형은 그 접미사를 붙이지 않으므로
 #   (resolve_prompt의 subject_kind="service" 분기, extras=[]) 인물을 막는 장치가
-#   하나도 없는 상태였다. 실제로 학원/체육관 배경에 사람이 등장했다.
+#   하나도 없었다. 실제로 학원 배경에 사람이 등장했다.
 #
-#   경로별로 나누지 않고 공용 negative에 둔다. 제품형에서는 isolation 접미사와
-#   중복될 뿐 상충하지 않고, 광고 배경에 임의의 인물이 생기는 것은 두 경로 모두
-#   원하지 않는 결과이기 때문이다. 초상권 측면에서도 배경에 사람을 만들지 않는
-#   편이 안전하다.
-NEGATIVE_PROMPT = (
-    "text, watermark, logo, letters, blurry, distorted, low quality, "
-    "additional objects, extra props, multiple products, duplicate item, clutter, "
-    "person, people, human, face, crowd"
-)
+# 왜 공용이 아니라 경로별인가.
+#   #140에서는 공용에 두었다. "제품형에서는 isolation 접미사와 중복될 뿐
+#   상충하지 않는다"고 보았으나, 중복이 무해하지 않았다(E103).
+#
+#   시드를 고정하고 negative만 바꿔 재면 제품형 출력이 평균 8.45/255 만큼
+#   달라지고 픽셀의 58.7%가 변한다. 같은 조건 2회 재생성의 변동은 0.00이므로
+#   전부 negative 탓이다. (변화의 **방향**은 아직 미확정이다 — 관찰 표본이
+#   시드 1개뿐이다. 인용하려면 먼저 늘려 재야 한다.)
+#
+#   제품형은 원래 인물이 나오지 않던 경로다. 얻는 것이 0인데 출력은 달라지므로
+#   방향이 무엇이든 넣지 않는 편이 맞다.
+#
+# 왜 서비스형에는 남기는가.
+#   실측에서는 여기서도 막을 대상이 없다. copy_model c5(PR #138) 적용 후의
+#   실제 프롬프트에서는 인물 토큰 없이도 인물이 나오지 않았다 — classroom 12,
+#   gym 12, 전부 0건. 인물이 나오던 원인은 negative가 아니라 c4의
+#   "academy interior space"가 로비를 불렀기 때문이고, #138이 이미 잘랐다.
+#
+#   그럼에도 남기는 이유는 **안전망**이다. 근거가 "인물이 나와서"가 아니다.
+#     · 24개에서 0개는 "절대 안 나온다"가 아니다 (출현률 상한 ~12%).
+#     · copy_model이 항상 c5 형태를 낸다는 보장에만 기대게 된다.
+#       사용자 자유 입력도 같은 경로로 들어온다.
+#     · 초상권 문제는 사후에 알아채기 어렵다.
+#     · 유지 비용이 0에 가깝다 — 품질·다양성 저하가 관측되지 않았다.
+NO_PEOPLE_NEGATIVE = "person, people, human, face, crowd"
 
 # 모든 카테고리 프롬프트에 공통으로 덧붙이는 그림자 유도 문구 (비용 0, generate.resolve_prompt에서 사용)
 SHADOW_PROMPT_SUFFIX = "soft contact shadow under product, grounded, sitting on surface"

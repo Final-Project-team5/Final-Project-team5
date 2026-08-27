@@ -332,11 +332,17 @@ A2_ROTATION = {"ROTATION_MAX_ABS_DEG",              # 허용 회전 범위 ±20
 STABILIZATION = {"SERVICE_QUALITY_BASELINE"}
 SERVICE_QUALITY = {"SERVICE_DRAFT_SIZE",         # 서비스형 시안 해상도 512
                    "SERVICE_REFINE_STRENGTH"}    # 서비스형 refine 재해석 상한
+NO_PEOPLE = {"NO_PEOPLE_NEGATIVE"}   # 서비스형 전용 인물 배제 (E103)
 
-check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 / 서비스형 품질뿐",
+check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 / 서비스형 품질 / 인물 배제뿐",
       set(cdefs) - set(bdefs)
-      == A6_FONT_ID | A2_ROTATION | STABILIZATION | SERVICE_QUALITY,
+      == A6_FONT_ID | A2_ROTATION | STABILIZATION | SERVICE_QUALITY | NO_PEOPLE,
       f"{sorted(set(cdefs) - set(bdefs))}")
+
+# NEGATIVE_PROMPT는 baseline과 같아야 한다. #140에서 인물 토큰을 여기에 넣었다가
+# 제품형 배경까지 평탄해져(E103) 되돌린 자리다. 다시 섞이면 여기서 걸린다.
+check("NEGATIVE_PROMPT 무변경 — 인물 토큰은 분리 유지",
+      bdefs["NEGATIVE_PROMPT"] == cdefs.get("NEGATIVE_PROMPT"))
 
 
 # ---------------------------------------------------------------------------
