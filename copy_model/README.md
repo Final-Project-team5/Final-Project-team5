@@ -11,6 +11,10 @@ GPT-5.4 Mini/Nano API 기반 광고 문구(headline/sub) 생성 모듈.
 규제 하이브리드 검증을 제공한다. 상태는 서버가 저장하지 않고 프론트가
 `spec`으로 들고 다니는 stateless 구조다(포스터 모델과 동일 방식).
 
+챗봇이 모은 시각 요구는 영어 시각 프롬프트로 옮겨 이미지 생성에 전달한다
+(`/generate/visual-prompt`). 이미지 모델(SD1.5)의 텍스트 인코더가 영어 기준이라
+한국어 업종 정보가 거의 반영되지 않던 문제를 이 계층에서 해소한다.
+
 ## 실행
 
 ```bash
@@ -108,6 +112,43 @@ const data = await res.json();
   (warn만 있으면 `safe: true` — 근거가 있으면 쓸 수 있는 표현이므로 안내만 함)
 - `regulation_flags` — 걸린 규제 표현 상세 (배지·대체 표현 안내용). block이 앞에 정렬됨
 - `include_en: true` — 영어 현지화 문구 병행 생성 (직역 아닌 transcreation, 글로벌 타깃 고도화 옵션. **팀 합의 전 기본 OFF**)
+
+### POST /generate/visual-prompt (한국어 요청 → 영어 시각 프롬프트)
+
+이미지 모델(SD1.5)은 영어 프롬프트에 반응하므로, 한국어 시각 요구를 배경/조명/색감/
+분위기/구성 축으로 정리한 뒤 짧은 영어 문장으로 조립한다. 전체 제작 흐름에서 시안 생성
+직전 **1회만** 호출하고, drafts와 refine은 같은 결과를 재사용한다.
+
+요청:
+
+```json
+{
+  "spec": { "category": "sports", "tone": "energetic",
+            "keywords": ["1:1 지도"], "request": "활기찬 체육관 느낌" },
+  "subject_kind": "service"
+}
+```
+
+- `spec`: 챗봇이 완성한 spec을 그대로 넘긴다. 이 엔드포인트는 **읽기만** 한다.
+  `spec.background_context`가 있으면 사용자가 명시하지 않은 축만 자동 보완한다(`usable=false`면 무시).
+- `subject_kind`: `product` | `service`. category와 다른 축(성격)이다.
+
+응답:
+
+```json
+{
+  "visual_prompt_spec": { "...": "8필드 구조화 결과" },
+  "visual_prompt": "training gym interior with exercise equipment, bright crisp light, lively and upbeat, vivid contrasting colors",
+  "source": { "origin": "llm", "axes": { "background": "user", "mood": "user", "...": "축별 출처(user/reference/empty)" } },
+  "meta": { "spec_version": "v1", "builder_version": "v2", "subject_kind": "service", "error": null }
+}
+```
+
+- `visual_prompt` — 프론트 `posterApi.planDesignPrompt()`가 이 값을 이미지 생성에 쓴다. 없으면 기존 `buildPrompt()`로 폴백.
+- `source.origin` — `llm`(정상 변환) / `fallback`(LLM 실패 시 업종별 영어 기본값) / `mock`(COPY_MOCK=1).
+- **키가 없거나 LLM이 실패해도 500이 아니라 200을 돌려준다.** 업종별 영어 기본값(academy → 강의실, sports → 체육관)으로 내려가고 `source.origin`과 `meta.error`에 사실을 남긴다. 구체화 실패가 포스터 제작을 막지 않도록 한 의도된 예외다.
+- OpenAI 호출은 `generator._client()`를 재사용해 timeout과 재시도 백오프를 그대로 상속한다. 시각 프롬프트는 재현성이 중요해 temperature를 0.2로 낮게 둔다(문구 생성은 0.9).
+- 규제 검증은 타지 않는다. 화면에 나가는 문구가 아니라 이미지 장면 프롬프트이기 때문이다.
 
 ### POST /suggest/options (챗봇 슬롯필링)
 
@@ -294,7 +335,7 @@ Vision LLM이 분석해 `spec.product`의 근거를 만든다. **인식만으로
 - 배경 특징은 절대 `spec.product`로 넘기지 않는다(규제 검증/문구 근거 오염 방지).
 - 사용자 재확인 단계 없음. `usable=false`면 `background_context`를 남기지 않는다.
 - 이미지 검증은 제품 사진과 동일(공용 `validate_image_data_url`).
-- poster 전달 필드/AI Design Planner 연동은 poster API 계약 확정 후 후속.
+- `background_context`는 `/generate/visual-prompt`가 시각 프롬프트 보완에 사용한다(사용자가 명시하지 않은 축만, `usable=false`면 무시).
 
 ## 시안 다양성 보장
 
@@ -382,24 +423,27 @@ Vision LLM이 분석해 `spec.product`의 근거를 만든다. **인식만으로
 
 ### 룰 사전 현황 (`regulation_rules.py`)
 
-각 카테고리 = 공통(COMMON) + 카테고리 전용. 제품형은 효능 과장이 위반 축이고,
-서비스형은 성과·자격·배타성·계약 불공정이 축이라 별도 룰을 둔다.
+각 카테고리 = 공통(COMMON, warn 9건) + 카테고리 전용. 제품형은 효능 과장이 위반 축이고,
+서비스형은 성과·자격·배타성·계약 불공정이 축이라 별도 룰을 둔다. 아래 합계는 COMMON 포함,
+`/generate/copy`가 실제 적용하는 카테고리별 전체 룰 수다.
 
-| 카테고리 | 전용 룰 | block | warn | 주요 근거 |
+| 카테고리 | 합계 | block | warn | 주요 근거 |
 |---|---|---|---|---|
-| food | 19 | 6 | 13 | 표시광고법, 식품표시광고법 §8, 건강기능식품법 §18, 식약처 고시 |
-| beauty | 17 | 5 | 12 | 표시광고법, 화장품법 §13 |
-| goods | 13 | 0 | 13 | 표시광고법, 상표법, 환경성 표시·광고 고시 |
-| sports | 4 | 1 | 3 | 방문판매법(중도해지·환불), 표시광고법(배타성·최상급), 국민체육진흥법(지도자 자격) |
-| academy | 3 | 1 | 2 | 표시광고법(합격·점수·순위 보장), 공정위 학원 제재 사례 |
+| food | 20 | 6 | 14 | 표시광고법, 식품표시광고법 §8, 건강기능식품법 §18, 식약처 고시 |
+| beauty | 18 | 5 | 13 | 표시광고법, 화장품법 §13 |
+| goods | 20 | 3 | 17 | 표시광고법, 상표법, 환경성 표시광고 고시, 약사법/의료기기법(의약품 오인) |
+| sports | 15 | 2 | 13 | 방문판매법(중도해지/환불), 국민체육진흥법(지도자 자격), 의료법(의료행위 오인), 표시광고법(배타성/최상급) |
+| academy | 13 | 2 | 11 | 표시광고법(합격/점수/순위 보장), 학원법 시행령(수강료 환불), 공정위 학원 제재 사례 |
+
+이번 스프린트로 goods가 첫 하드 차단(block) 룰을 얻어, 모든 카테고리가 block 룰을 갖게 됐다.
 
 주요 검출 사례:
 
 - **푸드** — 질병 치료·예방("치료", "항암"), 체중 감량("다이어트 효과"), 기능성 표방("면역력 강화", "피로 회복"), 인증 없는 천연·유기농, 숙취해소
 - **뷰티** — 의약품 오인("치료", "병원급"), 질환명("아토피", "여드름 없애기"), 기능성 초과("주름 제거", "보톡스 효과"), 안전성 단정("부작용 전혀 없음"), 의료인 추천
-- **굿즈** — 타 브랜드 연상("명품급"), 그린워싱("친환경"), 라이선스("공식 굿즈"), 한정판·평생보증
-- **체육관/도장(sports)** — 환불·중도해지 불가(block), 배타성·최상급("지역 1위"), 지도자 자격·경력 과장, 단기·수치 성과 단정("한 달 만에 10kg")
-- **학원(academy)** — 합격·점수 보장(block), 순위·실적·취업 보장("합격률 1위"), 단기·무조건 성과("단기간 합격")
+- **굿즈** — 의약품/의료기기 오인(block, "고혈압 치료" 게르마늄/자석 팔찌 등 — 약사법/의료기기법), 타 브랜드 연상("명품급"), 그린워싱("친환경"), 라이선스("공식 굿즈"), 한정판·평생보증
+- **체육관/도장(sports)** — 환불·중도해지 불가(block), 의료행위 오인(block, "도수치료/재활치료" — 의료법), 배타성·최상급("지역 1위"), 지도자 자격·경력 과장, 단기·수치 성과 단정("한 달 만에 10kg")
+- **학원(academy)** — 합격·점수 보장(block), 수강료 환불 불가(block, 학원법 시행령), 순위·실적·취업 보장("합격률 1위"), 단기·무조건 성과("단기간 합격")
 
 > 본 룰은 데모용 1차 사전이며 법률 자문이 아닙니다. 실제 서비스 시 최신 고시·심의 기준 확인이 필요합니다.
 
@@ -468,8 +512,11 @@ COPY_MOCK=1 python -m eval.run_hook_ab
 
 ## TODO
 
-- [ ] VM 실측: 규제 A/B 위반율 비교, 매력 A/B 승률 → 채택 변형 확정
-- [ ] 배경 `background_context` → poster API 전달 필드 연결(지우님 계약 후)
-- [ ] AI Design Planner: `background_context`/사용자 입력을 Visual Prompt로 확장
-- [ ] 규제 후속(문서화): 체육관 의료법 침범 표현 정규식, 표시광고법 실증 안내, rule coverage matrix
+- [x] 매력 문구 A/B 실측 — 변형별 규제율 + 승률 확인. persona 우선 반영 후보(승률 0.708, 위반율 0 유지). 최종 프롬프트 반영은 사람 눈검증 후 결정
+- [x] 사용자 입력 → 영어 Visual Prompt 확장 — `/generate/visual-prompt`로 반영(#127). `background_context` 보완 연동 포함
+- [ ] 매력 persona 변형 프로덕션 프롬프트 반영(사람 10건 눈검증 후)
+- [ ] 규제 A/B 위반율 실측(규제 지침 유무 비교) — 키 환경에서 `run_regulation_ab`
+- [ ] 규제 후속(문서화): 표시광고법 실증 안내, redteam 신규 축 확장, AI 2차 검사 레이어 on/off 기준
+- [ ] goods 위조품/안전 축 block 승격 검토(레플리카 위법성 사안별 법령 검토)
+- [ ] 규제 다국어(번역본은 대상국 기준 검증)
 - [ ] AI 생성물 고지 문구 (AI 기본법 제31조) — 포스터/프론트 파트와 협의
