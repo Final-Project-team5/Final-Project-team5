@@ -344,6 +344,21 @@ check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 / 서비스형 �
 check("NEGATIVE_PROMPT 무변경 — 인물 토큰은 분리 유지",
       bdefs["NEGATIVE_PROMPT"] == cdefs.get("NEGATIVE_PROMPT"))
 
+# 위는 **상수 문자열**만 잠근다. 어느 경로에 붙는지는 resolve_negative가 정하므로
+# 분기 자체도 확인한다. 상수가 그대로여도 분기가 뒤집히면 제품형에 인물 토큰이
+# 붙을 수 있고, 그러면 #140에서 되돌린 상태로 조용히 돌아간다.
+from pipeline import generate                                    # noqa: E402
+
+_people = config.NO_PEOPLE_NEGATIVE
+check("resolve_negative(product) — 인물 토큰 없음",
+      _people not in generate.resolve_negative("product"))
+check("resolve_negative(service) — 공용 + 인물 토큰",
+      generate.resolve_negative("service")
+      == f"{config.NEGATIVE_PROMPT}, {_people}")
+# 기본값이 product라 subject_kind를 안 넘기는 기존 호출은 종전과 같은 문자열을 받는다.
+check("resolve_negative 기본값 = product",
+      generate.resolve_negative() == config.NEGATIVE_PROMPT)
+
 
 # ---------------------------------------------------------------------------
 print("\n[7] 스키마 / 양쪽 엔드포인트")
