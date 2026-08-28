@@ -333,6 +333,22 @@ def resolve_prompt(prompt: str = None, category: str = None,
     return ", ".join(parts)
 
 
+def resolve_negative(subject_kind: str = "product") -> str:
+    """경로별 negative prompt.
+
+    resolve_prompt와 같은 기준으로 가른다 — 서비스형에만 인물 배제를 붙인다.
+    제품형은 positive의 ISOLATION_PROMPT_SUFFIX가 이미 인물을 막고 있어
+    추가해도 얻는 것이 없고, 배경 질감만 평탄해진다(config.NO_PEOPLE_NEGATIVE
+    주석 · E103).
+
+    기본값이 "product"라 subject_kind를 안 넘기는 호출은 인물 토큰이 붙지
+    않는다. resolve_prompt와 같은 규약이다.
+    """
+    if subject_kind == "service":
+        return f"{config.NEGATIVE_PROMPT}, {config.NO_PEOPLE_NEGATIVE}"
+    return config.NEGATIVE_PROMPT
+
+
 def _flat_background_drafts(image, category, num_images,
                             background_mode, bg_colors, gradient_direction,
                             aspect_ratio=None, placement_override=None,
@@ -446,7 +462,7 @@ def _ai_nonsquare_drafts(image, prompt, category, num_images, seeds,
     with pipe_lock.pipe_guard("nonsquare_drafts"):
         pipe = _load(config.DRAFT_MODEL, "inpaint", tiling=False)
         outs = pipe(prompt=prompt,
-                    negative_prompt=config.NEGATIVE_PROMPT,
+                    negative_prompt=resolve_negative(subject_kind),
                     image=base_gen,
                     mask_image=masks_gen.inpaint,
                     height=gen[1], width=gen[0],
@@ -508,7 +524,7 @@ def _ai_nonsquare_refine(draft, original, prompt, category, strength,
     with pipe_lock.pipe_guard("nonsquare_refine"):
         pipe = _load(config.REFINE_MODEL, "inpaint")
         out = pipe(prompt=prompt,
-                   negative_prompt=config.NEGATIVE_PROMPT,
+                   negative_prompt=resolve_negative(subject_kind),
                    image=draft_in,
                    mask_image=masks_gen.inpaint,
                    height=gen[1], width=gen[0],
@@ -593,7 +609,7 @@ def generate_drafts(image=None,
         with pipe_lock.pipe_guard("drafts_inpaint"):
             pipe = _load(config.DRAFT_MODEL, "inpaint")
             outs = pipe(prompt=prompt,
-                        negative_prompt=config.NEGATIVE_PROMPT,
+                        negative_prompt=resolve_negative(subject_kind),
                         image=base,
                         mask_image=masks.inpaint,
                         height=size, width=size,
@@ -611,7 +627,7 @@ def generate_drafts(image=None,
         with pipe_lock.pipe_guard("drafts_text2img"):
             pipe = _load(config.DRAFT_MODEL, "text2img")
             images = pipe(prompt=prompt,
-                          negative_prompt=config.NEGATIVE_PROMPT,
+                          negative_prompt=resolve_negative(subject_kind),
                           height=size, width=size,
                           num_inference_steps=config.DRAFT_STEPS,
                           num_images_per_prompt=num_images,
@@ -730,7 +746,7 @@ def refine(draft: Image.Image,
         with pipe_lock.pipe_guard("refine_inpaint"):
             pipe = _load(config.REFINE_MODEL, "inpaint")
             out = pipe(prompt=prompt,
-                       negative_prompt=config.NEGATIVE_PROMPT,
+                       negative_prompt=resolve_negative(subject_kind),
                        image=draft,
                        mask_image=masks.inpaint,
                        height=size, width=size,

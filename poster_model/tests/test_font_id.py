@@ -332,11 +332,32 @@ A2_ROTATION = {"ROTATION_MAX_ABS_DEG",              # 허용 회전 범위 ±20
 STABILIZATION = {"SERVICE_QUALITY_BASELINE"}
 SERVICE_QUALITY = {"SERVICE_DRAFT_SIZE",         # 서비스형 시안 해상도 512
                    "SERVICE_REFINE_STRENGTH"}    # 서비스형 refine 재해석 상한
+NO_PEOPLE = {"NO_PEOPLE_NEGATIVE"}   # 서비스형 전용 인물 배제 (E103)
 
-check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 / 서비스형 품질뿐",
+check("추가된 것은 font_id(A6) / rotation(A2) / 안정화 / 서비스형 품질 / 인물 배제뿐",
       set(cdefs) - set(bdefs)
-      == A6_FONT_ID | A2_ROTATION | STABILIZATION | SERVICE_QUALITY,
+      == A6_FONT_ID | A2_ROTATION | STABILIZATION | SERVICE_QUALITY | NO_PEOPLE,
       f"{sorted(set(cdefs) - set(bdefs))}")
+
+# NEGATIVE_PROMPT는 baseline과 같아야 한다. #140에서 인물 토큰을 여기에 넣었다가
+# 제품형 배경까지 평탄해져(E103) 되돌린 자리다. 다시 섞이면 여기서 걸린다.
+check("NEGATIVE_PROMPT 무변경 — 인물 토큰은 분리 유지",
+      bdefs["NEGATIVE_PROMPT"] == cdefs.get("NEGATIVE_PROMPT"))
+
+# 위는 **상수 문자열**만 잠근다. 어느 경로에 붙는지는 resolve_negative가 정하므로
+# 분기 자체도 확인한다. 상수가 그대로여도 분기가 뒤집히면 제품형에 인물 토큰이
+# 붙을 수 있고, 그러면 #140에서 되돌린 상태로 조용히 돌아간다.
+from pipeline import generate                                    # noqa: E402
+
+_people = config.NO_PEOPLE_NEGATIVE
+check("resolve_negative(product) — 인물 토큰 없음",
+      _people not in generate.resolve_negative("product"))
+check("resolve_negative(service) — 공용 + 인물 토큰",
+      generate.resolve_negative("service")
+      == f"{config.NEGATIVE_PROMPT}, {_people}")
+# 기본값이 product라 subject_kind를 안 넘기는 기존 호출은 종전과 같은 문자열을 받는다.
+check("resolve_negative 기본값 = product",
+      generate.resolve_negative() == config.NEGATIVE_PROMPT)
 
 
 # ---------------------------------------------------------------------------
