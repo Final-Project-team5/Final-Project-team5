@@ -185,18 +185,33 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
   const subPx = canvasShortSide * sizeInfo.sub_size;
 
   // 폰트가 로드되기 전에 재면 대체 글꼴 기준으로 나와 줄 수가 틀어진다.
-  // 로드가 끝나면 플래그를 올려 한 번 더 계산한다.
-  const [fontsReady, setFontsReady] = useState(() => document.fonts?.status === 'loaded');
+  //
+  // `document.fonts.ready` 하나로는 부족하다. @font-face는 그 서체가 실제로
+  // 쓰일 때 로드되므로, 아직 한 번도 안 쓴 서체는 ready가 resolve된 뒤에도
+  // 로드돼 있지 않다. 사용자가 그 서체를 처음 고르는 순간 첫 측정이 대체
+  // 글꼴로 이뤄진다.
+  //
+  // 그래서 **고른 서체를 명시적으로 로드**하고, 끝나면 그 서체 이름을 기록해
+  // 다시 계산한다. 서체를 바꿀 때마다 반복된다.
+  const [loadedFamily, setLoadedFamily] = useState(null);
   useEffect(() => {
-    if (fontsReady || !document.fonts) return undefined;
+    if (!document.fonts) {
+      setLoadedFamily(selectedFont.family);
+      return undefined;
+    }
     let alive = true;
-    document.fonts.ready.then(() => { if (alive) setFontsReady(true); });
+    // load()는 CSS font 단축 문법을 받는다. 대체 목록까지 넘기면 파싱에 실패할
+    // 수 있어 첫 패밀리만 쓴다. 굵기는 800/600 둘 다 같은 파일을 쓰므로 하나로 족하다.
+    const primary = selectedFont.family.split(',')[0].trim();
+    document.fonts.load(`800 1em ${primary}`)
+      .catch(() => {})
+      .then(() => { if (alive) setLoadedFamily(selectedFont.family); });
     return () => { alive = false; };
-  }, [fontsReady]);
+  }, [selectedFont.family]);
 
   // 폭 기준이므로 크기·서체·캔버스가 바뀌면 다시 감긴다. 서버와 같은 동작이다.
   //
-  // fontsReady는 콜백 안에서 쓰이지 않지만 의존성에 넣는다. measureText 결과가
+  // loadedFamily는 콜백 안에서 쓰이지 않지만 의존성에 넣는다. measureText 결과가
   // 폰트 로드 여부에 따라 달라지는데 그건 린터가 볼 수 없는 외부 상태다. 빼면
   // 대체 글꼴로 잰 줄 수가 그대로 남는다.
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -205,14 +220,14 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
       fontPx: headlinePx, fontFamily: selectedFont.family,
       fontWeight: 800, maxWidth: textMaxWidth,
     }),
-    [headline, headlinePx, selectedFont.family, textMaxWidth, fontsReady],
+    [headline, headlinePx, selectedFont.family, textMaxWidth, loadedFamily],
   );
   const subLines = useMemo(
     () => wrapTextByWidth(sub, {
       fontPx: subPx, fontFamily: selectedFont.family,
       fontWeight: 600, maxWidth: textMaxWidth,
     }),
-    [sub, subPx, selectedFont.family, textMaxWidth, fontsReady],
+    [sub, subPx, selectedFont.family, textMaxWidth, loadedFamily],
   );
   /* eslint-enable react-hooks/exhaustive-deps */
 
