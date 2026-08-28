@@ -13,6 +13,11 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 
 `http://localhost:8000/docs`에서 자동 생성 스키마도 볼 수 있습니다.
 
+**CORS는 `http://localhost:5173` 하나만 허용합니다.** Vite 기본 포트 기준이라,
+그 포트가 이미 쓰이고 있어 다른 번호로 뜨거나 `127.0.0.1`로 접속하면 요청이
+막힙니다. 개발 서버 주소를 먼저 확인해 주세요. copy_model은 `127.0.0.1`도
+허용하고 있어 한쪽만 실패할 수 있습니다.
+
 ---
 
 ## 전체 흐름
@@ -57,7 +62,12 @@ draft 응답에 담겨 내려온 값을 클라이언트가 refine 요청에 **�
 
 프론트엔드에서는 `error` 코드를 기준으로 분기해 사용자용 문구로 매핑하는 것을
 권장합니다. `message`는 서버 사정에 따라 문구가 바뀔 수 있으므로 분기 조건으로
-쓰지 마세요. 분기는 항상 `error` 값으로 하시면 됩니다.
+쓰지 마세요.
+
+**예외가 하나 있습니다.** `tone` 실패만 `error`가 아니라 `code` 키를 씁니다.
+두 기능이 다른 시점에 들어와 생긴 차이이고, 동결을 앞두고 계약을 건드리지 않기로
+해서 그대로 둡니다. 분기하실 때 `detail.error ?? detail.code`처럼 양쪽을 보시면
+됩니다. 자세한 형태는 [타이포그래피 프리셋](#타이포그래피-프리셋-tone) 절에 있습니다.
 
 ---
 
@@ -79,9 +89,34 @@ draft 응답에 담겨 내려온 값을 클라이언트가 refine 요청에 **�
 | `gradient_direction` | `vertical` \| `horizontal` \| `diagonal` | 선택 | `null` | 생략 시 `vertical` |
 | `aspect_ratio` | `1:1` \| `3:1` \| `3:4` | 선택 | `null` | **생략하면 기존과 동일한 1:1.** `solid`/`gradient`에서만 지원 |
 | `placement` | object | 선택 | `null` | 제품 배치 override. 구조는 아래 참고. `solid`/`gradient`에서만 지원 |
+| `subject_kind` | `product` \| `service` | 선택 | `"product"` | 제품형/서비스형 경로 선택. 아래 참고 |
 
 - `ai` — diffusion으로 배경 생성. 느리지만 표현이 풍부합니다.
 - `solid` / `gradient` — **diffusion을 완전히 생략**하고 PIL로만 배경을 칠합니다. 훨씬 빠릅니다.
+
+#### 제품형 / 서비스형 (`subject_kind`)
+
+학원·체육관처럼 **보여줄 제품이 없는** 업종을 위한 경로입니다. 프론트가 업종을
+고르는 단계에서 정해 보냅니다.
+
+| 값 | 입력 | 프롬프트 | 비고 |
+|---|---|---|---|
+| `product` (기본) | 제품 사진 필수 | 카테고리 템플릿 + 그림자·단독제품 유도 문구 | 기존 동작 |
+| `service` | 사진 없음 (`text2img`) | 서비스형 품질 baseline만 | 제품 전제 문구를 붙이지 않음 |
+
+`service`일 때 달라지는 점입니다.
+
+- **AI 배경 프롬프트 경로에서** `category`를 쓰지 않습니다. `goods` 폴백도 타지
+  않습니다. 다만 `background_mode`가 `solid`/`gradient`면 `category`가 기본 팔레트를
+  고르는 데는 계속 쓰입니다.
+- 제품 전제 접미사(`SHADOW_PROMPT_SUFFIX`, `ISOLATION_PROMPT_SUFFIX`)를 붙이지
+  않습니다. 서비스형 배경에 "single product only"가 붙던 문제를 여기서 닫습니다.
+- 인물 배제 negative가 이 경로에만 붙습니다. 제품형은 위 isolation 접미사가 이미
+  인물을 막고 있어 추가하지 않습니다.
+- draft 해상도와 refine strength가 제품형과 다릅니다
+  (`SERVICE_DRAFT_SIZE`, `SERVICE_REFINE_STRENGTH`).
+
+**기본값이 `product`이므로 이 필드를 보내지 않던 기존 호출은 동작이 그대로입니다.**
 
 #### 출력 비율 (`aspect_ratio`)
 
@@ -338,6 +373,11 @@ draft 응답에 담겨 내려온 값을 클라이언트가 refine 요청에 **�
 | `background` | object | 선택 | `null` | draft 응답의 값을 그대로 전달. 구조는 아래 참고 |
 | `aspect_ratio` | `1:1` \| `3:1` \| `3:4` | 선택 | `null` | 생략하면 `draft_image` 크기에서 추론. 아래 참고 |
 | `placement` | object | 선택 | `null` | drafts와 같은 `scale_factor`/`x`/`y` 구조 |
+| `subject_kind` | `product` \| `service` | 선택 | `"product"` | drafts와 같은 값을 보내주세요. [설명](#제품형--서비스형-subject_kind) |
+
+`subject_kind`는 **drafts에서 보낸 값을 refine에도 그대로** 보내야 합니다. 다르게
+보내면 시안과 최종의 프롬프트 경로가 갈립니다. `service`는 원본 사진이 없으므로
+`original_image` 없이 img2img로 처리합니다.
 
 #### 출력 비율은 draft 크기에서 **항상** 추론합니다
 
@@ -429,6 +469,49 @@ refine을 호출하면 img2img 폴백 경로로 빠져 **SDXL이 제품까지 �
 | `sub_x` | float | 선택 | `null` | 0~1. z_order가 다를 때 sub 전용 좌표 |
 | `sub_y` | float | 선택 | `null` | 0~1 |
 | `font_id` | str | 선택 | `null` | 사용자가 고른 폰트. **headline과 sub에 공통 적용.** 아래 참고 |
+| `tone` | str | 선택 | `null` | 타이포그래피 프리셋. 아래 참고 |
+
+#### 타이포그래피 프리셋 (`tone`)
+
+크기·서체 역할·외곽선·색을 한 묶음으로 정합니다. 개별 필드를 하나씩 맞추지 않고
+프리셋 이름 하나로 지정합니다.
+
+| `tone` | headline | sub | 외곽선 | 문구 색 | 전제 |
+|---|---|---|---|---|---|
+| `minimal_product` | 0.11 | 0.04 | 없음 | 짙은 회갈색 | **밝은 `solid`/`gradient` 배경 전용.** AI 배경 위에서는 대비가 부족합니다 |
+| `bold_promo` | 0.22 | 0.06 | 있음 | 흰색 | 색·외곽선은 기존 기본값과 동일 (크기는 훨씬 큼) |
+
+- 지원하지 않는 값을 보내면 diffusion 전에 **400 `unknown_tone`** 으로 거부합니다.
+  생성이 끝난 뒤에 실패하지 않습니다.
+- `headline_size` / `sub_size`를 함께 보내면 **그쪽이 우선**합니다. 프리셋은 값을
+  덮어쓰지 않습니다.
+- 챗봇 spec의 `tone`(`simple`/`warm`/`luxury`/`energetic`)과는 **다른 축**입니다.
+  그쪽은 배경 프롬프트로 가고, 이 `tone`은 문구 타이포에만 씁니다. 이름이 같으니
+  프론트에서 섞이지 않게 주의해 주세요.
+- `bold_promo`는 headline 0.22라 문구가 길면 잘립니다. 13자 기준에서 확인됐습니다.
+
+**오류 응답 형태에 주의해 주세요.** `tone`과 `font_id`는 같은 400인데 키 이름이
+다릅니다. 프론트에서 한쪽 파서를 다른 쪽에 쓰면 값을 못 읽습니다.
+
+```jsonc
+// tone 실패
+{ "detail": { "code": "unknown_tone", "message": "...", "supported": [...] } }
+
+// font_id 실패
+{ "detail": { "error": "font_not_supported", "message": "...",
+              "supported": [...], "available": [...] } }
+```
+
+`code`와 `error`가 갈린 것은 두 기능이 다른 시점에 들어와서 생긴 차이입니다.
+동결을 앞두고 서버 계약을 건드리지 않기로 해서 그대로 두고 여기에 적어 둡니다.
+
+`tone`은 `/generate/refine`과 `/compose/text` 양쪽에서 같게 동작합니다. 검증은 둘 다
+무거운 작업 전에 끝납니다 — refine은 diffusion 전에, compose는 렌더링 전에 거부합니다.
+
+**응답 `meta`에는 `tone`이 실리지 않습니다.** `subject_kind`도 마찬가지입니다.
+적용 여부를 응답으로 되짚을 수 없으니, 프론트가 보낸 값을 스스로 기억해야 합니다.
+`meta.text`에는 좌표·크기 같은 실제 적용값이 담기므로 크기만은 그쪽으로 확인할 수
+있습니다.
 
 #### 폰트 선택 (`font_id`)
 
@@ -726,6 +809,7 @@ refine(1024)에 보내면 **같은 구도가 재현**됩니다. 픽셀 좌표를
 | `placement`의 최종 확대가 품질 상한 초과 | `{"error": "placement_over_max_upscale", ..., "suggested": {...}}` |
 | `text.font_id`가 지원 목록에 없음 | `{"error": "font_not_supported", "supported": [...], "available": [...]}` |
 | `text.font_id`는 지원하지만 서버에 TTF 자산이 없음 | `{"error": "font_asset_missing", "font_id": ..., "available": [...]}` |
+| `text.tone`이 지원 목록에 없음 | `{"code": "unknown_tone", "message": ..., "supported": [...]}` — **키가 `error`가 아니라 `code`입니다** |
 | base64 디코딩 실패 | `이미지 디코딩 실패: {오류}` |
 
 **호환성 주의 — `draft_image` 비율 검사가 새로 생겼습니다.**
@@ -794,9 +878,10 @@ POST /compose/text      base_image = 위 결과, text = 편집한 문구
 **`style`을 명시해 보내세요.** 기본값이 `"bar"`라 생략하면 문구 뒤에 반투명 박스가
 깔립니다. 현재 프론트 UI 기준으로는 `"plain"`을 명시하는 것이 맞습니다.
 
-**`font_id`도 refine과 동일하게 동작합니다.** 같은 `TextSpec`이므로 문구를 다시
-합성할 때 폰트만 바꿔서 재요청할 수 있습니다. 지원 ID·오류 코드·미전달 시 동작은
-[폰트 선택](#폰트-선택-font_id)과 같습니다.
+**`font_id`와 `tone`도 refine과 동일하게 동작합니다.** 같은 `TextSpec`이므로 문구를
+다시 합성할 때 폰트나 타이포 프리셋만 바꿔서 재요청할 수 있습니다. 지원 값·오류
+코드·미전달 시 동작은 [폰트 선택](#폰트-선택-font_id),
+[타이포그래피 프리셋](#타이포그래피-프리셋-tone)과 같습니다.
 
 **좌표는 [문구 필드](#좌표-기준)의 계약과 동일합니다** — `y`는 텍스트 블록의 중심,
 `x`는 `align` 기준점이며 중심으로 쓰려면 `align="center"`를 명시합니다. `x`와 `y`는
@@ -848,6 +933,7 @@ POST /compose/text      base_image = 위 결과, text = 편집한 문구
 | `headline_z_order` 또는 `sub_z_order`가 `behind` | `{"error": "text_behind_not_supported", "supported": ["front"]}` |
 | `text.font_id`가 지원 목록에 없음 | `{"error": "font_not_supported", "supported": [...], "available": [...]}` |
 | `text.font_id`는 지원하지만 서버에 TTF 자산이 없음 | `{"error": "font_asset_missing", "font_id": ..., "available": [...]}` |
+| `text.tone`이 지원 목록에 없음 | `{"code": "unknown_tone", "message": ..., "supported": [...]}` — **키가 `error`가 아니라 `code`입니다** |
 | base64 디코딩 실패 | `이미지 디코딩 실패: {오류}` |
 
 **422** — `TextSpec`의 기존 검증이 그대로 적용됩니다(`x`/`y` 0~1, `headline_size`
@@ -987,7 +1073,9 @@ POST /compose/text
 | AI 배경의 3:4 | 미지원 (400) |
 | `text2img`의 비정사각·배치 | 미지원 (400) |
 | 문구 내용 기반 자동 배치 | 미지원 (실험 단계) |
-| **`font_id`로 폰트 선택** (refine·compose 공통) | **지원** (계약상 5종 / 현재 브랜치 자산 2종) |
+| **`font_id`로 폰트 선택** (refine·compose 공통) | **지원** (5종 전부 자산 확보 완료) |
+| **`subject_kind`로 제품형/서비스형 선택** | **지원** |
+| **`tone` 타이포그래피 프리셋** | **지원** (2종) |
 
 기본 배치는 문구 내용에 의존하지 않습니다. 비율마다 제품이 놓일 영역이 정해져
 있고, 그 안에서 제품과 그림자가 잘리지 않는 최대 크기로 배치합니다. 문구 영역은
