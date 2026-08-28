@@ -21,17 +21,40 @@ const CANVAS_SIZE = 480;
 // 3단계 프리셋 → headline_size/sub_size(짧은 변 대비 비율) 매핑.
 // margin은 "최소" 드래그 안전 여백(비율) — 실제 여백은 렌더된 텍스트 박스 크기에 따라
 // 이보다 더 커질 수 있다 (아래 ResizeObserver 보정 참고).
-const SIZE_PRESETS = {
+//
+// **비율별로 나누는 이유.** 서버는 이 값을 캔버스 **짧은 변**에 곱한다. 3:1은
+// 짧은 변이 폭의 1/3이라, 같은 값을 쓰면 정사각 대비 1/3 크기로 보인다. 실측하면
+// 0.085(현행 "크게")가 배너 폭의 2.8%뿐이라 광고 문구로는 읽히지 않는다.
+//
+// 3:1 값은 실측으로 정했다.
+//   0.16  폭의 5.3%. 20자 제목도 한 줄 유지          ← 채택
+//   0.20  폭의 6.6%. 20자에서 두 줄로 쌓임
+//   0.24  폭의 8.0%. auto_fit이 -9% 축소 → 탈락
+// 세 단계 사이의 간격은 1:1 프리셋의 비(0.53 / 0.76 / 1.0)를 그대로 유지했다.
+//
+// 1:1과 3:4는 폭이 짧은 변이라 기존 값이 그대로 맞는다.
+const SIZE_PRESETS_DEFAULT = {
   small: { label: '작게', headline_size: 0.045, sub_size: 0.026, margin: 0.05 },
   medium: { label: '보통', headline_size: 0.065, sub_size: 0.038, margin: 0.065 },
   large: { label: '크게', headline_size: 0.085, sub_size: 0.05, margin: 0.08 },
 };
 
-// 줄바꿈 지점을 정하는 글자 수 상한 — 폰트 크기(preset)와 무관하게 고정이다.
-// 실제로는 도혁님 문구 모델이 줄바꿈까지 고정해서 내려주므로, 여기 값은 그 자리를
-// 대신하는 mock 기준값일 뿐 폰트 크기에 따라 달라지면 안 된다.
-const HEADLINE_CHARS_PER_LINE = 10;
-const SUB_CHARS_PER_LINE = 15;
+const SIZE_PRESETS_BY_RATIO = {
+  '3:1': {
+    small: { label: '작게', headline_size: 0.085, sub_size: 0.05, margin: 0.05 },
+    medium: { label: '보통', headline_size: 0.122, sub_size: 0.072, margin: 0.065 },
+    large: { label: '크게', headline_size: 0.16, sub_size: 0.094, margin: 0.08 },
+  },
+};
+
+function presetsFor(ratio) {
+  return SIZE_PRESETS_BY_RATIO[ratio] ?? SIZE_PRESETS_DEFAULT;
+}
+
+// (글자 수 상한 HEADLINE_CHARS_PER_LINE / SUB_CHARS_PER_LINE 제거 — wrapTextByWidth 참고)
+//
+// 문구 모델이 줄바꿈까지 고정해서 내려주면 그 값을 그대로 쓰면 된다. 그때까지는
+// 서버와 같은 폭 기준으로 재서 미리보기와 결과를 맞춘다.
 
 // 확정 폰트 5종 (8/10, 진우님 완성형 검증 — 한글 음절 11,172자 전체 지원).
 // font_id는 백엔드 whitelist 매핑에 그대로 쓰이는 값이라 이름 그대로 유지해야 한다.
@@ -48,28 +71,56 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// 서버가 문구를 앉힐 때 좌우로 비우는 여백 비율(pipeline/config.TEXT_MARGIN_RATIO).
+// 짧은 변에 곱한다 — 글자 크기와 같은 기준이다.
+const TEXT_MARGIN_RATIO = 0.06;
+
 /**
- * 문구를 정해진 글자 수 상한에 맞춰 줄바꿈한다. 폰트 크기(px)가 아니라
- * "글자 수"만 기준으로 삼기 때문에, preset이 바뀌어 폰트가 커지거나 작아져도
- * 줄이 갈리는 지점은 항상 동일하게 유지된다 (요청사항 1).
+ * 문구를 **실제 렌더 폭** 기준으로 줄바꿈한다.
+ *
+ * 이전에는 글자 수 상한(제목 10자·본문 15자)으로 끊었다. 그 값은 실제 폭과
+ * 아무 관계가 없어서 서버(overlay.render_text)보다 항상 더 잘게 쪼갰다.
+ * 1024 정사각·현행 프리셋 기준으로 재보면 여섯 경우 전부 어긋났고, 3:1에서는
+ * 서버가 한 줄에 넣는 20자를 미리보기가 세 줄로 보여줬다.
+ *
+ * 서버 규칙을 그대로 따른다.
+ *
+ *     사용 가능 폭 = 캔버스 폭 − 2 × (짧은 변 × TEXT_MARGIN_RATIO)
+ *     글자 크기(px) = 짧은 변 × size
+ *     이 폭을 넘으면 어절 단위로 줄바꿈
+ *
+ * 서버와 같은 TTF를 @font-face로 쓰므로 측정값이 거의 일치한다.
+ *
+ * **주의** — 이 변경으로 "폰트 크기를 바꿔도 줄바꿈 지점이 유지된다"(기존
+ * 요청사항 1)는 성질이 사라진다. 서버가 크기에 따라 다시 감기 때문에, 그
+ * 성질을 지키면 미리보기와 결과가 어긋난다. 둘은 동시에 만족할 수 없다.
  */
-function wrapTextByChars(text, maxChars) {
+function wrapTextByWidth(text, { fontPx, fontFamily, fontWeight, maxWidth }) {
   if (!text) return [];
-  const words = text.split(' ');
+  if (!(maxWidth > 0) || !(fontPx > 0)) return [text];
+
+  const measure = wrapTextByWidth._ctx
+    || (wrapTextByWidth._ctx = document.createElement('canvas').getContext('2d'));
+  measure.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
+  const widthOf = (s) => measure.measureText(s).width;
+
   const lines = [];
   let current = '';
 
-  for (const word of words) {
+  for (const word of text.split(' ')) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= maxChars) {
+    if (widthOf(candidate) <= maxWidth) {
       current = candidate;
       continue;
     }
     if (current) lines.push(current);
+    // 한 어절이 통째로 넘칠 때만 글자 단위로 쪼갠다.
     let rest = word;
-    while (rest.length > maxChars) {
-      lines.push(rest.slice(0, maxChars));
-      rest = rest.slice(maxChars);
+    while (widthOf(rest) > maxWidth && rest.length > 1) {
+      let cut = rest.length;
+      while (cut > 1 && widthOf(rest.slice(0, cut)) > maxWidth) cut -= 1;
+      lines.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
     }
     current = rest;
   }
@@ -119,7 +170,8 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
     return () => observer.disconnect();
   }, []);
 
-  const sizeInfo = SIZE_PRESETS[preset];
+  const sizePresets = presetsFor(ratio);
+  const sizeInfo = sizePresets[preset];
   const canvasShortSide = Math.min(canvasSize.width, canvasSize.height);
   // 서버는 1024px 캔버스에 STROKE_WIDTH=3으로 글자 둘레를 두른다(비율 3/1024).
   // -webkit-text-stroke는 윤곽선 위에 안팎 절반씩 그리므로 바깥쪽 두께를 맞추려면
@@ -127,10 +179,42 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
   const strokeWidth = (canvasShortSide * 3 / 1024) * 2;
   const selectedFont = FONT_OPTIONS.find((f) => f.id === fontId) ?? FONT_OPTIONS[0];
 
-  // headline/sub 자체가 바뀔 때만 다시 계산 — preset(폰트 크기)은 의도적으로
-  // deps에서 뺐다. 그래야 크기를 바꿔도 줄바꿈 지점이 그대로 유지된다.
-  const headlineLines = useMemo(() => wrapTextByChars(headline, HEADLINE_CHARS_PER_LINE), [headline]);
-  const subLines = useMemo(() => wrapTextByChars(sub, SUB_CHARS_PER_LINE), [sub]);
+  // 서버가 문구를 앉힐 수 있는 폭. 짧은 변에 여백 비율을 곱해 좌우에서 뺀다.
+  const textMaxWidth = canvasSize.width - 2 * (canvasShortSide * TEXT_MARGIN_RATIO);
+  const headlinePx = canvasShortSide * sizeInfo.headline_size;
+  const subPx = canvasShortSide * sizeInfo.sub_size;
+
+  // 폰트가 로드되기 전에 재면 대체 글꼴 기준으로 나와 줄 수가 틀어진다.
+  // 로드가 끝나면 플래그를 올려 한 번 더 계산한다.
+  const [fontsReady, setFontsReady] = useState(() => document.fonts?.status === 'loaded');
+  useEffect(() => {
+    if (fontsReady || !document.fonts) return undefined;
+    let alive = true;
+    document.fonts.ready.then(() => { if (alive) setFontsReady(true); });
+    return () => { alive = false; };
+  }, [fontsReady]);
+
+  // 폭 기준이므로 크기·서체·캔버스가 바뀌면 다시 감긴다. 서버와 같은 동작이다.
+  //
+  // fontsReady는 콜백 안에서 쓰이지 않지만 의존성에 넣는다. measureText 결과가
+  // 폰트 로드 여부에 따라 달라지는데 그건 린터가 볼 수 없는 외부 상태다. 빼면
+  // 대체 글꼴로 잰 줄 수가 그대로 남는다.
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const headlineLines = useMemo(
+    () => wrapTextByWidth(headline, {
+      fontPx: headlinePx, fontFamily: selectedFont.family,
+      fontWeight: 800, maxWidth: textMaxWidth,
+    }),
+    [headline, headlinePx, selectedFont.family, textMaxWidth, fontsReady],
+  );
+  const subLines = useMemo(
+    () => wrapTextByWidth(sub, {
+      fontPx: subPx, fontFamily: selectedFont.family,
+      fontWeight: 600, maxWidth: textMaxWidth,
+    }),
+    [sub, subPx, selectedFont.family, textMaxWidth, fontsReady],
+  );
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // 텍스트 박스 실측 크기가 바뀔 때마다(프리셋 변경, 문구 변경, 리사이즈) 안전 여백을
   // 다시 계산하고, 현재 위치가 그 여백을 벗어났으면 안쪽으로 당겨준다.
@@ -315,7 +399,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
       </div>
 
       <div className="poster-editor__size-presets">
-        {Object.entries(SIZE_PRESETS).map(([key, info]) => (
+        {Object.entries(sizePresets).map(([key, info]) => (
           <button
             key={key}
             type="button"
