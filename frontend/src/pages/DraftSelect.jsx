@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { generateDrafts, getPosterCategory, planDesignPrompt, toImageSrc } from '../api/posterApi';
+import { generateDrafts, getPosterCategory, planDesignPrompt, toImageSrc, USE_REAL_API } from '../api/posterApi';
 import { BACKGROUND_MODES, getSupportedBackgroundModes } from '../constants/backgroundModes';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
-import aiBackgroundThumbnail from '../assets/faq/draft-grid.png';
+import aiBackgroundThumbnail from '../assets/examples/draft-ai-example.png';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
 import './DraftSelect.css';
 
 const LOADING_STEPS = ['키워드 분석 중', '배경 시안 그리는 중', '시안 3장 정리하는 중'];
+// 체크리스트 "연출" 전용 시간 기준. 화면 전환은 항상 아래 useEffect의 실제
+// API 응답 완료 시점에 일어나며, 이 값은 그 전까지 단계가 얼마나 빨리 넘어가
+// 보이는지만 정한다(실제 진행률이 아님, LoadingChecklist 참고).
+//   - real: 2026-08-28 실서버 E2E 실측 평균 기준
+//     (drafts 1차 17.16s, 2차 19.89s → 약 19초)
+//   - mock: 응답이 1초 안에 오므로 기존 그대로 약 3초 연출을 유지한다
+//     (withMinDuration으로 그 시간만큼 화면 전환을 붙잡아 둠 — 아래 useEffect 참고)
+const DRAFT_EXPECTED_MS = USE_REAL_API ? 19000 : 3000;
+const DRAFT_STEP_MS = DRAFT_EXPECTED_MS / LOADING_STEPS.length;
 const PALETTE = ['#F4E7DC', '#DFA48E', '#CFE7DE', '#D9E7F5', '#DED7F5'];
 function Icon({ name }) {
   const paths = {
@@ -89,7 +98,12 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
     let cancelled = false;
     const controller = new AbortController();
     setDrafts(null); setError(null);
-    withMinDuration(generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, subject_kind: subjectKind, ratio, ...config, num_images: 3, signal: controller.signal }), 3000)
+    const request = generateDrafts({ mode, image: productImage, prompt: planDesignPrompt(spec), category: posterCategory, subject_kind: subjectKind, ratio, ...config, num_images: 3, signal: controller.signal });
+    // real은 강제 최소 대기를 걸지 않는다 — 이미 응답이 와 있는데 19초를 채울
+    // 때까지 화면 전환을 붙잡아 두면 안 되기 때문(체크리스트가 실제 진행률을
+    // 대신하면 안 된다는 요구사항). mock만 기존처럼 최소 연출 시간을 채운다.
+    const pending = USE_REAL_API ? request : withMinDuration(request, DRAFT_EXPECTED_MS);
+    pending
       .then((result) => { if (!cancelled) { setDrafts(result.drafts); setSelectedId(result.drafts[0]?.id ?? null); } })
       .catch((reason) => { if (!cancelled) setError(toFriendlyMessage(reason, 'drafts')); });
     return () => { cancelled = true; controller.abort(); };
@@ -141,7 +155,7 @@ function DraftSelect({ mode, productImage, spec, onConfirm, onBack }) {
   </div>;
 
   return <div className="draft-select"><h1 className="draft-select__title">마음에 드는 시안을 골라주세요</h1><p className="draft-select__description">가벼운 모델로 빠르게 만든 초안이에요. 하나를 고르면 다음 단계에서 고품질로 다듬어드려요.</p>
-    {!drafts && !error && <LoadingChecklist variant="draft" title="배경 시안을 만들고 있어요" caption={spec?.business_type === 'service' ? '서비스 광고에 어울리는 AI 시안 3장을 만들고 있어요' : '가벼운 모델로 3장을 빠르게 그려드릴게요'} steps={LOADING_STEPS} stepDurationMs={1000} />}{error && <ErrorNotice message={error} onRetry={() => setRetry((value) => value + 1)} />}
+    {!drafts && !error && <LoadingChecklist variant="draft" title="배경 시안을 만들고 있어요" caption={spec?.business_type === 'service' ? '서비스 광고에 어울리는 AI 시안 3장을 만들고 있어요' : '가벼운 모델로 3장을 빠르게 그려드릴게요'} steps={LOADING_STEPS} stepDurationMs={DRAFT_STEP_MS} />}{error && <ErrorNotice message={error} onRetry={() => setRetry((value) => value + 1)} />}
     {drafts && <><div className="draft-select__grid" style={{ '--draft-ratio': aspectRatio }}>{drafts.map((draft, index) => <button key={draft.id} type="button" className={`draft-select__card${draft.id === selectedId ? ' draft-select__card--active' : ''}`} onClick={() => setSelectedId(draft.id)}><img src={toImageSrc(draft.image)} alt={`시안 ${index + 1}`} />{draft.id === selectedId && <span className="draft-select__check">✓</span>}</button>)}</div>{selectedDraft && <div className="draft-select__preview" style={{ '--draft-ratio': aspectRatio }}><img src={toImageSrc(selectedDraft.image)} alt="선택한 시안 확대 보기" /></div>}</>}
     <div className="draft-select__actions"><button type="button" className="draft-select__secondary" onClick={onBack}><ArrowIcon back />문구 선택으로 돌아가기</button><button type="button" className="draft-select__primary" disabled={!selectedDraft} onClick={() => onConfirm(selectedDraft)}>이 배경으로 꾸미러 가기</button></div></div>;
 }

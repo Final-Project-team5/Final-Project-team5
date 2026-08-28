@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { generateRefine, toImageSrc } from '../api/posterApi';
+import { generateRefine, toImageSrc, USE_REAL_API } from '../api/posterApi';
 import { toFriendlyMessage, withMinDuration } from '../api/mockUtils';
 import ErrorNotice from '../components/ErrorNotice';
 import LoadingChecklist from '../components/LoadingChecklist';
@@ -9,9 +9,15 @@ import './PosterEditor.css';
 // (docs/UIUX_스펙정리.md 3장). 로딩 A(화면 C)와 문구·강조색을 다르게 해서
 // "왜 또 기다리지" 하고 헷갈리지 않게 한다.
 const REFINE_LOADING_STEPS = ['이미지 고품질화 중', '문구 배치 최적화 중', '규격에 맞게 마무리 중'];
-// mock 응답이 이보다 빨리 와도 체크리스트 3단계가 순서대로 다 보일 때까지는
-// 화면을 넘기지 않는다. 항목별로 균등하게 배분(3초 ÷ 3단계 = 1초씩).
-const REFINE_LOADING_MIN_MS = 3000;
+// 체크리스트 "연출" 전용 시간 기준. 화면 전환은 항상 handleComplete의 실제
+// /generate/refine 응답 완료 시점에 일어나며, 이 값은 그 전까지 단계가 얼마나
+// 빨리 넘어가 보이는지만 정한다(실제 진행률이 아님, LoadingChecklist 참고).
+//   - real: 2026-08-28 실서버 E2E 실측 평균 기준
+//     (refine 1차 44.01s, 2차 52.15s → 약 50초)
+//   - mock: 응답이 1초 남짓이면 오므로 기존 그대로 약 3초 연출을 유지한다
+//     (withMinDuration으로 그 시간만큼 화면 전환을 붙잡아 둠 — 아래 handleComplete 참고)
+const REFINE_EXPECTED_MS = USE_REAL_API ? 50000 : 3000;
+const REFINE_STEP_MS = REFINE_EXPECTED_MS / REFINE_LOADING_STEPS.length;
 
 // ResizeObserver가 실제 폭을 알려주기 전까지 쓰는 초기값(px).
 // headline_size/sub_size와 외곽선 두께는 캔버스 짧은 변에 비례하므로,
@@ -301,28 +307,29 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const res = await withMinDuration(
-        generateRefine({
-          draft_image: draftImage,
-          original_image: originalImage,
-          background,
-          prompt,
-          category,
-          subject_kind: subjectKind,
-          text: {
-            headline,
-            sub,
-            x: pos.x,
-            y: pos.y,
-            headline_size: sizeInfo.headline_size,
-            sub_size: sizeInfo.sub_size,
-            style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
-            font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
-            align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
-          },
-        }),
-        REFINE_LOADING_MIN_MS,
-      );
+      const request = generateRefine({
+        draft_image: draftImage,
+        original_image: originalImage,
+        background,
+        prompt,
+        category,
+        subject_kind: subjectKind,
+        text: {
+          headline,
+          sub,
+          x: pos.x,
+          y: pos.y,
+          headline_size: sizeInfo.headline_size,
+          sub_size: sizeInfo.sub_size,
+          style: 'plain', // 기본값이 "bar"라 생략하면 반투명 배경 박스가 깔림 — 반드시 명시
+          font_id: fontId, // 화면 D 드롭다운에서 고른 서체 — 백엔드 whitelist 매핑에 사용
+          align: 'center', // x/y가 중심 기준(8/10 확정)이라 명시 안 하면 서버 기본값 left로 어긋남
+        },
+      });
+      // real은 강제 최소 대기를 걸지 않는다 — 이미 응답이 와 있는데 50초를 채울
+      // 때까지 화면 전환을 붙잡아 두면 안 되기 때문(체크리스트가 실제 진행률을
+      // 대신하면 안 된다는 요구사항). mock만 기존처럼 최소 연출 시간을 채운다.
+      const res = await (USE_REAL_API ? request : withMinDuration(request, REFINE_EXPECTED_MS));
       setSubmitting(false);
       onComplete({
         image: toImageSrc(res.image),
@@ -349,7 +356,7 @@ function PosterEditor({ draftImage, background, originalImage, prompt, category,
           title="고품질 이미지로 다듬고 있어요"
           caption="원본을 살려 배경을 다듬고 문구를 자연스럽게 얹는 중이에요"
           steps={REFINE_LOADING_STEPS}
-          stepDurationMs={REFINE_LOADING_MIN_MS / REFINE_LOADING_STEPS.length}
+          stepDurationMs={REFINE_STEP_MS}
         />
       </div>
     );

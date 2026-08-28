@@ -37,7 +37,10 @@ const SEEDS = [12345, 67890, 24680];
 // --- 실제 서버 연동 스위치 -----------------------------------------------
 // VITE_USE_REAL_POSTER_API=true면 아래 realXxx()가, 아니면 기존 mockXxx()가 쓰인다.
 // (.env / .env.local에서 설정. 기본값은 false — 실제 서버 주소가 아직 확정 전.)
-const USE_REAL_API = import.meta.env.VITE_USE_REAL_POSTER_API === 'true';
+// 호출부(DraftSelect.jsx/PosterEditor.jsx)가 로딩 체크리스트의 강제 최소 대기
+// 여부를 결정할 때도 같은 플래그를 써야 해서 export한다 — mock은 데모 연출을
+// 위해 최소 시간을 채우지만, real은 실제 서버 완료 시점을 그대로 따라야 한다.
+export const USE_REAL_API = import.meta.env.VITE_USE_REAL_POSTER_API === 'true';
 const REAL_API_BASE = import.meta.env.VITE_POSTER_API_BASE || 'http://localhost:8000';
 
 // 챗봇 용도 질문(화면 A)에서 넘어온 비율 문자열 → 실제 캔버스 픽셀 크기.
