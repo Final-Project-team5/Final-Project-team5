@@ -8,8 +8,9 @@ const CARD_OFFSET_PX = 350;
 
 /**
  * 홈 화면 우측의 예시 결과 카드 — 세로 방향으로 자동 스크롤(티커)되며
- * 카테고리(푸드/뷰티/굿즈)별 정적 이미지가 순환 노출된다.
- * (실제 이미지는 아직 없어 목업과 동일한 placeholder 배경을 사용)
+ * 카테고리(푸드/뷰티/학원)별 실제 예시 이미지가 순환 노출된다.
+ * 이미지 자체에 헤드라인/서브 문구가 이미 포함돼 있어(완성 포스터 예시),
+ * 카드에서 텍스트를 다시 그리지 않고 규제 통과/caption 배지만 그 위에 얹는다.
  */
 function TickerPreview() {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -40,8 +41,7 @@ function TickerPreview() {
                 zIndex: isActive ? 2 : 1,
               }}
             >
-              <div className="ticker-preview__placeholder-bg" />
-              <div className="ticker-preview__text">{item.text}</div>
+              <img className="ticker-preview__image" src={item.image} alt={item.text} />
               <div className="ticker-preview__badge-pass">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
