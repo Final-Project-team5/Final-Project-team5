@@ -1,6 +1,6 @@
 # 최종보고서 제출
 ## 📑 프로젝트 통합 보고서
-[📄 PDF 다운로드](docs/5team_report.pdf?raw=true)
+[📄 PDF 다운로드(docs/5team_report.pdf)](docs/5team_report.pdf?raw=true)
 
 # 협업일지
 >[협업일지(김도혁)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%EA%B9%80%EB%8F%84%ED%98%81)  
