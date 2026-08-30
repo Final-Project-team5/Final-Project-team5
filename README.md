@@ -8,6 +8,12 @@
 >[협업일지(정진우)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%EC%A0%95%EC%A7%84%EC%9A%B0)  
 >[협업일지(황지우)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%ED%99%A9%EC%A7%80%EC%9A%B0)
 
+# 협업일지
+>[협업일지(김도혁)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%EA%B9%80%EB%8F%84%ED%98%81)  
+>[협업일지(김소원)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%EA%B9%80%EC%86%8C%EC%9B%90)  
+>[협업일지(정진우)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%EC%A0%95%EC%A7%84%EC%9A%B0)  
+>[협업일지(황지우)](https://github.com/Final-Project-team5/Final-Project-team5/discussions?discussions_q=%ED%99%A9%EC%A7%80%EC%9A%B0)
+
 # 애드지니 (AdGenie) — 광고 콘텐츠 생성 서비스
 
 > 소상공인을 위한 **법적으로 안전한** 광고 문구 · 포스터 자동 생성 서비스
